@@ -54,6 +54,13 @@ open-computer-use install-codex-plugin
 # 直接启动 MCP server
 open-computer-use mcp
 
+# 直接调用单个 Computer Use tool，输出 MCP 风格的 JSON result
+open-computer-use call list_apps
+open-computer-use call get_app_state --args '{"app":"TextEdit"}'
+
+# 在同一个进程里编排连续动作，复用 get_app_state 拿到的 element_index
+open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
+
 # 检查权限；只有缺失时才会拉起引导，已全部授权则只打印状态并退出
 open-computer-use doctor
 

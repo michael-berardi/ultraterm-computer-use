@@ -50,6 +50,11 @@ open-computer-use install-codex-mcp
 open-computer-use install-codex-plugin
 # Start the MCP server directly
 open-computer-use mcp
+# Call a single Computer Use tool and print the MCP-style JSON result
+open-computer-use call list_apps
+open-computer-use call get_app_state --args '{"app":"TextEdit"}'
+# Run a sequence in one process so element_index state can be reused
+open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
 # Check permissions; onboarding only opens when something is missing
 open-computer-use doctor
 # Show help

@@ -5,16 +5,27 @@ import OpenComputerUseKit
 
 @main
 enum OpenComputerUseMain {
-    static func main() throws {
-        let arguments = Array(CommandLine.arguments.dropFirst())
-        let command: OpenComputerUseCLICommand
-
+    @MainActor
+    static func main() {
         do {
-            command = try parseOpenComputerUseCLI(arguments: arguments)
+            try run()
         } catch let error as OpenComputerUseCLIError {
             writeToStandardError(error.errorDescription ?? error.message)
             exit(EXIT_FAILURE)
+        } catch let error as ComputerUseError {
+            writeToStandardError(error.errorDescription ?? String(describing: error))
+            exit(EXIT_FAILURE)
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            writeToStandardError(message)
+            exit(EXIT_FAILURE)
         }
+    }
+
+    @MainActor
+    private static func run() throws {
+        let arguments = Array(CommandLine.arguments.dropFirst())
+        let command = try parseOpenComputerUseCLI(arguments: arguments)
 
         switch command {
         case .mcp:
@@ -39,6 +50,15 @@ enum OpenComputerUseMain {
         case let .snapshot(app):
             let service = ComputerUseService()
             print(try service.getAppState(app: app).primaryText ?? "")
+        case let .call(invocation):
+            if VisualCursorSupport.isEnabled {
+                _ = NSApplication.shared.setActivationPolicy(.accessory)
+            }
+            let output = try runOpenComputerUseCall(invocation)
+            print(try output.jsonText())
+            if output.hasToolError {
+                exit(EXIT_FAILURE)
+            }
         case .turnEnded:
             print("turn-ended acknowledged")
         case let .help(command):

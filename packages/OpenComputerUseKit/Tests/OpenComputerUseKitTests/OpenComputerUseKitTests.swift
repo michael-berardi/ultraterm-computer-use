@@ -14,6 +14,28 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["help", "snapshot"]), .help(command: "snapshot"))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["snapshot", "--help"]), .help(command: "snapshot"))
         XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["doctor", "-h"]), .help(command: "doctor"))
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["call", "--help"]), .help(command: "call"))
+    }
+
+    func testCLIRecognizesSingleToolCallCommand() throws {
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["call", "list_apps"]),
+            .call(.single(toolName: "list_apps", argumentsJSON: nil, argumentsFile: nil))
+        )
+
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["call", "get_app_state", "--args", #"{"app":"TextEdit"}"#]),
+            .call(.single(toolName: "get_app_state", argumentsJSON: #"{"app":"TextEdit"}"#, argumentsFile: nil))
+        )
+    }
+
+    func testCLIRecognizesJSONSequenceCallCommand() throws {
+        let calls = #"[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]"#
+
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["call", "--calls", calls]),
+            .call(.sequence(callsJSON: calls, callsFile: nil))
+        )
     }
 
     func testCLIRequiresSnapshotArgument() {
@@ -23,6 +45,18 @@ final class OpenComputerUseKitTests: XCTestCase {
                 OpenComputerUseCLIError(
                     message: "snapshot requires an app name or bundle identifier",
                     helpCommand: "snapshot"
+                )
+            )
+        }
+    }
+
+    func testCLIRejectsMixedCallSequenceInputs() {
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["call", "list_apps", "--calls", "[]"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(
+                    message: "call sequence does not accept a tool name, --args, or --args-file",
+                    helpCommand: "call"
                 )
             )
         }
@@ -45,6 +79,7 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         XCTAssertTrue(help.contains("open-computer-use [command] [options]"))
         XCTAssertTrue(help.contains("snapshot <app>"))
+        XCTAssertTrue(help.contains("call <tool>"))
         XCTAssertTrue(help.contains("-h, --help"))
         XCTAssertTrue(help.contains("-v, --version"))
     }
@@ -55,6 +90,51 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testToolDefinitionCount() {
         XCTAssertEqual(ToolDefinitions.all.count, 9)
+    }
+
+    func testReadToolArgumentsAcceptsJSONObject() throws {
+        let arguments = try readOpenComputerUseToolArguments(
+            json: #"{"app":"TextEdit","pages":2}"#,
+            file: nil
+        )
+
+        XCTAssertEqual(arguments["app"] as? String, "TextEdit")
+        XCTAssertEqual((arguments["pages"] as? NSNumber)?.intValue, 2)
+    }
+
+    func testReadToolArgumentsRejectsNonObject() {
+        XCTAssertThrowsError(try readOpenComputerUseToolArguments(json: #"["TextEdit"]"#, file: nil)) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--args must be a JSON object", helpCommand: "call")
+            )
+        }
+    }
+
+    func testReadCallSequenceAcceptsJSONArrays() throws {
+        let calls = try readOpenComputerUseCallSequence(
+            json: #"[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"name":"press_key","arguments":{"app":"TextEdit","key":"Return"}}]"#,
+            file: nil
+        )
+
+        XCTAssertEqual(calls.count, 2)
+        XCTAssertEqual(calls[0].tool, "get_app_state")
+        XCTAssertEqual(calls[0].arguments["app"] as? String, "TextEdit")
+        XCTAssertEqual(calls[1].tool, "press_key")
+        XCTAssertEqual(calls[1].arguments["key"] as? String, "Return")
+    }
+
+    func testRunCallSequenceStopsAfterFirstToolError() throws {
+        let output = try runOpenComputerUseCall(
+            .sequence(
+                callsJSON: #"[{"tool":"not_a_tool"},{"tool":"list_apps"}]"#,
+                callsFile: nil
+            )
+        )
+
+        let outputs = try XCTUnwrap(output.jsonObject as? [[String: Any]])
+        XCTAssertEqual(outputs.count, 1)
+        XCTAssertTrue(output.hasToolError)
     }
 
     func testPermissionDiagnosticsListsMissingPermissionsInCanonicalOrder() {

@@ -154,6 +154,7 @@ Commands:
   doctor               Print permission status and launch onboarding if needed.
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
+  call <tool>           Call one tool, or run a JSON array of tool calls.
   turn-ended           Acknowledge the host turn boundary.
   install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
   install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
@@ -339,6 +340,11 @@ open-computer-use doctor
 
 # Start the stdio MCP server for Claude Desktop, Cursor, Cline, or another MCP client
 open-computer-use mcp
+
+# Call tools directly; the JSON-array form keeps state in one process for follow-up actions
+open-computer-use call list_apps
+open-computer-use call get_app_state --args '{"app":"TextEdit"}'
+open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
 
 # Install this package into the local Codex plugin marketplace/cache
 open-computer-use install-codex-plugin

@@ -18,10 +18,10 @@ Ask the user before taking destructive or externally visible actions such as sen
 """
 
 public final class StdioMCPServer {
-    private let service: ComputerUseService
+    private let dispatcher: ComputerUseToolDispatcher
 
     public init(service: ComputerUseService = ComputerUseService()) {
-        self.service = service
+        self.dispatcher = ComputerUseToolDispatcher(service: service)
     }
 
     public func run() throws {
@@ -78,7 +78,7 @@ public final class StdioMCPServer {
             case "tools/call":
                 let name = params["name"] as? String ?? ""
                 let arguments = params["arguments"] as? [String: Any] ?? [:]
-                let result = try callTool(name: name, arguments: arguments)
+                let result = try dispatcher.callTool(name: name, arguments: arguments)
                 return try encodeJSONRPCResult(
                     id: id,
                     result: result.asDictionary
@@ -112,99 +112,6 @@ public final class StdioMCPServer {
                 ]
             )
         }
-    }
-
-    private func callTool(name: String, arguments: [String: Any]) throws -> ToolCallResult {
-        switch name {
-        case "list_apps":
-            return service.listApps()
-        case "get_app_state":
-            return try service.getAppState(app: requireString("app", in: arguments))
-        case "click":
-            return try service.click(
-                app: requireString("app", in: arguments),
-                elementIndex: optionalString("element_index", in: arguments),
-                x: optionalDouble("x", in: arguments),
-                y: optionalDouble("y", in: arguments),
-                clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
-                mouseButton: optionalString("mouse_button", in: arguments) ?? "left"
-            )
-        case "perform_secondary_action":
-            return try service.performSecondaryAction(
-                app: requireString("app", in: arguments),
-                elementIndex: requireString("element_index", in: arguments),
-                action: requireString("action", in: arguments)
-            )
-        case "scroll":
-            return try service.scroll(
-                app: requireString("app", in: arguments),
-                direction: requireString("direction", in: arguments),
-                elementIndex: requireString("element_index", in: arguments),
-                pages: Int(optionalDouble("pages", in: arguments) ?? 1)
-            )
-        case "drag":
-            return try service.drag(
-                app: requireString("app", in: arguments),
-                fromX: requireDouble("from_x", in: arguments),
-                fromY: requireDouble("from_y", in: arguments),
-                toX: requireDouble("to_x", in: arguments),
-                toY: requireDouble("to_y", in: arguments)
-            )
-        case "type_text":
-            return try service.typeText(
-                app: requireString("app", in: arguments),
-                text: requireString("text", in: arguments)
-            )
-        case "press_key":
-            return try service.pressKey(
-                app: requireString("app", in: arguments),
-                key: requireString("key", in: arguments)
-            )
-        case "set_value":
-            return try service.setValue(
-                app: requireString("app", in: arguments),
-                elementIndex: requireString("element_index", in: arguments),
-                value: requireString("value", in: arguments)
-            )
-        default:
-            throw ComputerUseError.unsupportedTool(name)
-        }
-    }
-
-    private func requireString(_ key: String, in arguments: [String: Any]) throws -> String {
-        guard let value = arguments[key] as? String else {
-            throw ComputerUseError.missingArgument(key)
-        }
-
-        return value
-    }
-
-    private func optionalString(_ key: String, in arguments: [String: Any]) -> String? {
-        arguments[key] as? String
-    }
-
-    private func requireDouble(_ key: String, in arguments: [String: Any]) throws -> Double {
-        guard let value = optionalDouble(key, in: arguments) else {
-            throw ComputerUseError.missingArgument(key)
-        }
-
-        return value
-    }
-
-    private func optionalDouble(_ key: String, in arguments: [String: Any]) -> Double? {
-        if let double = arguments[key] as? Double {
-            return double
-        }
-
-        if let integer = arguments[key] as? Int {
-            return Double(integer)
-        }
-
-        if let number = arguments[key] as? NSNumber {
-            return number.doubleValue
-        }
-
-        return nil
     }
 
     private func encodeJSONRPCResult(id: Any?, result: [String: Any]) throws -> String {

@@ -5,7 +5,7 @@
 ## 当前目录结构
 
 - `apps/OpenComputerUse`
-  主入口，负责 `mcp`、`doctor`、`list-apps`、`snapshot`、`turn-ended` 等 CLI 命令，以及 `-h` / `--help` / `-v` / `--version` 这类全局参数；不带参数启动时会先检查权限，只有缺失时才进入无 Dock 图标的 app 模式权限引导窗口，`doctor` 也只会在检测到缺失权限时拉起这套 onboarding UI。
+  主入口，负责 `mcp`、`doctor`、`list-apps`、`snapshot`、`call`、`turn-ended` 等 CLI 命令，以及 `-h` / `--help` / `-v` / `--version` 这类全局参数；不带参数启动时会先检查权限，只有缺失时才进入无 Dock 图标的 app 模式权限引导窗口，`doctor` 也只会在检测到缺失权限时拉起这套 onboarding UI。
 - `apps/OpenComputerUseFixture`
   本地 GUI fixture app，用来承载低风险、可预测的点击/输入/滚动/拖拽验证路径。
 - `apps/OpenComputerUseSmokeSuite`
@@ -51,10 +51,11 @@
 
 ### 3. Tool Service 层
 
-- `ComputerUseService` 负责把 MCP tool 请求映射到本地能力。
+- `ComputerUseService` 负责把 Computer Use tool 请求映射到本地能力，`ComputerUseToolDispatcher` 则把 9 个 tool 的参数解析与 service 方法分发收敛成 MCP server 和 `open-computer-use call` 共用的一层。
 - `list_apps` 通过 Spotlight metadata query 拉取标准 application 目录里的 app bundle，并读取 `kMDItemUseCount` / `kMDItemLastUsedDate_Ranking` 这类系统元数据；再与 `NSWorkspace` 的运行态 app 合并，输出“当前运行中 + 近 14 天用过”的视图。
 - `get_app_state` 优先走真实 AX / 窗口截图，但不再为了读状态而显式 `activate` 目标 app；当目标是仓库内 fixture app 时，回退到 fixture 导出的合成状态。
 - MCP `tools/list` 的 description / input schema 当前按官方 `computer-use` 的 9 个 tools 文案和参数面收敛，尽量减少 host 侧提示词和 tool surface 偏差。
+- `open-computer-use call <tool> --args '{...}'` 会直接输出 MCP-style JSON result；`open-computer-use call --calls '[...]'` 会在同一进程里顺序执行 JSON 数组里的 tool calls，并复用同一个 `ComputerUseService` 内存态，因此 `get_app_state` 之后的 action tool 可以继续使用同一轮 snapshot 的 `element_index`。序列执行遇到 `isError=true` 的 tool result 后停止。
 - 对真实 app 的 `get_app_state` / action tool 入口，当前新增了一层官方风格的高风险 bundle denylist：bundle-id 直传时直接返回 safety denial；名称匹配时默认不解析到这些 app，尽量贴近官方对终端、密码管理器、Chrome 与少量系统敏感组件的防护行为。
 - 普通 app 的 element frame 当前按“窗口左上角为原点”的 window-relative 坐标输出，便于后续把 `element_index` 和截图坐标统一到同一套参考系。
 - `click` / `set_value` 在执行真实动作前后，会额外驱动一层透明 `SoftwareCursorOverlay` window：两者的移动阶段现在共用一条 heading-driven 的官方风格 motion 内核，显式把“当前 cursor 朝向”和“最终 resting pose”一起喂给选路器，优先生成需要时先掉头、再沿车头方向推进的 C 形/单侧大弧轨迹；首次显示时按官方 binary 的 fresh state 从 AppKit 全局 `(0,0)` window origin 生成起点，后续动作继续复用上一帧 visible tip。真正显示出来的 cursor 不再直接等于 path sample，而是经过一层独立的 visual dynamics 状态，把 visible tip、velocity、angle 和 fog/offset 持续推进。`click` 结尾会衔接 click pulse、idle sway 和自动淡出，`set_value` 则只做 settle / idle / hide，不给 pulse。
@@ -110,3 +111,5 @@
 - 手工诊断：
   - `.build/debug/OpenComputerUse doctor`
   - `.build/debug/OpenComputerUse snapshot <app>`
+  - `.build/debug/OpenComputerUse call list_apps`
+  - `.build/debug/OpenComputerUse call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}}]'`
