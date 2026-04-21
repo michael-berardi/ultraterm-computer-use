@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-04-21 | CLI tool 编排 | 不接 MCP client 时也能直接通过 `open-computer-use call` 调用 9 个 Computer Use tools，并能用 JSON 数组在同一进程里编排连续动作。 | 发布 `0.1.23`，新增原生 `call` 子命令、共享 MCP/CLI tool dispatcher、`--calls` / `--calls-file` 序列执行和相关文档测试。 |
 | 2026-04-21 | 软件光标运行时朝向 | 软件光标首次出现和移动时的可见朝向更贴近官方行为，上行、转向和落点姿态不再出现坐标系翻转造成的违和感。 | 发布 `0.1.22`，修正 runtime overlay 在 AppKit 全局坐标与 Cursor Motion y-down screen state 之间的速度/朝向转换，并补充回归测试锁定首次 `(0,0)` 起点和 render rotation 关系。 |
 | 2026-04-21 | 软件光标视觉一致性 | `click` / `set_value` 期间显示的软件光标更接近 Cursor Motion 的参考渲染，首次出现、移动朝向和正式 app icon 的视觉边界更稳定。 | 发布 `0.1.21`，把 runtime overlay 切到共享的程序化 glyph renderer，修正初始朝向和 runtime 绘制方向，并同步收口 Open Computer Use app icon 的安全边距。 |
 | 2026-04-20 | 安装器宿主依赖 | `open-computer-use install-codex-plugin` 不再额外依赖 `rsync`，插件安装路径更接近“只要 npm/Node 已可用就能跑”。 | 发布 `0.1.20`，把 plugin installer 里复制 plugin 目录和 `.app` bundle 的实现从 `rsync` 改成 Node `cpSync`，继续收口 `open-computer-use` 的安装器运行时前提。 |
