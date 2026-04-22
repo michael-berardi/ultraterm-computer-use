@@ -19,6 +19,7 @@
 - 本地 publish：`node ./scripts/npm/publish-packages.mjs`
 - CI workflow：`.github/workflows/release.yml`
 - 用户可见发布记录：`docs/releases/feature-release-notes.md`
+- GitHub Release 页面：workflow 在 release 不存在时用 `gh release create --generate-notes` 创建，并交给 GitHub 自动生成 `What's Changed` / `New Contributors` / `Full Changelog`。
 
 ## 当前版本源
 
@@ -91,6 +92,23 @@ tag push 后，`.github/workflows/release.yml` 会自动做两件事：
 
 - 发布 npm 包。
 - 构建 `CursorMotion-0.1.14.dmg`，并创建或更新同名 tag 的 GitHub Release asset。
+
+### 5. 检查 GitHub Release notes
+
+每次 tag push 后都要检查 GitHub Release 页面，不要只确认 workflow 绿了：
+
+```bash
+gh release view v0.1.14 --json body,url
+```
+
+当前 workflow 已经在新建 release 时使用 `--generate-notes`，所以如果两次 tag 之间有 merged PR，GitHub 会自动生成 `What's Changed` 和 `New Contributors`。如果这段区间只有 direct commits，自动 notes 可能只剩 `Full Changelog`，这时 release agent 必须根据 `docs/releases/feature-release-notes.md`、`git log <previous-tag>..vX.Y.Z --oneline` 和本轮 history 手动补一段简短的 `What's Changed`，再用 `gh release edit` 更新正文。
+
+最低要求：
+
+- release body 不能只有 `Full Changelog`。
+- `What's Changed` 至少列出本次用户可感知的 1-3 个变化。
+- 保留 `Full Changelog` 链接。
+- 如果 GitHub 自动生成了 `New Contributors`，保留它；不要为了统一格式删掉。
 
 ## Release 失败时怎么查
 

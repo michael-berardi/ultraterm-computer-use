@@ -34,7 +34,7 @@ final class MCPClient {
         _ = try request(method: "initialize", params: [
             "clientInfo": [
                 "name": "OpenComputerUseSmokeSuite",
-                "version": "0.1.29",
+                "version": "0.1.30",
             ],
             "capabilities": [:],
             "protocolVersion": "2025-03-26",
