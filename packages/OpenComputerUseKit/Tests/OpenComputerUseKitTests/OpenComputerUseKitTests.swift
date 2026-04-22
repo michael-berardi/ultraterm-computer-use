@@ -916,6 +916,27 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertGreaterThan(peakRotation, 1.5)
     }
 
+    func testVisualCursorIdlePoseKeepsTipAnchoredAndOnlyRotates() {
+        let restingTipPosition = CGPoint(x: 184, y: 92)
+        let positivePose = visualCursorIdlePose(restingTipPosition: restingTipPosition, phase: .pi / 2)
+        let negativePose = visualCursorIdlePose(
+            restingTipPosition: restingTipPosition,
+            phase: (.pi / 2) + (.pi / CGFloat(0.8))
+        )
+
+        XCTAssertEqual(positivePose.tipPosition.x, restingTipPosition.x, accuracy: 0.0001)
+        XCTAssertEqual(positivePose.tipPosition.y, restingTipPosition.y, accuracy: 0.0001)
+        XCTAssertGreaterThan(positivePose.angleOffset, 0)
+        XCTAssertLessThanOrEqual(abs(positivePose.angleOffset), visualCursorIdleRotationAmplitude() + 0.0001)
+        XCTAssertGreaterThan(abs(positivePose.angleOffset), 0.08)
+
+        XCTAssertEqual(negativePose.tipPosition.x, restingTipPosition.x, accuracy: 0.0001)
+        XCTAssertEqual(negativePose.tipPosition.y, restingTipPosition.y, accuracy: 0.0001)
+        XCTAssertLessThan(negativePose.angleOffset, 0)
+        XCTAssertLessThanOrEqual(abs(negativePose.angleOffset), visualCursorIdleRotationAmplitude() + 0.0001)
+        XCTAssertGreaterThan(abs(negativePose.angleOffset), 0.08)
+    }
+
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {
         AppSnapshot(
             app: RunningAppDescriptor(

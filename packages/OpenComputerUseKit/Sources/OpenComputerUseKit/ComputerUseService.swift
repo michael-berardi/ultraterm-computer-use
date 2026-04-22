@@ -147,20 +147,26 @@ public final class ComputerUseService {
         let snapshot = try currentSnapshot(for: query)
         let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if snapshot.mode == .fixture {
+            let cursorTarget: VisualCursorTarget?
             if let elementIndex {
                 let record = try lookupElement(snapshot: snapshot, index: elementIndex)
                 guard let identifier = record.identifier else {
                     throw ComputerUseError.invalidArguments("fixture click requires an identifier-backed element")
                 }
+                cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
+                moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier))
             } else if let x, let y {
                 let identifier = try fixtureIdentifier(at: CGPoint(x: x, y: y), snapshot: snapshot)
+                cursorTarget = fixtureVisualCursorTarget(identifier: identifier, snapshot: snapshot)
+                moveVisualCursor(to: cursorTarget)
                 try FixtureBridge.post(FixtureCommand(kind: "click", identifier: identifier, x: x, y: y))
             } else {
                 throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
             }
 
             Thread.sleep(forTimeInterval: 0.15)
+            pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
@@ -366,8 +372,11 @@ public final class ComputerUseService {
                 throw ComputerUseError.invalidArguments("fixture set_value requires a known element identifier")
             }
 
+            let cursorTarget = visualCursorTarget(for: record, snapshot: snapshot)
+            moveVisualCursor(to: cursorTarget)
             try FixtureBridge.post(FixtureCommand(kind: "set_value", identifier: identifier, value: value))
             Thread.sleep(forTimeInterval: 0.15)
+            settleVisualCursor(at: cursorTarget)
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
@@ -819,6 +828,11 @@ public final class ComputerUseService {
             targetWindowID: snapshot.targetWindowID,
             targetWindowLayer: snapshot.targetWindowLayer
         )
+    }
+
+    private func fixtureVisualCursorTarget(identifier: String, snapshot: AppSnapshot) -> VisualCursorTarget? {
+        let record = snapshot.elements.values.first { $0.identifier == identifier }
+        return record.flatMap { visualCursorTarget(for: $0, snapshot: snapshot) }
     }
 
     private func moveVisualCursor(to target: VisualCursorTarget?) {
