@@ -258,6 +258,15 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(parsed.modifiers.count, 1)
     }
 
+    func testKeyPressParserSupportsOfficialXdotoolAliases() throws {
+        XCTAssertEqual(try KeyPressParser.parse("BackSpace").displayValue, "backspace")
+        XCTAssertEqual(try KeyPressParser.parse("Page_Up").displayValue, "page_up")
+        XCTAssertEqual(try KeyPressParser.parse("Prior").displayValue, "prior")
+        XCTAssertEqual(try KeyPressParser.parse("KP_9").displayValue, "kp_9")
+        XCTAssertEqual(try KeyPressParser.parse("KP_Enter").displayValue, "kp_enter")
+        XCTAssertEqual(try KeyPressParser.parse("F12").displayValue, "f12")
+    }
+
     func testInitializeResponseContainsToolsCapability() throws {
         let server = StdioMCPServer(service: ComputerUseService())
         let response = server.handle(line: #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"test","version":"0.1.26"},"capabilities":{}}}"#)
@@ -359,6 +368,13 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         XCTAssertTrue(result.isError)
         XCTAssertEqual(result.primaryText, "pages must be > 0")
+    }
+
+    func testSecondaryActionInvalidMessageMatchesOfficialShape() {
+        XCTAssertEqual(
+            invalidSecondaryActionErrorMessage(action: "NoSuchAction", elementIndex: 14),
+            "NoSuchAction is not a valid secondary action for 14"
+        )
     }
 
     func testSnapshotRenderedTextStartsDirectlyWithAppHeader() {

@@ -71,6 +71,10 @@ func setValueAttributeIsSettable(result: AXError, settable: Bool, attribute: Str
     return settable
 }
 
+func invalidSecondaryActionErrorMessage(action: String, elementIndex: Int) -> String {
+    "\(action) is not a valid secondary action for \(elementIndex)"
+}
+
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
 
@@ -183,15 +187,14 @@ public final class ComputerUseService {
 
         if snapshot.mode == .fixture {
             guard action.caseInsensitiveCompare("Raise") == .orderedSame else {
-                throw ComputerUseError.invalidArguments("fixture mode only supports the Raise secondary action")
+                throw ComputerUseError.message(invalidSecondaryActionMessage(action: action, record: record))
             }
 
-            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
         guard let rawAction = matchingAction(requested: action, record: record) else {
-            throw ComputerUseError.invalidArguments("element \(elementIndex) does not expose action '\(action)'")
+            throw ComputerUseError.message(invalidSecondaryActionMessage(action: action, record: record))
         }
 
         guard let element = record.element else {
@@ -378,6 +381,10 @@ public final class ComputerUseService {
         }
 
         return nil
+    }
+
+    private func invalidSecondaryActionMessage(action: String, record: ElementRecord) -> String {
+        invalidSecondaryActionErrorMessage(action: action, elementIndex: record.index)
     }
 
     private func performPreferredClick(on record: ElementRecord, button: MouseButtonKind, clickCount: Int) throws -> Bool {

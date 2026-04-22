@@ -35,3 +35,10 @@
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ToolDefinitions.swift`
 - `packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests/OpenComputerUseKitTests.swift`
 - `apps/OpenComputerUseFixture/Sources/OpenComputerUseFixture/main.swift`
+
+### 🔁 Follow-up (2026-04-22, close remaining tool checklist)
+
+- **[具体化 milestones]**: active plan 不再使用 `里程碑 1/2/3` 占位，改成可执行的三项进度记录：官方证据基线、动作路径收敛、只读/键盘类复核和收尾。
+- **[secondary action 对齐]**: `perform_secondary_action` 的 invalid action 错误改为官方 binary 暴露的字符串形态；fixture 的 `Raise` 路径不再调用 global pointer prepare。
+- **[press_key key table]**: 根据官方 `1.0.755` binary 里的 key table 字符串，补齐 `BackSpace`、`Page_Up`、`Prior` / `Next`、`F1...F12` 和常见 `KP_*` xdotool alias。
+- **[收口验证]**: 官方 `1.0.755` app-server `tools/list` 与本地 direct `tools/list` 的 9 个 tool surface 一致；`swift test` 与 9-tool smoke suite 均通过。

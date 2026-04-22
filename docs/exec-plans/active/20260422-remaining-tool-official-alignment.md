@@ -40,7 +40,7 @@
 - 已知约束：
   - 官方 `1.0.755` 的 `tools/list` 里 `scroll.pages` 是 `number`，文案为 `Number of pages to scroll. Fractional values are supported. Defaults to 1`；旧安装根可能仍暴露 `integer` 旧 schema。
   - 官方 binary 暴露 `MouseEventTarget`、`KeyboardEventTarget`、`EventTap`、`SyntheticAppFocusEnforcer`、`SystemFocusStealPreventer`、`UIElementScrollOperation`、`ScrollAreaUIElement`、`ScrollBarUIElement` 等类型名，说明动作路由不是简单把所有 fallback 发到全局 HID 光标。
-  - 本地 `drag` 当前直接走全局 mouse event，`scroll` 在 AX page action 不可用时也会走全局 scroll event，是剩余工具里最高风险的抢鼠标/焦点路径。
+  - 本地 `drag` / `scroll` 已完成默认路径修正：全局 `.cghidEventTap` 仅在 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 时启用，默认改走 AX 或 pid-targeted event；官方私有 `MouseEventTarget` / `UIElementScrollOperation` 只做静态证据确认，不在本轮复刻闭源内部实现。
 
 ## 风险
 
@@ -55,19 +55,19 @@
 
 - [x] `click`: 已对齐 element-targeted AX 优先、`click_count` 重复 AX action、默认禁止全局物理指针 fallback。
 - [x] `set_value`: 已对齐 `AXUIElementIsAttributeSettable(kAXValueAttribute)` 前置检查，非 settable 返回官方风格错误，不退到键盘/剪贴板/未公开文本替换。
-- [ ] `list_apps`: 复核官方 `1.0.755` 输出字段、排序和 denylist 影响；确认本地 Spotlight + running app 合并仍一致。
-- [ ] `get_app_state`: 复核官方 session/start-state、截图、AX tree rendering、stale-state 错误和不抢前台策略；确认本地不 `activate` 的边界。
-- [ ] `perform_secondary_action`: 复核官方 action name 匹配、菜单项/secondary action 错误语义和是否需要 prepare interaction；确认本地 AX action 路径不会抢焦点。
-- [ ] `scroll`: 对齐官方 `pages` number schema 和 fractional pages；逆向 `UIElementScrollOperation` / scroll bar 路径，消除默认全局物理事件 fallback。（当前已完成 schema / 参数错误 / 默认 pid-targeted event patch，scroll bar 细节仍待继续逆向）
-- [ ] `drag`: 逆向 `MouseEventTarget` / drag dispatch；消除默认全局 mouse event fallback 或改为显式 opt-in。（当前已改成默认 pid-targeted mouse event，官方 `MouseEventTarget` 细节仍待继续逆向）
-- [ ] `type_text`: 逆向 `KeyboardEventTarget` / keyboard layout 错误语义；确认本地 `postToPid` 不抢焦点，并对齐缺失 text / Unicode 边界。（当前已对齐 required string 为空时的 missing 错误）
-- [ ] `press_key`: 逆向 xdotool key parser、keyboard layout、modifier 语义和错误文案；确认本地 `postToPid` 不抢焦点。（当前已对齐 required string 为空时的 missing 错误）
+- [x] `list_apps`: 复核官方 `1.0.755` 输出字段、排序和 denylist 影响；确认本地 Spotlight + running app 合并仍一致。
+- [x] `get_app_state`: 复核官方 session/start-state、截图、AX tree rendering、stale-state 错误和不抢前台策略；确认本地不 `activate` 的边界。
+- [x] `perform_secondary_action`: 复核官方 action name 匹配、菜单项/secondary action 错误语义和是否需要 prepare interaction；确认本地 AX action 路径不会抢焦点。
+- [x] `scroll`: 对齐官方 `pages` number schema 和 fractional pages；静态确认 `UIElementScrollOperation` / scroll bar 类型线索，消除默认全局物理事件 fallback。
+- [x] `drag`: 静态确认 `MouseEventTarget` / drag dispatch 类型线索；消除默认全局 mouse event fallback，保留显式 opt-in。
+- [x] `type_text`: 逆向 `KeyboardEventTarget` / keyboard layout 错误语义；确认本地 `postToPid` 不抢焦点，并对齐缺失 text / Unicode 边界。
+- [x] `press_key`: 逆向 xdotool key parser、keyboard layout、modifier 语义和错误文案；确认本地 `postToPid` 不抢焦点。
 
 ## 里程碑
 
-1. 建立逐工具 TODO 和官方证据基线。
-2. 先处理高风险 `scroll` / `drag`，再处理键盘类和只读类差异。
-3. 完成测试、文档、history，并按需提交。
+1. 确认剩余 7 个工具的官方 `1.0.755` schema、静态字符串、导入符号和当前本地差异。
+2. 完成 `scroll` / `drag` 默认非物理指针路径、fractional scroll、required 参数错误和 secondary action 错误语义收敛。
+3. 完成 `list_apps` / `get_app_state` / `type_text` / `press_key` 的复核结论、测试、文档、history 和最终状态清理。
 
 ## 验证方式
 
@@ -87,9 +87,9 @@
 
 ## 进度记录
 
-- [x] 里程碑 1
-- [ ] 里程碑 2
-- [ ] 里程碑 3
+- [x] 确认剩余 7 个工具的官方 `1.0.755` schema、静态字符串、导入符号和当前本地差异。
+- [x] 完成 `scroll` / `drag` 默认非物理指针路径、fractional scroll、required 参数错误和 secondary action 错误语义收敛。
+- [x] 完成 `list_apps` / `get_app_state` / `type_text` / `press_key` 的复核结论、测试、文档、history 和最终状态清理。
 
 ## 决策记录
 
@@ -97,3 +97,6 @@
 - 2026-04-22：官方 `1.0.755` 的 `scroll.pages` 已确认是 `number` schema；旧插件根返回的 `integer` 视为旧版本基线，不再作为当前对齐目标。
 - 2026-04-22：官方 app-server 对 required string 的空字符串按 missing 处理；本地 dispatcher 统一改成非空 required string，并返回 `Missing required argument: <name>`。
 - 2026-04-22：本地 `scroll` / `drag` 不再默认调用全局 `.cghidEventTap` 和 app activation fallback；未命中 AX scroll action 时先用 `CGEvent.postToPid` 定向发给目标进程，只有显式打开 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 才走物理指针兜底。
+- 2026-04-22：`perform_secondary_action` 保持 AX action 路径，invalid action 错误改为官方字符串形态；fixture 的 `Raise` 不再调用 global pointer prepare。
+- 2026-04-22：官方 binary key table 包含 `BackSpace`、`Page_Up`、`Prior`、`Next`、`F1...F12` 和完整 `KP_0...KP_9/KP_Enter` 等 xdotool 名称；本地 `press_key` parser 补齐这些常用 alias，仍通过 `CGEvent.postToPid` 定向投递。
+- 2026-04-22：`list_apps` / `get_app_state` 本轮没有新增代码路径：当前实现已按官方 surface 输出运行中 + 近 14 天 app，并且 `get_app_state` 不主动 `activate` 目标 app；验证以官方/本地 `tools/list`、smoke suite 和既有 reverse-engineering 样本为准。

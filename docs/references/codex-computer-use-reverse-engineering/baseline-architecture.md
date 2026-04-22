@@ -250,6 +250,7 @@ strings 和运行时都指向同一组 tools：
   - `super+c`
   - `Up`
   - `KP_0`
+- 当前 `1.0.755` binary 里还能看到 `BackSpace`、`Page_Up`、`Prior`、`Next`、`F1...F12`、`KP_0...KP_9`、`KP_Enter` 等 key table 字符串；开源版 parser 已按这些常用 xdotool alias 收敛。
 
 #### `set_value`
 
