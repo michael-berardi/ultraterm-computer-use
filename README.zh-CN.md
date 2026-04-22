@@ -45,8 +45,17 @@ open-computer-use
 # 一键安装到 Claude Code，写到 ~/.claude.json 中
 open-computer-use install-claude-mcp
 
+# 一键安装到 Gemini CLI 当前项目，写到 ./.gemini/settings.json
+open-computer-use install-gemini-mcp
+
+# 一键安装到 Gemini CLI 用户级配置
+open-computer-use install-gemini-mcp --scope user
+
 # 一键安装到 Codex，写到 ~/.codex/config.toml 中
 open-computer-use install-codex-mcp
+
+# 一键安装到 opencode，写到 ~/.config/opencode/opencode.json（或当前生效的配置文件）
+open-computer-use install-opencode-mcp
 
 # 一键安装到 Codex 插件，主要方便在 Codex App 中使用
 open-computer-use install-codex-plugin

@@ -157,7 +157,9 @@ Commands:
   call <tool>           Call one tool, or run a JSON array of tool calls.
   turn-ended           Notify the running MCP process that the host turn ended.
   install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
+  install-gemini-mcp   Install the MCP server into Gemini CLI config.
   install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
+  install-opencode-mcp Install the MCP server into ~/.config/opencode.
   install-codex-plugin Install this npm package into the local Codex plugin cache.
   help [command]       Show general or command-specific help.
   version              Print the CLI version.
@@ -183,7 +185,9 @@ done
 package_root="$(cd "$(dirname "\${script_path}")/.." && pwd)"
 app_binary="\${package_root}/dist/${appBundleName}/Contents/MacOS/${appExecutableName}"
 install_claude_mcp_script="\${package_root}/scripts/install-claude-mcp.sh"
+install_gemini_mcp_script="\${package_root}/scripts/install-gemini-mcp.sh"
 install_mcp_script="\${package_root}/scripts/install-codex-mcp.sh"
+install_opencode_mcp_script="\${package_root}/scripts/install-opencode-mcp.sh"
 install_script="\${package_root}/scripts/install-codex-plugin.sh"
 
 if [[ "\${1:-}" == "install-claude-mcp" || "\${1:-}" == "install-clauce-mcp" ]]; then
@@ -191,9 +195,19 @@ if [[ "\${1:-}" == "install-claude-mcp" || "\${1:-}" == "install-clauce-mcp" ]];
   exec "\${install_claude_mcp_script}" "$@"
 fi
 
+if [[ "\${1:-}" == "install-gemini-mcp" ]]; then
+  shift
+  exec "\${install_gemini_mcp_script}" "$@"
+fi
+
 if [[ "\${1:-}" == "install-codex-mcp" ]]; then
   shift
   exec "\${install_mcp_script}" "$@"
+fi
+
+if [[ "\${1:-}" == "install-opencode-mcp" ]]; then
+  shift
+  exec "\${install_opencode_mcp_script}" "$@"
 fi
 
 if [[ "\${1:-}" == "install-codex-plugin" ]]; then
@@ -227,6 +241,26 @@ Usage:
   open-computer-use install-codex-mcp
 
 Install the open-computer-use MCP server into ~/.codex/config.toml.
+EOF
+  exit 0
+fi
+
+if [[ "\${1:-}" == "help" && "\${2:-}" == "install-gemini-mcp" ]]; then
+  cat <<'EOF'
+Usage:
+  open-computer-use install-gemini-mcp [--scope project|user]
+
+Install the open-computer-use MCP server into Gemini CLI config.
+EOF
+  exit 0
+fi
+
+if [[ "\${1:-}" == "help" && "\${2:-}" == "install-opencode-mcp" ]]; then
+  cat <<'EOF'
+Usage:
+  open-computer-use install-opencode-mcp
+
+Install the open-computer-use MCP server into ~/.config/opencode.
 EOF
   exit 0
 fi
@@ -270,7 +304,7 @@ const lines = [
   "Next:",
   "1. Run open-computer-use doctor",
   "2. In macOS System Settings, grant Accessibility and Screen Recording to your host terminal or MCP client",
-  "3. Run open-computer-use install-claude-mcp for Claude Code, open-computer-use install-codex-mcp for Codex, or open-computer-use install-codex-plugin for the local plugin cache",
+  "3. Run open-computer-use install-claude-mcp, install-gemini-mcp, install-codex-mcp, or install-opencode-mcp for your host CLI, or install-codex-plugin for the local Codex plugin cache",
   "",
   "You can add this to any MCP-capable client:",
   JSON.stringify(mcpConfig, null, 2),
@@ -331,8 +365,15 @@ open-computer-use --version
 # Install into Claude Code for the current project
 open-computer-use install-claude-mcp
 
+# Install into Gemini CLI for the current project or user config
+open-computer-use install-gemini-mcp
+open-computer-use install-gemini-mcp --scope user
+
 # Install into Codex as a plain MCP entry in ~/.codex/config.toml
 open-computer-use install-codex-mcp
+
+# Install into opencode in ~/.config/opencode
+open-computer-use install-opencode-mcp
 
 # Check permissions first; if Accessibility / Screen Recording is missing, open the permission onboarding window
 # If both are already granted, this just prints the status and exits
@@ -405,8 +446,10 @@ function renderPackageJson(packageName, version) {
       "plugins/open-computer-use/assets/",
       "plugins/open-computer-use/scripts/",
       "scripts/install-claude-mcp.sh",
+      "scripts/install-gemini-mcp.sh",
       "scripts/install-config-helper.mjs",
       "scripts/install-codex-mcp.sh",
+      "scripts/install-opencode-mcp.sh",
       "scripts/install-codex-plugin.sh",
       "scripts/postinstall.mjs",
       "README.md",
@@ -433,8 +476,10 @@ function stagePackage(packageName, version, outDir) {
     recursive: true,
   });
   cpSync(path.join(repoRoot, "scripts", "install-claude-mcp.sh"), path.join(packageRoot, "scripts", "install-claude-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "install-gemini-mcp.sh"), path.join(packageRoot, "scripts", "install-gemini-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "install-opencode-mcp.sh"), path.join(packageRoot, "scripts", "install-opencode-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
 
@@ -446,7 +491,9 @@ function stagePackage(packageName, version, outDir) {
   writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderPackageJson(packageName, version), null, 2)}\n`, "utf-8");
 
   chmodSync(path.join(packageRoot, "scripts", "install-claude-mcp.sh"), 0o755);
+  chmodSync(path.join(packageRoot, "scripts", "install-gemini-mcp.sh"), 0o755);
   chmodSync(path.join(packageRoot, "scripts", "install-codex-mcp.sh"), 0o755);
+  chmodSync(path.join(packageRoot, "scripts", "install-opencode-mcp.sh"), 0o755);
   chmodSync(path.join(packageRoot, "scripts", "install-codex-plugin.sh"), 0o755);
   removeJunkFiles(packageRoot);
 }

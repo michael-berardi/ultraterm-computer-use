@@ -3,6 +3,7 @@
 .build/
 .swiftpm/
 dist/
+.gemini/
 artifacts/codex-dumps/
 research/
 __pycache__/

@@ -12,6 +12,8 @@ function usage() {
   process.stdout.write(`Usage:
   node ./scripts/install-config-helper.mjs claude-mcp <config-path> <project-root> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs codex-mcp <config-path> <server-name> <command-name>
+  node ./scripts/install-config-helper.mjs gemini-mcp <config-path> <server-name> <command-name>
+  node ./scripts/install-config-helper.mjs opencode-mcp <primary-config-path> <secondary-config-path> <server-name> <command-name>
   node ./scripts/install-config-helper.mjs codex-plugin-version <plugin-manifest-path>
   node ./scripts/install-config-helper.mjs codex-plugin-config <config-path> <repo-root> <marketplace-name> <plugin-name>
   node ./scripts/install-config-helper.mjs copy-into-dir <target-dir> <source-path> [<source-path> ...]
@@ -27,6 +29,53 @@ function readTextIfExists(filePath) {
 
 function ensureParentDir(filePath) {
   mkdirSync(path.dirname(filePath), { recursive: true });
+}
+
+function readJSONObjectConfig(configPath, label) {
+  const raw = readTextIfExists(configPath);
+  if (raw.trim().length === 0) {
+    return {};
+  }
+
+  let data;
+  try {
+    data = JSON.parse(raw);
+  } catch (error) {
+    fail(`Existing ${label} is not valid JSON: ${error.message}`);
+  }
+
+  if (data === null || Array.isArray(data) || typeof data !== "object") {
+    fail(`Existing ${label} root is not a JSON object; refusing to modify it.`);
+  }
+
+  return data;
+}
+
+function ensureObjectField(parent, key, label) {
+  const value = parent[key] ?? {};
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
+    fail(label);
+  }
+  parent[key] = value;
+  return value;
+}
+
+function getOptionalObjectField(parent, key, label) {
+  if (!(key in parent) || parent[key] === undefined) {
+    return undefined;
+  }
+
+  const value = parent[key];
+  if (value === null || Array.isArray(value) || typeof value !== "object") {
+    fail(label);
+  }
+
+  return value;
+}
+
+function writeJSONConfig(configPath, data) {
+  ensureParentDir(configPath);
+  writeFileSync(configPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
 }
 
 function normalizeNewlines(text) {
@@ -168,41 +217,18 @@ function installClaudeMcp(configPath, projectRoot, serverName, commandName) {
     args: ["mcp"],
   };
   const legacyServerName = "open-codex-computer-use";
-
-  const raw = readTextIfExists(configPath);
-  let data;
-
-  if (raw.trim().length === 0) {
-    data = {};
-  } else {
-    try {
-      data = JSON.parse(raw);
-    } catch (error) {
-      fail(`Existing Claude config is not valid JSON: ${error.message}`);
-    }
-  }
-
-  if (data === null || Array.isArray(data) || typeof data !== "object") {
-    fail("Existing Claude config root is not a JSON object; refusing to modify it.");
-  }
-
-  const projects = data.projects ?? {};
-  if (projects === null || Array.isArray(projects) || typeof projects !== "object") {
-    fail('Existing Claude config has non-object "projects"; refusing to modify it.');
-  }
-  data.projects = projects;
-
-  const projectEntry = projects[projectRoot] ?? {};
-  if (projectEntry === null || Array.isArray(projectEntry) || typeof projectEntry !== "object") {
-    fail(`Existing Claude project entry for ${projectRoot} is not an object; refusing to modify it.`);
-  }
-  projects[projectRoot] = projectEntry;
-
-  const mcpServers = projectEntry.mcpServers ?? {};
-  if (mcpServers === null || Array.isArray(mcpServers) || typeof mcpServers !== "object") {
-    fail(`Existing Claude project MCP config for ${projectRoot} is not an object; refusing to modify it.`);
-  }
-  projectEntry.mcpServers = mcpServers;
+  const data = readJSONObjectConfig(configPath, `Claude config ${configPath}`);
+  const projects = ensureObjectField(data, "projects", 'Existing Claude config has non-object "projects"; refusing to modify it.');
+  const projectEntry = ensureObjectField(
+    projects,
+    projectRoot,
+    `Existing Claude project entry for ${projectRoot} is not an object; refusing to modify it.`,
+  );
+  const mcpServers = ensureObjectField(
+    projectEntry,
+    "mcpServers",
+    `Existing Claude project MCP config for ${projectRoot} is not an object; refusing to modify it.`,
+  );
 
   const target = mcpServers[serverName];
   const legacy = mcpServers[legacyServerName];
@@ -219,14 +245,133 @@ function installClaudeMcp(configPath, projectRoot, serverName, commandName) {
     delete mcpServers[legacyServerName];
   }
 
-  ensureParentDir(configPath);
-  writeFileSync(configPath, `${JSON.stringify(data, null, 2)}\n`, "utf8");
+  writeJSONConfig(configPath, data);
 
   if (targetMatches && legacyMatches) {
     process.stdout.write(`Claude MCP server "${serverName}" was already installed for ${projectRoot}; removed legacy alias "${legacyServerName}" from ${configPath}.\n`);
   } else {
     process.stdout.write(`Installed Claude MCP server "${serverName}" for ${projectRoot} into ${configPath}.\n`);
   }
+}
+
+function installGeminiMcp(configPath, serverName, commandName) {
+  const desiredEntry = {
+    command: commandName,
+    args: ["mcp"],
+  };
+  const legacyServerName = "open-codex-computer-use";
+  const data = readJSONObjectConfig(configPath, `Gemini config ${configPath}`);
+  const mcpServers = ensureObjectField(
+    data,
+    "mcpServers",
+    `Existing Gemini config has non-object "mcpServers"; refusing to modify it.`,
+  );
+
+  const target = mcpServers[serverName];
+  const legacy = mcpServers[legacyServerName];
+  const targetMatches = JSON.stringify(target) === JSON.stringify(desiredEntry);
+  const legacyMatches = JSON.stringify(legacy) === JSON.stringify(desiredEntry);
+
+  if (targetMatches && !legacyMatches) {
+    process.stdout.write(`Gemini MCP server "${serverName}" is already installed in ${configPath}.\n`);
+    return;
+  }
+
+  mcpServers[serverName] = desiredEntry;
+  if (legacyMatches) {
+    delete mcpServers[legacyServerName];
+  }
+
+  writeJSONConfig(configPath, data);
+
+  if (targetMatches && legacyMatches) {
+    process.stdout.write(`Gemini MCP server "${serverName}" was already installed; removed legacy alias "${legacyServerName}" from ${configPath}.\n`);
+  } else {
+    process.stdout.write(`Installed Gemini MCP server "${serverName}" into ${configPath}.\n`);
+  }
+}
+
+function installOpencodeMcp(primaryConfigPath, secondaryConfigPath, serverName, commandName) {
+  const desiredEntry = {
+    type: "local",
+    command: [commandName, "mcp"],
+  };
+  const legacyServerName = "open-codex-computer-use";
+  const configEntries = [{ path: primaryConfigPath, role: "primary" }];
+  if (secondaryConfigPath && secondaryConfigPath !== primaryConfigPath) {
+    configEntries.push({ path: secondaryConfigPath, role: "secondary" });
+  }
+
+  const records = configEntries.map((entry) => ({
+    ...entry,
+    data: readJSONObjectConfig(entry.path, `opencode config ${entry.path}`),
+    dirty: false,
+  }));
+
+  const targetMatches = [];
+  const extraAliases = [];
+  for (const record of records) {
+    const mcp = getOptionalObjectField(
+      record.data,
+      "mcp",
+      `Existing opencode config has non-object "mcp" in ${record.path}; refusing to modify it.`,
+    );
+    if (!mcp) {
+      continue;
+    }
+
+    if (JSON.stringify(mcp[serverName]) === JSON.stringify(desiredEntry)) {
+      targetMatches.push(record.path);
+    }
+    if (serverName in mcp || legacyServerName in mcp) {
+      extraAliases.push(record.path);
+    }
+  }
+
+  if (targetMatches.length === 1 && extraAliases.length === 1 && targetMatches[0] === extraAliases[0]) {
+    process.stdout.write(`opencode MCP server "${serverName}" is already installed in ${targetMatches[0]}.\n`);
+    return;
+  }
+
+  for (const record of records) {
+    const mcp = ensureObjectField(
+      record.data,
+      "mcp",
+      `Existing opencode config has non-object "mcp" in ${record.path}; refusing to modify it.`,
+    );
+
+    if (record.role === "primary") {
+      if (JSON.stringify(mcp[serverName]) !== JSON.stringify(desiredEntry)) {
+        mcp[serverName] = desiredEntry;
+        record.dirty = true;
+      }
+      if (legacyServerName in mcp) {
+        delete mcp[legacyServerName];
+        record.dirty = true;
+      }
+      continue;
+    }
+
+    if (serverName in mcp) {
+      delete mcp[serverName];
+      record.dirty = true;
+    }
+    if (legacyServerName in mcp) {
+      delete mcp[legacyServerName];
+      record.dirty = true;
+    }
+    if (Object.keys(mcp).length === 0) {
+      delete record.data.mcp;
+    }
+  }
+
+  for (const record of records) {
+    if (record.dirty) {
+      writeJSONConfig(record.path, record.data);
+    }
+  }
+
+  process.stdout.write(`Installed opencode MCP server "${serverName}" into ${primaryConfigPath}.\n`);
 }
 
 function installCodexMcp(configPath, serverName, commandName) {
@@ -346,6 +491,20 @@ function main(argv) {
         process.exit(1);
       }
       installCodexMcp(...args);
+      return;
+    case "gemini-mcp":
+      if (args.length !== 3) {
+        usage();
+        process.exit(1);
+      }
+      installGeminiMcp(...args);
+      return;
+    case "opencode-mcp":
+      if (args.length !== 4) {
+        usage();
+        process.exit(1);
+      }
+      installOpencodeMcp(...args);
       return;
     case "codex-plugin-version":
       if (args.length !== 1) {
