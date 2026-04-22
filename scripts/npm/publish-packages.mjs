@@ -1,11 +1,13 @@
 #!/usr/bin/env node
 
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
+const maxPublishAttempts = 3;
 
 function printHelp() {
   process.stdout.write(`Usage: node ./scripts/npm/publish-packages.mjs [options]
@@ -81,6 +83,73 @@ function run(command, args, options = {}) {
   }
 }
 
+function sleep(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function readPackageMetadata(packageDir) {
+  const packageJSON = JSON.parse(readFileSync(path.join(packageDir, "package.json"), "utf-8"));
+  return {
+    name: packageJSON.name,
+    version: packageJSON.version,
+  };
+}
+
+function npmPackageVersionExists(packageName, version, env) {
+  const result = spawnSync("npm", ["view", `${packageName}@${version}`, "version", "--json"], {
+    cwd: repoRoot,
+    encoding: "utf-8",
+    env,
+  });
+
+  if (result.status === 0) {
+    return true;
+  }
+
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+  if (output.includes("E404") || output.includes("404 Not Found")) {
+    return false;
+  }
+
+  process.stderr.write(`Could not confirm whether ${packageName}@${version} already exists; attempting publish.\n`);
+  return false;
+}
+
+function publishWithRetry(args, npmEnv, packageName, version) {
+  if (npmPackageVersionExists(packageName, version, npmEnv)) {
+    process.stdout.write(`${packageName}@${version} already exists on npm; skipping publish.\n`);
+    return;
+  }
+
+  for (let attempt = 1; attempt <= maxPublishAttempts; attempt += 1) {
+    const result = spawnSync("npm", args, {
+      cwd: repoRoot,
+      stdio: "inherit",
+      env: npmEnv,
+    });
+
+    if (result.status === 0) {
+      return;
+    }
+
+    if (npmPackageVersionExists(packageName, version, npmEnv)) {
+      process.stdout.write(`${packageName}@${version} is visible on npm after publish failure; continuing.\n`);
+      return;
+    }
+
+    if (attempt < maxPublishAttempts) {
+      const delayMs = attempt * 5000;
+      process.stderr.write(
+        `npm publish ${packageName}@${version} failed with exit code ${result.status ?? "unknown"}; retrying in ${delayMs / 1000}s.\n`
+      );
+      sleep(delayMs);
+      continue;
+    }
+
+    throw new Error(`npm ${args.join(" ")} failed with exit code ${result.status ?? "unknown"}`);
+  }
+}
+
 function main() {
   const options = parseArgs(process.argv.slice(2));
   const usingTrustedPublishing = Boolean(process.env.ACTIONS_ID_TOKEN_REQUEST_URL);
@@ -111,6 +180,7 @@ function main() {
     .sort();
 
   for (const packageDir of packageDirs) {
+    const { name: packageName, version } = readPackageMetadata(packageDir);
     const args = ["publish", packageDir, "--access", "public"];
     if (options.tag) {
       args.push("--tag", options.tag);
@@ -134,7 +204,7 @@ function main() {
       delete npmEnv.NPM_ID_TOKEN;
     }
 
-    run("npm", args, { env: npmEnv });
+    publishWithRetry(args, npmEnv, packageName, version);
   }
 }
 
