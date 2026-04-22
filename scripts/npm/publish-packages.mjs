@@ -127,6 +127,7 @@ function publishEnvCandidates(baseEnv) {
     candidates.push({
       env: oidcEnv,
       label: "GitHub Actions OIDC trusted publishing",
+      provenance: true,
     });
   }
 
@@ -138,6 +139,7 @@ function publishEnvCandidates(baseEnv) {
     candidates.push({
       env: tokenEnv,
       label: "NODE_AUTH_TOKEN fallback",
+      provenance: false,
     });
   }
 
@@ -145,6 +147,7 @@ function publishEnvCandidates(baseEnv) {
     candidates.push({
       env: baseEnv,
       label: "default npm environment",
+      provenance: false,
     });
   }
 
@@ -159,11 +162,12 @@ function publishWithRetry(args, npmEnvCandidates, packageName, version) {
 
   let lastError;
 
-  for (const { env, label } of npmEnvCandidates) {
+  for (const { env, label, provenance } of npmEnvCandidates) {
     process.stdout.write(`Publishing ${packageName}@${version} using ${label}.\n`);
+    const publishArgs = provenance && !args.includes("--provenance") ? [...args, "--provenance"] : args;
 
     for (let attempt = 1; attempt <= maxPublishAttempts; attempt += 1) {
-      const result = spawnSync("npm", args, {
+      const result = spawnSync("npm", publishArgs, {
         cwd: repoRoot,
         stdio: "inherit",
         env,
@@ -178,7 +182,7 @@ function publishWithRetry(args, npmEnvCandidates, packageName, version) {
         return;
       }
 
-      lastError = new Error(`npm ${args.join(" ")} failed with exit code ${result.status ?? "unknown"}`);
+      lastError = new Error(`npm ${publishArgs.join(" ")} failed with exit code ${result.status ?? "unknown"}`);
 
       if (attempt < maxPublishAttempts) {
         const delayMs = attempt * 5000;
