@@ -14,8 +14,10 @@ public enum OpenComputerUseCLICommand: Equatable {
 
 public enum OpenComputerUseCallInvocation: Equatable {
     case single(toolName: String, argumentsJSON: String?, argumentsFile: String?)
-    case sequence(callsJSON: String?, callsFile: String?)
+    case sequence(callsJSON: String?, callsFile: String?, interCallDelay: TimeInterval)
 }
+
+public let openComputerUseDefaultInterCallDelay: TimeInterval = 1
 
 public struct OpenComputerUseCLIError: LocalizedError, Equatable {
     public let message: String
@@ -138,17 +140,19 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
         Usage:
           open-computer-use call <tool> [--args '<json-object>']
           open-computer-use call <tool> [--args-file <path>]
-          open-computer-use call --calls '<json-array>'
-          open-computer-use call --calls-file <path>
+          open-computer-use call --calls '<json-array>' [--sleep <seconds>]
+          open-computer-use call --calls-file <path> [--sleep <seconds>]
 
         Examples:
           open-computer-use call list_apps
           open-computer-use call get_app_state --args '{"app":"TextEdit"}'
           open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
+          open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 
         The JSON array form keeps all calls in one process so follow-up actions
         can reuse the app state and element indices captured by get_app_state.
         Sequence execution stops after the first tool result with isError=true.
+        Sequence runs sleep \(formatOpenComputerUseDelay(openComputerUseDefaultInterCallDelay)) between successful operations by default.
         """
     case "turn-ended":
         return """
@@ -263,6 +267,7 @@ private func parseCall(arguments: [String]) throws -> OpenComputerUseCLICommand 
     var argumentsFile: String?
     var callsJSON: String?
     var callsFile: String?
+    var interCallDelay = openComputerUseDefaultInterCallDelay
 
     var index = 0
     while index < arguments.count {
@@ -277,6 +282,8 @@ private func parseCall(arguments: [String]) throws -> OpenComputerUseCLICommand 
             callsJSON = try parseOptionValue("--calls", arguments: arguments, index: &index)
         case "--calls-file":
             callsFile = try parseOptionValue("--calls-file", arguments: arguments, index: &index)
+        case "--sleep":
+            interCallDelay = try parseTimeIntervalOptionValue("--sleep", arguments: arguments, index: &index)
         case "-h", "--help":
             throw OpenComputerUseCLIError(message: "call help must be requested as `open-computer-use call --help`", helpCommand: "call")
         default:
@@ -307,11 +314,22 @@ private func parseCall(arguments: [String]) throws -> OpenComputerUseCLICommand 
             )
         }
 
-        return .call(.sequence(callsJSON: callsJSON, callsFile: callsFile))
+        return .call(.sequence(
+            callsJSON: callsJSON,
+            callsFile: callsFile,
+            interCallDelay: interCallDelay
+        ))
     }
 
     if argumentsJSON != nil, argumentsFile != nil {
         throw OpenComputerUseCLIError(message: "Use either --args or --args-file, not both", helpCommand: "call")
+    }
+
+    if interCallDelay != openComputerUseDefaultInterCallDelay {
+        throw OpenComputerUseCLIError(
+            message: "--sleep is only supported with --calls or --calls-file",
+            helpCommand: "call"
+        )
     }
 
     guard let toolName else {
@@ -333,4 +351,28 @@ private func parseOptionValue(
 
     index = valueIndex
     return arguments[valueIndex]
+}
+
+private func parseTimeIntervalOptionValue(
+    _ option: String,
+    arguments: [String],
+    index: inout Int
+) throws -> TimeInterval {
+    let rawValue = try parseOptionValue(option, arguments: arguments, index: &index)
+    guard let value = Double(rawValue), value.isFinite, value >= 0 else {
+        throw OpenComputerUseCLIError(
+            message: "\(option) requires a non-negative number of seconds",
+            helpCommand: "call"
+        )
+    }
+
+    return value
+}
+
+private func formatOpenComputerUseDelay(_ delay: TimeInterval) -> String {
+    if delay.rounded() == delay {
+        return "\(Int(delay))s"
+    }
+
+    return "\(delay)s"
 }

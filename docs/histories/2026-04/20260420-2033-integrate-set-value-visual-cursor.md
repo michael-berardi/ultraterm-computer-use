@@ -34,7 +34,7 @@
 - **[修正本地 click 决策]**: `ComputerUseService.performPreferredClick` 不再只会试 `AXPress` / `kAXFocusedAttribute` / `AXConfirm`；现在会把窗口/根元素常见的 `AXRaise`、`kAXMainAttribute`、`kAXFocusedAttribute` 都纳入 element-targeted 左键路径，只有这些都失败才允许 `clickGlobally(...)`。
 - **[移除过严 settable 门槛]**: 针对 `TextEdit` window 这类 `AXUIElementIsAttributeSettable(kAXFocusedAttribute) == false`、但直接 `AXUIElementSetAttributeValue(..., true)` 仍成功的场景，`click` 相关的布尔属性写入不再把 `isSettable` 当作硬前置条件。
 - **[补 fallback tracing]**: 新增默认关闭的 `OPEN_COMPUTER_USE_DEBUG_INPUT_FALLBACKS` 环境变量；打开后，只有真的命中全局 pointer fallback 才会往 stderr 打一行调试信息，便于继续做官方/本地 A/B。
-- **[验证结果]**: 打开 `OPEN_COMPUTER_USE_DEBUG_INPUT_FALLBACKS=1` 后，当前 `scripts/computer-use-cli/examples/textedit-overlay-seq.json` 这条本地 direct MCP 序列已不再打印 `global pointer fallback`，同时 `swift test` 全绿。
+- **[验证结果]**: 打开 `OPEN_COMPUTER_USE_DEBUG_INPUT_FALLBACKS=1` 后，当前 `examples/textedit-overlay-seq.json` 这条本地 direct MCP 序列已不再打印 `global pointer fallback`，同时 `swift test` 全绿。
 
 **Follow-up Files:**
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`

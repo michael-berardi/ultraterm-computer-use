@@ -911,7 +911,7 @@ Examples:
   %s call list_apps
   %s call list_apps --transport app-server
   %s call list_apps --transport direct --server-bin /path/to/open-computer-use
-  %s call get_app_state --args '{"app":"Feishu"}'
+  %s call get_app_state --args '{"app":"TextEdit"}'
   %s call-seq --transport app-server --calls-file /tmp/calls.json
 
 Environment:

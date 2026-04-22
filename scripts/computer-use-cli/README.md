@@ -27,7 +27,7 @@ It supports two transports:
 go run . resolve-server
 go run . list-tools --transport app-server
 go run . call list_apps --transport direct --server-bin /path/to/open-computer-use
-go run . call get_app_state --transport direct --server-bin /path/to/open-computer-use --args '{"app":"Feishu"}'
+go run . call get_app_state --transport direct --server-bin /path/to/open-computer-use --args '{"app":"TextEdit"}'
 go run . call-seq --transport direct --server-bin /path/to/open-computer-use --calls-file /tmp/calls.json
 ```
 
@@ -60,19 +60,11 @@ followed by one or more action tools in the same official `computer-use` session
 ```
 
 This repo includes a ready-to-run example at
-`examples/textedit-overlay-seq.json`.
-That sample covers all 9 official tools against `TextEdit`, and it intentionally
-repeats `get_app_state` between state-changing actions because the official
-bundled `computer-use` invalidates the cached app state after each mutation.
-Before running it, make sure `TextEdit` already has a normal document window open;
-otherwise `get_app_state` may only expose the application root and the hard-coded
-`element_index` values in the sample will no longer line up.
+`../../examples/textedit-overlay-seq.json`.
 
-For a smaller cursor-comparison path, use
-`examples/textedit-set-value-click-raise-seq.json`.
-That sample stays on the `set_value -> click -> Raise` flow so the same calls file
-can be pointed at both the official bundled `computer-use` and the local
-`open-computer-use` binary.
+Before running it, make sure `TextEdit` already has a normal document window
+open; otherwise `get_app_state` may only expose the application root and the
+hard-coded `element_index` values in the sample will no longer line up.
 
 ## Default target
 
@@ -151,7 +143,7 @@ go run . call-seq \
   --transport direct \
   --plugin-root ../.. \
   --server-bin ../../.build/debug/OpenComputerUse \
-  --calls-file examples/textedit-set-value-click-raise-seq.json
+  --calls-file ../../examples/textedit-overlay-seq.json
 ```
 
 Example inventory probe against the official bundled `computer-use`:

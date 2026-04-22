@@ -54,7 +54,9 @@ open-computer-use mcp
 open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 # Run a sequence in one process so element_index state can be reused
+# Sequence runs sleep 1s between successful operations by default
 open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
+open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 # Check permissions; onboarding only opens when something is missing
 open-computer-use doctor
 # Show help

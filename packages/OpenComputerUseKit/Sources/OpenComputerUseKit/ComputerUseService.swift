@@ -7,13 +7,52 @@ struct VisualCursorTarget: Equatable {
     let window: CursorTargetWindow?
 }
 
+struct VisualCursorScreenMapping: Equatable {
+    let screenStateFrame: CGRect
+    let appKitFrame: CGRect
+}
+
+func currentVisualCursorScreenMappings() -> [VisualCursorScreenMapping] {
+    NSScreen.screens.compactMap { screen in
+        guard let screenNumber = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else {
+            return nil
+        }
+
+        return VisualCursorScreenMapping(
+            screenStateFrame: CGDisplayBounds(CGDirectDisplayID(screenNumber.uint32Value)),
+            appKitFrame: screen.frame
+        )
+    }
+}
+
+func visualCursorAppKitPoint(
+    fromScreenStatePoint point: CGPoint,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> CGPoint {
+    guard let mapping = screenMappings.first(where: { $0.screenStateFrame.contains(point) }) else {
+        return point
+    }
+
+    let localX = point.x - mapping.screenStateFrame.minX
+    let localY = point.y - mapping.screenStateFrame.minY
+
+    return CGPoint(
+        x: mapping.appKitFrame.minX + localX,
+        y: mapping.appKitFrame.maxY - localY
+    )
+}
+
 func makeVisualCursorTarget(
     at point: CGPoint,
     targetWindowID: CGWindowID?,
-    targetWindowLayer: Int?
+    targetWindowLayer: Int?,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
 ) -> VisualCursorTarget {
     VisualCursorTarget(
-        point: point,
+        point: visualCursorAppKitPoint(
+            fromScreenStatePoint: point,
+            screenMappings: screenMappings
+        ),
         window: targetWindowID.map { CursorTargetWindow(windowID: $0, layer: targetWindowLayer ?? 0) }
     )
 }
@@ -22,7 +61,8 @@ func makeVisualCursorTarget(
     localFrame: CGRect?,
     windowBounds: CGRect?,
     targetWindowID: CGWindowID?,
-    targetWindowLayer: Int?
+    targetWindowLayer: Int?,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
 ) -> VisualCursorTarget? {
     guard let localFrame, let windowBounds else {
         return nil
@@ -35,7 +75,8 @@ func makeVisualCursorTarget(
     return makeVisualCursorTarget(
         at: point,
         targetWindowID: targetWindowID,
-        targetWindowLayer: targetWindowLayer
+        targetWindowLayer: targetWindowLayer,
+        screenMappings: screenMappings
     )
 }
 
