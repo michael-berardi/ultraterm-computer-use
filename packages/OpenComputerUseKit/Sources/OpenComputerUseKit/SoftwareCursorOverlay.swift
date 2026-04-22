@@ -273,9 +273,9 @@ enum SoftwareCursorOverlay {
     private static func animateMove(from start: CGPoint, to end: CGPoint, relativeTo targetWindow: CursorTargetWindow?) {
         let candidate = bestMotionCandidate(from: start, to: end, relativeTo: targetWindow)
         let path = candidate.path
-        // Binary-backed geometry and spring shape are used directly, but the final
-        // wall-clock duration is still calibrated locally because the official
-        // transaction-level duration mapping has not been fully recovered yet.
+        // Use the recovered official progress spring timing instead of the older
+        // distance-compressed local duration, otherwise medium and long moves feel
+        // noticeably faster than the bundled app.
         let duration = OfficialCursorMotionModel.calibratedTravelDuration(
             distance: distanceBetween(start, end),
             measurement: candidate.measurement

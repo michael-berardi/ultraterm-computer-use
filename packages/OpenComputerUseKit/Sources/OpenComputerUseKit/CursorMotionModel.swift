@@ -490,12 +490,8 @@ enum OfficialCursorMotionModel {
         }
     }
 
-    static func calibratedTravelDuration(distance: CGFloat, measurement: CursorMotionMeasurement) -> CGFloat {
-        let weightedRatio = max((measurement.length / max(distance, 1)) - 1, 0)
-        let distanceTerm = 0.18 + min(distance / 1300, 0.35)
-        let curvatureTerm = min(weightedRatio, 1.5) * 0.18
-        let settleTerm = min(weightedRatio, 1.0) * 0.04
-        return max(distanceTerm + curvatureTerm + settleTerm, 0.23)
+    static func calibratedTravelDuration(distance _: CGFloat, measurement _: CursorMotionMeasurement) -> CGFloat {
+        closeEnoughTime
     }
 
     private static func makeCandidate(

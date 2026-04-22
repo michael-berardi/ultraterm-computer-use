@@ -669,6 +669,26 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(OfficialCursorMotionModel.closeEnoughTime, 1.429166666666663, accuracy: 0.000_001)
     }
 
+    func testOfficialCursorMotionTravelDurationUsesRecoveredEndpointLockTiming() {
+        let curvedMeasurement = CursorMotionMeasurement(
+            length: 1280,
+            angleChangeEnergy: 8,
+            maxAngleChange: 1.2,
+            totalTurn: 4,
+            staysInBounds: true
+        )
+
+        XCTAssertEqual(
+            OfficialCursorMotionModel.calibratedTravelDuration(distance: 140, measurement: curvedMeasurement),
+            OfficialCursorMotionModel.closeEnoughTime,
+            accuracy: 0.000_001
+        )
+        XCTAssertGreaterThan(
+            OfficialCursorMotionModel.calibratedTravelDuration(distance: 900, measurement: curvedMeasurement),
+            1.0
+        )
+    }
+
     func testHeadingDrivenMotionPrefersNearDirectPathWhenHeadingsAlreadyAlign() throws {
         let start = CGPoint(x: 120, y: 120)
         let end = CGPoint(x: 920, y: 320)

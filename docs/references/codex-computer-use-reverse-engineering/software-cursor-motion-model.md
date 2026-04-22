@@ -281,6 +281,8 @@ CursorView
 
 `VelocityVerletSimulation` 这个名字尤其关键，因为它已经把“用什么数值方法跑 spring”暴露出来了。就现有证据看，官方更像是在做逐帧积分，而不是单纯调用一个现成的 `CASpringAnimation` 然后交给系统黑盒求值。
 
+当前已经恢复出的 shipping 默认 progress spring 为 `response=1.4`、`dampingFraction=0.9`、`dt=1/240`。按 `CloseEnoughConfiguration(progressThreshold=1.0, distanceThreshold=0.01)` 计算，endpoint-lock / close-enough 时间约为 `343 / 240 = 1.4291667s`。这意味着默认可见移动不应该再叠加一层本地距离压缩；短距离和长距离都会复用同一条 spring progress 时间线，只是路径几何和可见姿态的速度感不同。
+
 ### 3. 什么时候允许下一次交互开始
 
 `CloseEnoughConfiguration(progressThreshold, distanceThreshold)` 和 `CursorNextInteractionTiming(closeEnough, finished)` 这组类型，说明官方把“动作已足够接近，可继续下一步”和“动作完全结束”明确区分开了。
