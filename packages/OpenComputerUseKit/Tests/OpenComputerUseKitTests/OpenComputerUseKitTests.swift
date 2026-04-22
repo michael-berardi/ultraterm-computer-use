@@ -632,8 +632,8 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testVisualCursorKeepsPostInteractionIdleStateLongEnoughForFollowupTools() {
-        XCTAssertEqual(visualCursorPostInteractionIdleTimeout(), 5 * 60)
-        XCTAssertGreaterThan(visualCursorPostInteractionIdleTimeout(), 30)
+        XCTAssertEqual(visualCursorPostInteractionIdleTimeout(), 30)
+        XCTAssertGreaterThanOrEqual(visualCursorPostInteractionIdleTimeout(), 30)
     }
 
     func testVisualCursorRuntimeMapsAppKitUpwardMotionToCursorMotionScreenState() {

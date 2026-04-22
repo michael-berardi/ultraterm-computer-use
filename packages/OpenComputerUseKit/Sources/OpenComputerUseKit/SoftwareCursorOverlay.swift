@@ -69,7 +69,7 @@ func visualCursorScreenStateVelocity(
 }
 
 func visualCursorPostInteractionIdleTimeout() -> TimeInterval {
-    5 * 60
+    30
 }
 
 public let openComputerUseTurnEndedNotificationName = Notification.Name("com.ifuryst.opencomputeruse.turn-ended")
