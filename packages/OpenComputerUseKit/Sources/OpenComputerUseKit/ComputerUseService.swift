@@ -168,10 +168,14 @@ public final class ComputerUseService {
             moveVisualCursor(to: cursorTarget)
 
             do {
-                if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
-                    Thread.sleep(forTimeInterval: 0.15)
-                } else {
-                    try performGlobalClickFallback(
+                if !(try performAXClickSequence(
+                    on: record,
+                    snapshot: snapshot,
+                    button: button,
+                    clickCount: clickCount,
+                    includeNearbyHitTesting: true
+                )) {
+                    try performNonAXClickFallback(
                         at: targetPoint,
                         button: button,
                         clickCount: clickCount,
@@ -198,10 +202,16 @@ public final class ComputerUseService {
 
             do {
                 if let record = try hitTestElement(at: point, in: snapshot) ?? bestElement(containing: point, in: snapshot),
-                   try performPreferredClick(on: record, button: button, clickCount: clickCount) {
-                    Thread.sleep(forTimeInterval: 0.15)
+                   (try performAXClickSequence(
+                       on: record,
+                       snapshot: snapshot,
+                       button: button,
+                       clickCount: clickCount,
+                       includeNearbyHitTesting: false
+                   )) {
+                    // handled
                 } else {
-                    try performGlobalClickFallback(
+                    try performNonAXClickFallback(
                         at: targetPoint,
                         button: button,
                         clickCount: clickCount,
@@ -439,11 +449,11 @@ public final class ComputerUseService {
                 return true
             }
 
-            if try activateClickTarget(element: element, availableActions: record.rawActions) {
+            if try performAction(named: kAXConfirmAction as String, on: element, availableActions: record.rawActions, repeatCount: clickCount) {
                 return true
             }
 
-            if try performAction(named: kAXConfirmAction as String, on: element, availableActions: record.rawActions, repeatCount: clickCount) {
+            if try performAction(named: "AXOpen", on: element, availableActions: record.rawActions, repeatCount: clickCount) {
                 return true
             }
         case .right:
@@ -452,6 +462,57 @@ public final class ComputerUseService {
             }
         case .middle:
             break
+        }
+
+        return false
+    }
+
+    private func performAXClickSequence(
+        on record: ElementRecord,
+        snapshot: AppSnapshot,
+        button: MouseButtonKind,
+        clickCount: Int,
+        includeNearbyHitTesting: Bool
+    ) throws -> Bool {
+        if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
+            Thread.sleep(forTimeInterval: 0.15)
+            return true
+        }
+
+        for candidate in descendantClickCandidates(for: record, snapshot: snapshot) {
+            if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
+                Thread.sleep(forTimeInterval: 0.15)
+                return true
+            }
+        }
+
+        if includeNearbyHitTesting {
+            for localPoint in clickActionPoints(for: record) {
+                guard let hitRecord = try hitTestElement(at: localPoint, in: snapshot) ?? bestElement(containing: localPoint, in: snapshot) else {
+                    continue
+                }
+
+                if try performPreferredClick(on: hitRecord, button: button, clickCount: clickCount) {
+                    Thread.sleep(forTimeInterval: 0.15)
+                    return true
+                }
+
+                for candidate in descendantClickCandidates(for: hitRecord, snapshot: snapshot) {
+                    if try performPreferredClick(on: candidate, button: button, clickCount: clickCount) {
+                        Thread.sleep(forTimeInterval: 0.15)
+                        return true
+                    }
+                }
+            }
+        }
+
+        guard button == .left, let element = record.element else {
+            return false
+        }
+
+        if try activateClickTarget(element: element, availableActions: record.rawActions) {
+            Thread.sleep(forTimeInterval: 0.15)
+            return true
         }
 
         return false
@@ -470,7 +531,9 @@ public final class ComputerUseService {
                 if index < attempts - 1 {
                     Thread.sleep(forTimeInterval: 0.05)
                 }
-            case .actionUnsupported, .cannotComplete, .noValue:
+            case .attributeUnsupported where action.caseInsensitiveCompare("AXOpen") == .orderedSame:
+                return true
+            case .failure, .actionUnsupported, .attributeUnsupported, .cannotComplete, .noValue, .invalidUIElement, .illegalArgument:
                 return false
             default:
                 throw ComputerUseError.message("AXUIElementPerformAction(\(action)) failed with \(result.rawValue)")
@@ -503,7 +566,7 @@ public final class ComputerUseService {
         switch result {
         case .success:
             return true
-        case .attributeUnsupported, .actionUnsupported, .cannotComplete, .noValue:
+        case .failure, .attributeUnsupported, .actionUnsupported, .cannotComplete, .noValue, .invalidUIElement, .illegalArgument:
             return false
         default:
             throw ComputerUseError.message("AXUIElementSetAttributeValue(\(attribute)) failed with \(result.rawValue)")
@@ -588,6 +651,73 @@ public final class ComputerUseService {
         return frame.width * frame.height
     }
 
+    private func localCenter(for record: ElementRecord) -> CGPoint? {
+        guard let frame = record.localFrame else {
+            return nil
+        }
+
+        return CGPoint(x: frame.midX, y: frame.midY)
+    }
+
+    private func clickActionPoints(for record: ElementRecord) -> [CGPoint] {
+        guard let frame = record.localFrame else {
+            return []
+        }
+
+        let center = CGPoint(x: frame.midX, y: frame.midY)
+        let leading = CGPoint(
+            x: frame.minX + min(max(frame.width * 0.3, 20), max(frame.width - 4, 20)),
+            y: frame.midY
+        )
+
+        if abs(leading.x - center.x) < 1 {
+            return [center]
+        }
+
+        return [center, leading]
+    }
+
+    private func descendantClickCandidates(for record: ElementRecord, snapshot: AppSnapshot) -> [ElementRecord] {
+        guard let element = record.element else {
+            return []
+        }
+
+        return descendantClickCandidates(of: element, windowBounds: snapshot.windowBounds)
+            .sorted { lhs, rhs in
+                let lhsPriority = clickPriority(for: lhs)
+                let rhsPriority = clickPriority(for: rhs)
+                if lhsPriority != rhsPriority {
+                    return lhsPriority < rhsPriority
+                }
+
+                return frameArea(of: lhs) < frameArea(of: rhs)
+            }
+    }
+
+    private func descendantClickCandidates(of element: AXUIElement, windowBounds: CGRect?, depth: Int = 0) -> [ElementRecord] {
+        guard depth < 3 else {
+            return []
+        }
+
+        var results: [ElementRecord] = []
+        for child in copyChildren(of: element) {
+            let rawActions = copyActions(for: child) ?? []
+            results.append(
+                ElementRecord(
+                    index: -1,
+                    identifier: nil,
+                    element: child,
+                    localFrame: localFrame(of: child, windowBounds: windowBounds),
+                    rawActions: rawActions,
+                    prettyActions: rawActions
+                )
+            )
+            results.append(contentsOf: descendantClickCandidates(of: child, windowBounds: windowBounds, depth: depth + 1))
+        }
+
+        return results
+    }
+
     private func copyActions(for element: AXUIElement) -> [String]? {
         var actions: CFArray?
         let result = AXUIElementCopyActionNames(element, &actions)
@@ -596,6 +726,16 @@ public final class ComputerUseService {
         }
 
         return actions as? [String]
+    }
+
+    private func copyChildren(of element: AXUIElement) -> [AXUIElement] {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &value)
+        guard result == .success, let value else {
+            return []
+        }
+
+        return value as? [AXUIElement] ?? []
     }
 
     private func localFrame(of element: AXUIElement, windowBounds: CGRect?) -> CGRect? {
@@ -767,13 +907,29 @@ public final class ComputerUseService {
         try InputSimulation.dragTargeted(from: start, to: end, pid: snapshot.app.pid)
     }
 
-    private func performGlobalClickFallback(
+    private func performNonAXClickFallback(
         at point: CGPoint,
         button: MouseButtonKind,
         clickCount: Int,
         targetDescription: String,
         snapshot: AppSnapshot
     ) throws {
+        do {
+            try InputSimulation.clickTargeted(
+                at: point,
+                button: button,
+                clickCount: clickCount,
+                pid: snapshot.app.pid
+            )
+            return
+        } catch {
+            guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {
+                throw ComputerUseError.message(
+                    "click could not be handled through accessibility, and global pointer fallback is disabled. Set OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 to allow physical-pointer fallback for this process."
+                )
+            }
+        }
+
         guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {
             throw ComputerUseError.message(
                 "click could not be handled through accessibility, and global pointer fallback is disabled. Set OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 to allow physical-pointer fallback for this process."
