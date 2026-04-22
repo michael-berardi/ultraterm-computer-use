@@ -32,6 +32,6 @@ public enum ComputerUseError: Error, LocalizedError {
 
 extension ComputerUseError {
     static func missingArgument(_ name: String) -> ComputerUseError {
-        .invalidArguments("missing argument '\(name)'")
+        .message("Missing required argument: \(name)")
     }
 }

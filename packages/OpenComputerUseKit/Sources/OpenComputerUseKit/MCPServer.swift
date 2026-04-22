@@ -66,6 +66,11 @@ public final class StdioMCPServer {
                 )
             case "notifications/initialized":
                 return nil
+            case "notifications/turn-ended":
+                VisualCursorSupport.performOnMain {
+                    SoftwareCursorOverlay.reset()
+                }
+                return nil
             case "ping":
                 return try encodeJSONRPCResult(id: id, result: [:])
             case "tools/list":

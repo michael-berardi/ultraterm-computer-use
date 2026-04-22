@@ -115,7 +115,7 @@ public enum ToolDefinitions {
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "direction": stringProperty(description: "Scroll direction: up, down, left, or right"),
                     "element_index": stringProperty(description: "Element identifier"),
-                    "pages": integerProperty(description: "Number of page scroll actions. Defaults to 1"),
+                    "pages": numberProperty(description: "Number of pages to scroll. Fractional values are supported. Defaults to 1"),
                 ],
                 required: ["app", "element_index", "direction"]
             )

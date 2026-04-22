@@ -65,7 +65,17 @@ enum InputSimulation {
         }
     }
 
-    static func scrollGlobally(at point: CGPoint, direction: String, pages: Int) throws {
+    static func scrollTargeted(at point: CGPoint, direction: String, pages: Double, pid: pid_t) throws {
+        guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
+            throw ComputerUseError.message("Failed to create scroll event.")
+        }
+
+        event.location = point
+        event.postToPid(pid)
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+
+    static func scrollGlobally(at point: CGPoint, direction: String, pages: Double) throws {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
             throw ComputerUseError.message("Failed to create scroll event.")
         }
@@ -73,6 +83,26 @@ enum InputSimulation {
         event.location = point
         event.post(tap: .cghidEventTap)
         Thread.sleep(forTimeInterval: 0.1)
+    }
+
+    static func dragTargeted(from start: CGPoint, to end: CGPoint, pid: pid_t) throws {
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            throw ComputerUseError.message("Failed to create targeted event source.")
+        }
+
+        try postMouseEventToPid(type: .mouseMoved, source: source, point: start, button: .left, clickState: 1, pid: pid)
+        try postMouseEventToPid(type: .leftMouseDown, source: source, point: start, button: .left, clickState: 1, pid: pid)
+
+        for step in 1...10 {
+            let progress = CGFloat(step) / 10
+            let point = CGPoint(
+                x: start.x + ((end.x - start.x) * progress),
+                y: start.y + ((end.y - start.y) * progress)
+            )
+            try postMouseEventToPid(type: .leftMouseDragged, source: source, point: point, button: .left, clickState: 1, pid: pid)
+        }
+
+        try postMouseEventToPid(type: .leftMouseUp, source: source, point: end, button: .left, clickState: 1, pid: pid)
     }
 
     static func dragGlobally(from start: CGPoint, to end: CGPoint) throws {
@@ -158,6 +188,16 @@ enum InputSimulation {
         Thread.sleep(forTimeInterval: 0.03)
     }
 
+    private static func postMouseEventToPid(type: CGEventType, source: CGEventSource, point: CGPoint, button: CGMouseButton, clickState: Int, pid: pid_t) throws {
+        guard let event = CGEvent(mouseEventSource: source, mouseType: type, mouseCursorPosition: point, mouseButton: button) else {
+            throw ComputerUseError.message("Failed to create mouse event \(type.rawValue).")
+        }
+
+        event.setIntegerValueField(.mouseEventClickState, value: Int64(clickState))
+        event.postToPid(pid)
+        Thread.sleep(forTimeInterval: 0.03)
+    }
+
     private static func raiseAppWindowViaAccessibility(pid: pid_t) -> Bool {
         let appElement = AXUIElementCreateApplication(pid)
         guard let window = preferredWindow(for: appElement) else {
@@ -236,25 +276,31 @@ enum InputSimulation {
         return value as? [AXUIElement]
     }
 
-    private static func wheel1(direction: String, pages: Int) -> Int32 {
+    private static func wheel1(direction: String, pages: Double) -> Int32 {
         switch direction {
         case "up":
-            return Int32(12 * max(pages, 1))
+            return scrollWheelDelta(for: pages)
         case "down":
-            return Int32(-12 * max(pages, 1))
+            return -scrollWheelDelta(for: pages)
         default:
             return 0
         }
     }
 
-    private static func wheel2(direction: String, pages: Int) -> Int32 {
+    private static func wheel2(direction: String, pages: Double) -> Int32 {
         switch direction {
         case "left":
-            return Int32(12 * max(pages, 1))
+            return scrollWheelDelta(for: pages)
         case "right":
-            return Int32(-12 * max(pages, 1))
+            return -scrollWheelDelta(for: pages)
         default:
             return 0
         }
+    }
+
+    private static func scrollWheelDelta(for pages: Double) -> Int32 {
+        let rawValue = (12.0 * pages).rounded(.toNearestOrAwayFromZero)
+        let clamped = min(Double(Int32.max), max(1, rawValue))
+        return Int32(clamped)
     }
 }

@@ -207,10 +207,13 @@ public final class ComputerUseService {
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
     }
 
-    public func scroll(app query: String, direction: String, elementIndex: String, pages: Int) throws -> ToolCallResult {
+    public func scroll(app query: String, direction: String, elementIndex: String, pages: Double) throws -> ToolCallResult {
         let normalized = direction.lowercased()
         guard ["up", "down", "left", "right"].contains(normalized) else {
-            throw ComputerUseError.invalidArguments("scroll direction must be one of up/down/left/right")
+            throw ComputerUseError.message("Invalid scroll direction: \(direction)")
+        }
+        guard pages.isFinite, pages > 0 else {
+            throw ComputerUseError.message("pages must be > 0")
         }
 
         let snapshot = try currentSnapshot(for: query)
@@ -225,14 +228,21 @@ public final class ComputerUseService {
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
-        if let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }), let element = record.element {
-            for _ in 0..<max(pages, 1) {
+        if let repeatCount = integralScrollPageCount(pages),
+           let rawAction = record.rawActions.first(where: { $0.caseInsensitiveCompare("AXScroll\(normalized.capitalized)ByPage") == .orderedSame }),
+           let element = record.element {
+            for _ in 0..<repeatCount {
                 _ = AXUIElementPerformAction(element, rawAction as CFString)
                 Thread.sleep(forTimeInterval: 0.05)
             }
         } else if let point = try globalPoint(for: record, snapshot: snapshot) {
-            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
-            try InputSimulation.scrollGlobally(at: point, direction: normalized, pages: pages)
+            try performScrollEvent(
+                at: point,
+                direction: normalized,
+                pages: pages,
+                targetDescription: "element_index=\(elementIndex)",
+                snapshot: snapshot
+            )
         } else {
             throw ComputerUseError.stateUnavailable("element \(elementIndex) has no scrollable frame")
         }
@@ -248,10 +258,13 @@ public final class ComputerUseService {
             return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
         }
 
-        InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
-        try InputSimulation.dragGlobally(
-            from: try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY),
-            to: try screenshotToGlobalPoint(snapshot: snapshot, x: toX, y: toY)
+        let start = try screenshotToGlobalPoint(snapshot: snapshot, x: fromX, y: fromY)
+        let end = try screenshotToGlobalPoint(snapshot: snapshot, x: toX, y: toY)
+        try performDragEvent(
+            from: start,
+            to: end,
+            targetDescription: "from=(\(Int(fromX)), \(Int(fromY))) to=(\(Int(toX)), \(Int(toY)))",
+            snapshot: snapshot
         )
         return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
     }
@@ -655,6 +668,55 @@ public final class ComputerUseService {
             "[open-computer-use] global pointer fallback tool=\(tool) app=\(appReference) target=\(targetDescription)\n",
             stderr
         )
+    }
+
+    private func integralScrollPageCount(_ pages: Double) -> Int? {
+        let rounded = pages.rounded(.toNearestOrAwayFromZero)
+        guard abs(pages - rounded) < 0.000001 else {
+            return nil
+        }
+        return max(Int(rounded), 1)
+    }
+
+    private func performScrollEvent(
+        at point: CGPoint,
+        direction: String,
+        pages: Double,
+        targetDescription: String,
+        snapshot: AppSnapshot
+    ) throws {
+        if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
+            debugInputFallback(
+                tool: "scroll",
+                targetDescription: targetDescription,
+                snapshot: snapshot
+            )
+            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
+            try InputSimulation.scrollGlobally(at: point, direction: direction, pages: pages)
+            return
+        }
+
+        try InputSimulation.scrollTargeted(at: point, direction: direction, pages: pages, pid: snapshot.app.pid)
+    }
+
+    private func performDragEvent(
+        from start: CGPoint,
+        to end: CGPoint,
+        targetDescription: String,
+        snapshot: AppSnapshot
+    ) throws {
+        if globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) {
+            debugInputFallback(
+                tool: "drag",
+                targetDescription: targetDescription,
+                snapshot: snapshot
+            )
+            InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
+            try InputSimulation.dragGlobally(from: start, to: end)
+            return
+        }
+
+        try InputSimulation.dragTargeted(from: start, to: end, pid: snapshot.app.pid)
     }
 
     private func performGlobalClickFallback(

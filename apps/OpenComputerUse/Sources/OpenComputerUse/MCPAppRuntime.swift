@@ -5,6 +5,7 @@ import OpenComputerUseKit
 final class MCPAppRuntime: NSObject, NSApplicationDelegate {
     private let server: StdioMCPServer
     private var runtimeError: Error?
+    private var turnEndedObserver: NSObjectProtocol?
 
     private init(server: StdioMCPServer) {
         self.server = server
@@ -25,7 +26,22 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        turnEndedObserver = DistributedNotificationCenter.default().addObserver(
+            forName: openComputerUseTurnEndedNotificationName,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                resetOpenComputerUseVisualCursor()
+            }
+        }
         Thread.detachNewThreadSelector(#selector(processStandardIO), toTarget: self, with: nil)
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let turnEndedObserver {
+            DistributedNotificationCenter.default().removeObserver(turnEndedObserver)
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

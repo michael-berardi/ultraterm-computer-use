@@ -33,7 +33,7 @@ public final class ComputerUseToolDispatcher {
                 app: requireString("app", in: arguments),
                 direction: requireString("direction", in: arguments),
                 elementIndex: requireString("element_index", in: arguments),
-                pages: Int(optionalDouble("pages", in: arguments) ?? 1)
+                pages: optionalDouble("pages", in: arguments) ?? 1
             )
         case "drag":
             return try service.drag(
@@ -79,7 +79,7 @@ public final class ComputerUseToolDispatcher {
     }
 
     private func requireString(_ key: String, in arguments: [String: Any]) throws -> String {
-        guard let value = arguments[key] as? String else {
+        guard let value = arguments[key] as? String, !value.isEmpty else {
             throw ComputerUseError.missingArgument(key)
         }
 

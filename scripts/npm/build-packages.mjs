@@ -155,7 +155,7 @@ Commands:
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
   call <tool>           Call one tool, or run a JSON array of tool calls.
-  turn-ended           Acknowledge the host turn boundary.
+  turn-ended           Notify the running MCP process that the host turn ended.
   install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
   install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
   install-codex-plugin Install this npm package into the local Codex plugin cache.

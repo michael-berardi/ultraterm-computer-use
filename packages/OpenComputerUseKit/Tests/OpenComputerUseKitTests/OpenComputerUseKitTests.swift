@@ -38,6 +38,17 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testCLIRecognizesTurnEndedNotifyPayload() throws {
+        let payload = #"{"type":"agent-turn-complete","turn-id":"12345"}"#
+
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["turn-ended"]), .turnEnded(payload: nil))
+        XCTAssertEqual(try parseOpenComputerUseCLI(arguments: ["turn-ended", payload]), .turnEnded(payload: payload))
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["turn-ended", "--previous-notify", #"["/bin/true"]"#, payload]),
+            .turnEnded(payload: payload)
+        )
+    }
+
     func testCLIRequiresSnapshotArgument() {
         XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot"])) { error in
             XCTAssertEqual(
@@ -268,6 +279,13 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(instructions, computerUseServerInstructions)
     }
 
+    func testMCPAcceptsTurnEndedNotificationWithoutResponse() {
+        let server = StdioMCPServer(service: ComputerUseService())
+        let response = server.handle(line: #"{"jsonrpc":"2.0","method":"notifications/turn-ended","params":{"type":"agent-turn-complete"}}"#)
+
+        XCTAssertNil(response)
+    }
+
     func testWindowRelativeFrameUsesSharedGlobalCoordinates() {
         let window = CGRect(x: 1486, y: 556, width: 919, height: 644)
         let child = CGRect(x: 1486, y: 556, width: 919, height: 644)
@@ -302,6 +320,45 @@ final class OpenComputerUseKitTests: XCTestCase {
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["mouse_button"]?["enum"] as? [String]) ?? [],
             ["left", "right", "middle"]
         )
+        let scrollPages = (tools["scroll"]?.inputSchema["properties"] as? [String: [String: Any]])?["pages"]
+        XCTAssertEqual(scrollPages?["type"] as? String, "number")
+        XCTAssertEqual(
+            scrollPages?["description"] as? String,
+            "Number of pages to scroll. Fractional values are supported. Defaults to 1"
+        )
+    }
+
+    func testDispatcherMissingArgumentsMatchOfficialToolText() {
+        let dispatcher = ComputerUseToolDispatcher()
+        let result = dispatcher.callToolAsResult(name: "type_text", arguments: ["app": "Sublime Text"])
+        let emptyResult = dispatcher.callToolAsResult(name: "type_text", arguments: ["app": "Sublime Text", "text": ""])
+
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(result.primaryText, "Missing required argument: text")
+        XCTAssertTrue(emptyResult.isError)
+        XCTAssertEqual(emptyResult.primaryText, "Missing required argument: text")
+    }
+
+    func testScrollRejectsInvalidDirectionWithOfficialMessage() {
+        let dispatcher = ComputerUseToolDispatcher()
+        let result = dispatcher.callToolAsResult(
+            name: "scroll",
+            arguments: ["app": "Sublime Text", "element_index": "14", "direction": "sideways", "pages": 1]
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(result.primaryText, "Invalid scroll direction: sideways")
+    }
+
+    func testScrollRejectsNonPositivePagesWithOfficialMessage() {
+        let dispatcher = ComputerUseToolDispatcher()
+        let result = dispatcher.callToolAsResult(
+            name: "scroll",
+            arguments: ["app": "Sublime Text", "element_index": "14", "direction": "down", "pages": 0.0]
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(result.primaryText, "pages must be > 0")
     }
 
     func testSnapshotRenderedTextStartsDirectlyWithAppHeader() {
@@ -479,6 +536,11 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(geometry.origin(forTipPosition: start), .zero)
         XCTAssertEqual(start.x, geometry.tipAnchor.x, accuracy: 0.0001)
         XCTAssertEqual(start.y, geometry.tipAnchor.y, accuracy: 0.0001)
+    }
+
+    func testVisualCursorKeepsPostInteractionIdleStateLongEnoughForFollowupTools() {
+        XCTAssertEqual(visualCursorPostInteractionIdleTimeout(), 5 * 60)
+        XCTAssertGreaterThan(visualCursorPostInteractionIdleTimeout(), 30)
     }
 
     func testVisualCursorRuntimeMapsAppKitUpwardMotionToCursorMotionScreenState() {

@@ -68,6 +68,26 @@ func visualCursorScreenStateVelocity(
     CGVector(dx: velocity.dx, dy: velocity.dy * yAxisMultiplier)
 }
 
+func visualCursorPostInteractionIdleTimeout() -> TimeInterval {
+    5 * 60
+}
+
+public let openComputerUseTurnEndedNotificationName = Notification.Name("com.ifuryst.opencomputeruse.turn-ended")
+
+public func postOpenComputerUseTurnEndedNotification() {
+    DistributedNotificationCenter.default().postNotificationName(
+        openComputerUseTurnEndedNotificationName,
+        object: nil,
+        userInfo: nil,
+        deliverImmediately: true
+    )
+}
+
+@MainActor
+public func resetOpenComputerUseVisualCursor() {
+    SoftwareCursorOverlay.reset()
+}
+
 struct CursorTargetWindow: Equatable, Sendable {
     let windowID: CGWindowID
     let layer: Int
@@ -164,7 +184,7 @@ enum SoftwareCursorOverlay {
         restingTipPosition = constrainedTarget
         animateClickPulse(at: constrainedTarget, clickCount: max(clickCount, 1), mouseButton: mouseButton)
         startIdleAnimation()
-        scheduleHide(after: 0.55)
+        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
     static func settle(at targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
@@ -183,7 +203,7 @@ enum SoftwareCursorOverlay {
             clickProgress: 0
         )
         startIdleAnimation()
-        scheduleHide(after: 0.45)
+        scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
     static func reset() {

@@ -60,6 +60,7 @@ enum OpenComputerUseMain {
                 exit(EXIT_FAILURE)
             }
         case .turnEnded:
+            postOpenComputerUseTurnEndedNotification()
             print("turn-ended acknowledged")
         case let .help(command):
             print(openComputerUseHelpText(command: command))

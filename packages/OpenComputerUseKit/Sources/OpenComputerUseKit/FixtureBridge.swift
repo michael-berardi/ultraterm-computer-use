@@ -62,7 +62,7 @@ public struct FixtureCommand: Codable, Sendable {
     public let toX: Double?
     public let toY: Double?
     public let direction: String?
-    public let pages: Int?
+    public let pages: Double?
 
     public init(
         kind: String,
@@ -73,7 +73,7 @@ public struct FixtureCommand: Codable, Sendable {
         toX: Double? = nil,
         toY: Double? = nil,
         direction: String? = nil,
-        pages: Int? = nil
+        pages: Double? = nil
     ) {
         self.kind = kind
         self.identifier = identifier

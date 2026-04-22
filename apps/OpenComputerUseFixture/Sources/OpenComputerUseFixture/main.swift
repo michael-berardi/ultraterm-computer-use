@@ -417,10 +417,14 @@ private func debugKeyName(for event: NSEvent) -> String {
 @main
 enum OpenComputerUseFixtureMain {
     @MainActor
+    private static var delegate: FixtureAppDelegate?
+
+    @MainActor
     static func main() {
         let application = NSApplication.shared
         application.setActivationPolicy(.regular)
         let delegate = FixtureAppDelegate()
+        Self.delegate = delegate
         application.delegate = delegate
         application.run()
     }

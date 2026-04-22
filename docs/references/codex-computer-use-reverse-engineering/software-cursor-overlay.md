@@ -213,6 +213,43 @@ Bounds: X=1949 Y=796 Width=126 Height=126
 
 也就是说，官方实现更像是“按这次 interaction 最终走的是哪条执行链”来决定是否出 overlay，而不是简单按 public tool 名字一刀切。
 
+### 8. 2026 年 4 月 22 日复查：cursor 位置状态不会在每次 interaction 后立刻销毁
+
+这次针对 bundled `computer-use` `1.0.755` 又做了一次静态 + 运行时复查，重点看“多次 `click` / `set_value` 之间是否应该从 fresh `(0,0)` 重来”。
+
+静态上，`SkyComputerUseService` 的 Swift metadata 仍然能恢复出同一组状态字段：
+
+```text
+ComputerUseCursor
+  isMoving
+  shouldFadeOut
+  window
+  style
+  activityState
+
+ComputerUseCursor.Window
+  wantsToBeVisible
+  cursorMotionProgressAnimation
+  cursorMotionNextInteractionTimingHandler
+  cursorMotionCompletionHandler
+  cursorMotionDidSatisfyNextInteractionTiming
+  currentInterpolatedOrigin
+  useOverlayWindowLevel
+  correspondingWindowID
+```
+
+这组字段的关键点是：`wantsToBeVisible` / `shouldFadeOut` 这类可见性状态，和 `currentInterpolatedOrigin` 这个位置状态是分开的。也就是说，官方结构上并不是“淡出或一次动作结束就把 cursor origin 清空”。
+
+运行时日志也支持这个判断。同一轮官方 service 中，连续多次 `Move cursor to ...` / `Start Bezier cursor animation ...` / `Signal cursor movement completion ...` 之间，AppKit 反复把同一个 `ComputerUseCursor.Window` 对象对应的同一个 window number `orderFront`。最后一次 movement completion 后，约 5 分钟才出现 `Codex Computer Use idle timeout reached; terminating service`。
+
+因此当前更准确的生命周期模型是：
+
+- fresh service / fresh cursor window 初始化时，`currentInterpolatedOrigin` 和 window origin 从 `(0,0)` 起步。
+- 每次 action move 会更新同一个 `ComputerUseCursor.Window` 的插值 origin 和 style 状态。
+- movement completion 后 cursor 进入 idle / resting 姿态，并继续保留当前位置，短间隔的下一次 interaction 从当前 visible cursor 继续移动。
+- task / turn 结束会通过 `turn-ended` lifecycle hook 触发清理，cursor 应该消失。
+- `(0,0)` 应该是 fresh session / service reset 语义，不应该在每个 `click` 或 `set_value` 收尾后重放。
+
 ## 当前推断
 
 ### 1. 黄色小鼠标是软件光标，不是系统硬件光标

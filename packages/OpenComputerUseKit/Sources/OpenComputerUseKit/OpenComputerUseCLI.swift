@@ -7,7 +7,7 @@ public enum OpenComputerUseCLICommand: Equatable {
     case listApps
     case snapshot(app: String)
     case call(OpenComputerUseCallInvocation)
-    case turnEnded
+    case turnEnded(payload: String?)
     case help(command: String?)
     case version
 }
@@ -61,7 +61,7 @@ public func parseOpenComputerUseCLI(arguments: [String]) throws -> OpenComputerU
     case "call":
         return try parseCall(arguments: Array(arguments.dropFirst()))
     case "turn-ended":
-        return try parseSimpleCommand(name: "turn-ended", arguments: Array(arguments.dropFirst()), result: .turnEnded)
+        return try parseTurnEnded(arguments: Array(arguments.dropFirst()))
     case "snapshot":
         return try parseSnapshot(arguments: Array(arguments.dropFirst()))
     default:
@@ -89,7 +89,7 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
           list-apps            Print running or recently used apps.
           snapshot <app>       Print the current accessibility snapshot for an app.
           call <tool>           Call one tool, or run a JSON array of tool calls.
-          turn-ended           Acknowledge the host turn boundary.
+          turn-ended           Notify the running MCP process that the host turn ended.
           help [command]       Show general or command-specific help.
           version              Print the CLI version.
 
@@ -153,9 +153,10 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
     case "turn-ended":
         return """
         Usage:
-          open-computer-use turn-ended
+          open-computer-use turn-ended [--previous-notify <argv>] [payload]
 
-        Notify the local CLI that the current host turn has ended.
+        Notify a running local MCP process that the current host turn has ended.
+        Codex legacy notify appends the after-agent JSON payload as the last argument.
         """
     case "version":
         return """
@@ -196,6 +197,43 @@ private func parseSimpleCommand(
     }
 
     throw OpenComputerUseCLIError(message: "\(name) does not accept any arguments", helpCommand: name)
+}
+
+private func parseTurnEnded(arguments: [String]) throws -> OpenComputerUseCLICommand {
+    if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
+        return .help(command: "turn-ended")
+    }
+
+    var payload: String?
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+
+        switch argument {
+        case "--previous-notify":
+            let valueIndex = index + 1
+            guard valueIndex < arguments.count else {
+                throw OpenComputerUseCLIError(message: "--previous-notify requires a value", helpCommand: "turn-ended")
+            }
+            index = valueIndex
+        case "-h", "--help":
+            throw OpenComputerUseCLIError(message: "turn-ended help must be requested as `open-computer-use turn-ended --help`", helpCommand: "turn-ended")
+        default:
+            if argument.hasPrefix("-") {
+                throw OpenComputerUseCLIError(message: "Unknown turn-ended option: \(argument)", helpCommand: "turn-ended")
+            }
+
+            guard payload == nil else {
+                throw OpenComputerUseCLIError(message: "turn-ended accepts at most one payload argument", helpCommand: "turn-ended")
+            }
+
+            payload = argument
+        }
+
+        index += 1
+    }
+
+    return .turnEnded(payload: payload)
 }
 
 private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLICommand {

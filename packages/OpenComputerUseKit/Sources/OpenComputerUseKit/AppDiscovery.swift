@@ -49,6 +49,7 @@ enum AppDiscovery {
     private static let lastUsedDateRankingAttribute = "kMDItemLastUsedDate_Ranking"
     private static let useCountAttribute = "kMDItemUseCount"
     private static let maxRecentNonRunningApps = 10
+    private static let fixtureListBundleIdentifier = "dev.opencodex.opencomputeruse.fixture"
 
     static let usageDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -61,7 +62,7 @@ enum AppDiscovery {
     static func listCatalog() -> [ListedAppDescriptor] {
         let running = userFacingRunningApps()
         let runningByBundle = running.reduce(into: [String: RunningAppDescriptor]()) { result, descriptor in
-            guard let bundleIdentifier = descriptor.bundleIdentifier, !bundleIdentifier.isEmpty else {
+            guard let bundleIdentifier = listedBundleIdentifier(for: descriptor) else {
                 return
             }
 
@@ -86,7 +87,7 @@ enum AppDiscovery {
         }
 
         for descriptor in running {
-            guard let bundleIdentifier = descriptor.bundleIdentifier, !bundleIdentifier.isEmpty else {
+            guard let bundleIdentifier = listedBundleIdentifier(for: descriptor) else {
                 continue
             }
 
@@ -178,7 +179,7 @@ enum AppDiscovery {
                 continue
             }
 
-            guard let bundleIdentifier = descriptor.bundleIdentifier, !bundleIdentifier.isEmpty else {
+            guard let bundleIdentifier = listedBundleIdentifier(for: descriptor) else {
                 continue
             }
 
@@ -191,6 +192,18 @@ enum AppDiscovery {
         }
 
         return descriptors
+    }
+
+    private static func listedBundleIdentifier(for descriptor: RunningAppDescriptor) -> String? {
+        if let bundleIdentifier = descriptor.bundleIdentifier, !bundleIdentifier.isEmpty {
+            return bundleIdentifier
+        }
+
+        guard descriptor.name == FixtureBridge.appName else {
+            return nil
+        }
+
+        return fixtureListBundleIdentifier
     }
 
     private static func compareListedApps(_ lhs: ListedAppDescriptor, _ rhs: ListedAppDescriptor) -> Bool {
