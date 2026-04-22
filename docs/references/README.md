@@ -14,7 +14,7 @@
 ## 当前目录
 
 - `codex-computer-use-reverse-engineering/`
-  - 官方 `Codex Computer Use.app` / `SkyComputerUseClient` 的持续逆向分析资料。
+  - 官方 `Codex Computer Use.app` / `SkyComputerUseClient` 的持续逆向分析资料；大体积一次性分析产物默认在本地 `research/` 下重新生成，不提交进仓库。
 - `codex-network-capture.md`
   - 用 `mitmdump` + `scripts/codex_dump.py` 抓 Codex 上游 HTTP / WebSocket 流量，并把对应 `session_id` 的本地 `function_call` / `function_call_output` 摘要一起沉淀到 `artifacts/codex-dumps/` 做持续分析。
 - `codex-local-runtime-logs.md`

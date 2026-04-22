@@ -4,5 +4,6 @@
 .swiftpm/
 dist/
 artifacts/codex-dumps/
+research/
 __pycache__/
 *.pyc

@@ -14,6 +14,8 @@
   - 当前已确认的 client-service 内部 IPC 类型、sender authorization、skyshot 模型和 service 生命周期线索。
 - `tool-call-samples-2026-04-17.md`
   - 2026-04-17 对 9 个公开 `computer-use` tools 的实测 request / response 样本。
+- `background-click-free-tooling.md`
+  - 用 Ghidra、radare2、Apple CLI 和 Swift 原型替代 IDA Pro 研究后台点击路径的方法论，供后续 Agent 在本地 `research/` 目录重新生成大体积分析产物。
 - `software-cursor-overlay.md`
   - 对黄色虚拟鼠标 overlay 的资源、字符串和运行时窗口证据分析。
 - `software-cursor-motion-model.md`
