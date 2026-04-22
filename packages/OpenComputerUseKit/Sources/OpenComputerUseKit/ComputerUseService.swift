@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationServices
 import Foundation
+import ImageIO
 
 struct VisualCursorTarget: Equatable {
     let point: CGPoint
@@ -112,6 +113,42 @@ func globalPointerFallbacksEnabled(environment: [String: String]) -> Bool {
     return ["1", "true", "yes", "on"].contains(rawValue)
 }
 
+func screenshotPixelScale(
+    screenshotPixelSize: CGSize?,
+    windowBounds: CGRect?
+) -> CGSize {
+    guard
+        let screenshotPixelSize,
+        let windowBounds,
+        windowBounds.width > 0,
+        windowBounds.height > 0,
+        screenshotPixelSize.width > 0,
+        screenshotPixelSize.height > 0
+    else {
+        return CGSize(width: 1, height: 1)
+    }
+
+    return CGSize(
+        width: screenshotPixelSize.width / windowBounds.width,
+        height: screenshotPixelSize.height / windowBounds.height
+    )
+}
+
+func screenshotPixelToWindowPoint(
+    _ point: CGPoint,
+    screenshotPixelSize: CGSize?,
+    windowBounds: CGRect?
+) -> CGPoint {
+    let scale = screenshotPixelScale(
+        screenshotPixelSize: screenshotPixelSize,
+        windowBounds: windowBounds
+    )
+    return CGPoint(
+        x: point.x / scale.width,
+        y: point.y / scale.height
+    )
+}
+
 let nonSettableSetValueErrorMessage = "Cannot set a value for an element that is not settable"
 
 func setValueAttributeIsSettable(result: AXError, settable: Bool, attribute: String) throws -> Bool {
@@ -206,8 +243,9 @@ public final class ComputerUseService {
 
             pulseVisualCursor(at: cursorTarget, clickCount: clickCount, mouseButton: button)
         } else if let x, let y {
-            let point = CGPoint(x: x, y: y)
-            let targetPoint = try screenshotToGlobalPoint(snapshot: snapshot, x: x, y: y)
+            let screenshotPoint = CGPoint(x: x, y: y)
+            let point = screenshotPixelToWindowPointInSnapshot(snapshot: snapshot, point: screenshotPoint)
+            let targetPoint = try windowPointToGlobalPoint(snapshot: snapshot, point: point)
             let cursorTarget = makeVisualCursorTarget(
                 at: targetPoint,
                 targetWindowID: snapshot.targetWindowID,
@@ -231,7 +269,7 @@ public final class ComputerUseService {
                         at: targetPoint,
                         button: button,
                         clickCount: clickCount,
-                        targetDescription: "x=\(Int(point.x)) y=\(Int(point.y))",
+                        targetDescription: "x=\(Int(screenshotPoint.x)) y=\(Int(screenshotPoint.y))",
                         snapshot: snapshot
                     )
                 }
@@ -793,16 +831,53 @@ public final class ComputerUseService {
             return nil
         }
 
-        return try screenshotToGlobalPoint(snapshot: snapshot, x: frame.midX, y: frame.midY)
+        return try windowPointToGlobalPoint(
+            snapshot: snapshot,
+            point: CGPoint(x: frame.midX, y: frame.midY)
+        )
     }
 
     private func screenshotToGlobalPoint(snapshot: AppSnapshot, x: Double, y: Double) throws -> CGPoint {
+        try windowPointToGlobalPoint(
+            snapshot: snapshot,
+            point: screenshotPixelToWindowPointInSnapshot(
+                snapshot: snapshot,
+                point: CGPoint(x: x, y: y)
+            )
+        )
+    }
+
+    private func screenshotPixelToWindowPointInSnapshot(snapshot: AppSnapshot, point: CGPoint) -> CGPoint {
+        screenshotPixelToWindowPoint(
+            point,
+            screenshotPixelSize: screenshotPixelSize(snapshot: snapshot),
+            windowBounds: snapshot.windowBounds
+        )
+    }
+
+    private func screenshotPixelSize(snapshot: AppSnapshot) -> CGSize? {
+        guard
+            let screenshotPNGData = snapshot.screenshotPNGData,
+            let imageSource = CGImageSourceCreateWithData(screenshotPNGData as CFData, nil),
+            let properties = CGImageSourceCopyPropertiesAtIndex(imageSource, 0, nil) as? [CFString: Any],
+            let pixelWidth = properties[kCGImagePropertyPixelWidth] as? CGFloat,
+            let pixelHeight = properties[kCGImagePropertyPixelHeight] as? CGFloat,
+            pixelWidth > 0,
+            pixelHeight > 0
+        else {
+            return nil
+        }
+
+        return CGSize(width: pixelWidth, height: pixelHeight)
+    }
+
+    private func windowPointToGlobalPoint(snapshot: AppSnapshot, point: CGPoint) throws -> CGPoint {
         guard let windowBounds = snapshot.windowBounds else {
             let appReference = snapshot.app.bundleIdentifier ?? snapshot.app.name
             throw ComputerUseError.stateUnavailable("No window bounds are available for \(appReference). Run get_app_state after bringing the app on screen.")
         }
 
-        return CGPoint(x: windowBounds.minX + x, y: windowBounds.minY + y)
+        return CGPoint(x: windowBounds.minX + point.x, y: windowBounds.minY + point.y)
     }
 
     private func fixtureIdentifier(at point: CGPoint, snapshot: AppSnapshot) throws -> String {

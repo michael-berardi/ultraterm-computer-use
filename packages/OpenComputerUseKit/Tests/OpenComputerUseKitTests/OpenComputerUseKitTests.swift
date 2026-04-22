@@ -556,36 +556,55 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(point, CGPoint(x: 2415, y: 1783))
     }
 
-    func testScreenStatePointToAppKitGlobalPointConvertsTargetedMouseCoordinates() {
-        let point = screenStatePointToAppKitGlobalPoint(
-            fromScreenStatePoint: CGPoint(x: 2415, y: 181),
-            screenMappings: [
-                VisualCursorScreenMapping(
-                    screenStateFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964),
-                    appKitFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964)
-                ),
-            ]
+    func testScreenshotPixelScaleUsesRetinaSizedImageAgainstWindowBounds() {
+        let scale = screenshotPixelScale(
+            screenshotPixelSize: CGSize(width: 2048, height: 1266),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
         )
 
-        XCTAssertEqual(point, CGPoint(x: 2415, y: 1783))
+        XCTAssertEqual(scale.width, 2, accuracy: 0.0001)
+        XCTAssertEqual(scale.height, 2, accuracy: 0.0001)
     }
 
-    func testScreenStatePointToAppKitGlobalPointPreservesDisplayOffsets() {
-        let point = screenStatePointToAppKitGlobalPoint(
-            fromScreenStatePoint: CGPoint(x: 3320, y: 120),
-            screenMappings: [
-                VisualCursorScreenMapping(
-                    screenStateFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964),
-                    appKitFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964)
-                ),
-                VisualCursorScreenMapping(
-                    screenStateFrame: CGRect(x: 3024, y: 0, width: 1728, height: 1117),
-                    appKitFrame: CGRect(x: 3024, y: -153, width: 1728, height: 1117)
-                ),
-            ]
+    func testScreenshotPixelScaleStaysAtOneForUnscaledDisplays() {
+        let scale = screenshotPixelScale(
+            screenshotPixelSize: CGSize(width: 1024, height: 633),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
         )
 
-        XCTAssertEqual(point, CGPoint(x: 3320, y: 844))
+        XCTAssertEqual(scale.width, 1, accuracy: 0.0001)
+        XCTAssertEqual(scale.height, 1, accuracy: 0.0001)
+    }
+
+    func testScreenshotPixelToWindowPointConvertsScreenshotPixelsBackToWindowPoints() {
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: 1060, y: 790),
+            screenshotPixelSize: CGSize(width: 2048, height: 1266),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(point.x, 530, accuracy: 0.0001)
+        XCTAssertEqual(point.y, 395, accuracy: 0.0001)
+    }
+
+    func testScreenshotPixelToWindowPointKeepsCoordinatesOnUnscaledDisplays() {
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: 530, y: 395),
+            screenshotPixelSize: CGSize(width: 1024, height: 633),
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(point, CGPoint(x: 530, y: 395))
+    }
+
+    func testScreenshotPixelToWindowPointFallsBackToIdentityWithoutImageSize() {
+        let point = screenshotPixelToWindowPoint(
+            CGPoint(x: 530, y: 395),
+            screenshotPixelSize: nil,
+            windowBounds: CGRect(x: 1938, y: 236, width: 1024, height: 633)
+        )
+
+        XCTAssertEqual(point, CGPoint(x: 530, y: 395))
     }
 
     func testCursorWindowGeometryAnchorsTipPosition() {

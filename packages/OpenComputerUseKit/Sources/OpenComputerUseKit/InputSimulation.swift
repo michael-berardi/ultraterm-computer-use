@@ -70,11 +70,10 @@ enum InputSimulation {
             throw ComputerUseError.message("Failed to create targeted event source.")
         }
 
-        let eventPoint = screenStatePointToAppKitGlobalPoint(fromScreenStatePoint: point)
         for _ in 0..<max(clickCount, 1) {
-            try postMouseEventToPid(type: .mouseMoved, source: source, point: eventPoint, button: button.cgButton, clickState: clickCount, pid: pid)
-            try postMouseEventToPid(type: button.downEvent, source: source, point: eventPoint, button: button.cgButton, clickState: clickCount, pid: pid)
-            try postMouseEventToPid(type: button.upEvent, source: source, point: eventPoint, button: button.cgButton, clickState: clickCount, pid: pid)
+            try postMouseEventToPid(type: .mouseMoved, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
+            try postMouseEventToPid(type: button.downEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
+            try postMouseEventToPid(type: button.upEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
         }
     }
 
@@ -83,7 +82,7 @@ enum InputSimulation {
             throw ComputerUseError.message("Failed to create scroll event.")
         }
 
-        event.location = screenStatePointToAppKitGlobalPoint(fromScreenStatePoint: point)
+        event.location = point
         event.postToPid(pid)
         Thread.sleep(forTimeInterval: 0.1)
     }
@@ -103,22 +102,19 @@ enum InputSimulation {
             throw ComputerUseError.message("Failed to create targeted event source.")
         }
 
-        let eventStart = screenStatePointToAppKitGlobalPoint(fromScreenStatePoint: start)
-        let eventEnd = screenStatePointToAppKitGlobalPoint(fromScreenStatePoint: end)
-
-        try postMouseEventToPid(type: .mouseMoved, source: source, point: eventStart, button: .left, clickState: 1, pid: pid)
-        try postMouseEventToPid(type: .leftMouseDown, source: source, point: eventStart, button: .left, clickState: 1, pid: pid)
+        try postMouseEventToPid(type: .mouseMoved, source: source, point: start, button: .left, clickState: 1, pid: pid)
+        try postMouseEventToPid(type: .leftMouseDown, source: source, point: start, button: .left, clickState: 1, pid: pid)
 
         for step in 1...10 {
             let progress = CGFloat(step) / 10
             let point = CGPoint(
-                x: eventStart.x + ((eventEnd.x - eventStart.x) * progress),
-                y: eventStart.y + ((eventEnd.y - eventStart.y) * progress)
+                x: start.x + ((end.x - start.x) * progress),
+                y: start.y + ((end.y - start.y) * progress)
             )
             try postMouseEventToPid(type: .leftMouseDragged, source: source, point: point, button: .left, clickState: 1, pid: pid)
         }
 
-        try postMouseEventToPid(type: .leftMouseUp, source: source, point: eventEnd, button: .left, clickState: 1, pid: pid)
+        try postMouseEventToPid(type: .leftMouseUp, source: source, point: end, button: .left, clickState: 1, pid: pid)
     }
 
     static func dragGlobally(from start: CGPoint, to end: CGPoint) throws {

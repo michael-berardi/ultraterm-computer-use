@@ -12,12 +12,12 @@
 **Scope:** `OpenComputerUseKit`, `docs/ARCHITECTURE.md`, `docs/histories/`
 
 **Key Actions:**
-- **[Coordinate-space fix]**: 抽出共享的 screen-state -> AppKit 全局坐标转换，并把 `click` / `scroll` / `drag` 的 pid-targeted 鼠标事件统一走这条转换路径。
-- **[Regression coverage]**: 增加针对 targeted mouse 坐标转换的单测，覆盖单屏 y 反转和带 display offset 的多屏场景。
-- **[Behavior docs]**: 更新架构文档，明确 pid-targeted mouse / scroll 回放前会先做 screenshot 坐标到 AppKit 全局坐标的映射。
+- **[Retina pixel mapping fix]**: 把 `click` / `drag` 的 screenshot `x/y` 先按截图像素坐标映射回 window points，再拼到 Quartz 全局坐标，避免把 Retina 2x 截图像素直接当成 window point。
+- **[Regression coverage]**: 增加针对 screenshot pixel -> window point 转换的单测，覆盖真实 Calendar 样本里的 `2048x1266` screenshot 对 `1024x633` window bounds 的 2x 场景。
+- **[Behavior docs]**: 更新架构文档，明确 coordinate tools 会先按 screenshot pixel 坐标解释，再依据截图尺寸和 window bounds 做比例换算。
 
 ### 🧠 Design Intent (Why)
-`get_app_state` 暴露给工具的是 screenshot 像素坐标，属于窗口截图/CG window capture 的 y-down 坐标系；而 pid-targeted 鼠标事件最终会被目标 app 按 AppKit-compatible 全局坐标解释。之前直接把 screenshot 坐标喂给 `CGEvent.postToPid`，真实 app 会在错误位置收到点击，表现成点 Calendar 却触发了别的系统 UI。修复的关键不是改 `x/y` 语义，而是在 targeted event replay 前把坐标系补齐。
+`get_app_state` 暴露给工具的是 screenshot 像素坐标。真实窗口 bounds 和 AX frame 则是 point 单位；在 Retina 屏上两者常常正好差一个 `2x`。本地 live 诊断里，Calendar screenshot 是 `2048x1266`，但窗口 bounds 只有 `1024x633`。之前直接把 screenshot 像素当成 window point 去点击，目标点会偏到窗口外，表现成点 Calendar 却触发了别的系统 UI。修复的关键不是再翻一层 y，而是先把 screenshot pixel 坐标按截图尺寸和 window bounds 的比例还原成 point。
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/ComputerUseService.swift`
