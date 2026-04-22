@@ -636,6 +636,32 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(visualCursorPostInteractionIdleTimeout(), 30)
     }
 
+    func testCursorPanelReordersWhenForcedEvenIfTargetWindowDidNotChange() {
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+
+        XCTAssertTrue(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: true,
+                forceReorder: true
+            )
+        )
+    }
+
+    func testCursorPanelDoesNotReorderWhenVisibleAndTargetWindowIsStable() {
+        let targetWindow = CursorTargetWindow(windowID: 42, layer: 0)
+
+        XCTAssertFalse(
+            shouldReorderCursorPanel(
+                activeTargetWindow: targetWindow,
+                effectiveTargetWindow: targetWindow,
+                panelIsVisible: true,
+                forceReorder: false
+            )
+        )
+    }
+
     func testVisualCursorRuntimeMapsAppKitUpwardMotionToCursorMotionScreenState() {
         let renderBaseHeading = visualCursorRenderBaseHeading(
             artworkNeutralHeading: SoftwareCursorGlyphMetrics.targetNeutralHeading

@@ -247,6 +247,10 @@ enum SoftwareCursorOverlay {
     }
 
     private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?) {
+        configureOrdering(relativeTo: targetWindow, forceReorder: false)
+    }
+
+    private static func configureOrdering(relativeTo targetWindow: CursorTargetWindow?, forceReorder: Bool) {
         guard let panel else {
             return
         }
@@ -260,7 +264,12 @@ enum SoftwareCursorOverlay {
             panel.level = desiredLevel
         }
 
-        if activeTargetWindow != effectiveTargetWindow || panel.isVisible == false {
+        if shouldReorderCursorPanel(
+            activeTargetWindow: activeTargetWindow,
+            effectiveTargetWindow: effectiveTargetWindow,
+            panelIsVisible: panel.isVisible,
+            forceReorder: forceReorder
+        ) {
             if let effectiveTargetWindow {
                 panel.order(.above, relativeTo: Int(effectiveTargetWindow.windowID))
             } else {
@@ -457,7 +466,12 @@ enum SoftwareCursorOverlay {
     }
 
     private static func refreshActiveOrderingIfNeeded() {
-        guard let activeTargetWindow, !isWindowPresent(activeTargetWindow.windowID) else {
+        guard let activeTargetWindow else {
+            return
+        }
+
+        if isWindowPresent(activeTargetWindow.windowID) {
+            configureOrdering(relativeTo: activeTargetWindow, forceReorder: true)
             return
         }
 
@@ -694,6 +708,15 @@ enum SoftwareCursorOverlay {
     private static func distanceBetween(_ lhs: CGPoint, _ rhs: CGPoint) -> CGFloat {
         hypot(rhs.x - lhs.x, rhs.y - lhs.y)
     }
+}
+
+func shouldReorderCursorPanel(
+    activeTargetWindow: CursorTargetWindow?,
+    effectiveTargetWindow: CursorTargetWindow?,
+    panelIsVisible: Bool,
+    forceReorder: Bool
+) -> Bool {
+    forceReorder || activeTargetWindow != effectiveTargetWindow || panelIsVisible == false
 }
 
 private final class CursorPanel: NSPanel {
