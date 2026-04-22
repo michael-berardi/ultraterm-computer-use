@@ -355,6 +355,14 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(inputFallbackDebugEnabled(environment: ["OPEN_COMPUTER_USE_DEBUG_INPUT_FALLBACKS": "off"]))
     }
 
+    func testGlobalPointerFallbackFlagDefaultsToDisabled() {
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: [:]))
+        XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]))
+        XCTAssertTrue(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "yes"]))
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]))
+        XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
+    }
+
     func testMakeVisualCursorTargetUsesWindowRelativeElementCenter() {
         let target = makeVisualCursorTarget(
             localFrame: CGRect(x: 24, y: 32, width: 120, height: 48),

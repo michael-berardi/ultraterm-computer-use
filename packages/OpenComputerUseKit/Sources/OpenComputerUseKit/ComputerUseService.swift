@@ -50,6 +50,17 @@ func inputFallbackDebugEnabled(environment: [String: String]) -> Bool {
     return ["1", "true", "yes", "on"].contains(rawValue)
 }
 
+func globalPointerFallbacksEnabled(environment: [String: String]) -> Bool {
+    guard let rawValue = environment["OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+        .lowercased()
+    else {
+        return false
+    }
+
+    return ["1", "true", "yes", "on"].contains(rawValue)
+}
+
 public final class ComputerUseService {
     private var snapshotsByApp: [String: AppSnapshot] = [:]
 
@@ -105,13 +116,13 @@ public final class ComputerUseService {
                 if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
                     Thread.sleep(forTimeInterval: 0.15)
                 } else {
-                    debugInputFallback(
-                        tool: "click",
+                    try performGlobalClickFallback(
+                        at: targetPoint,
+                        button: button,
+                        clickCount: clickCount,
                         targetDescription: "element_index=\(elementIndex)",
                         snapshot: snapshot
                     )
-                    InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
-                    try InputSimulation.clickGlobally(at: targetPoint, button: button, clickCount: clickCount)
                 }
             } catch {
                 settleVisualCursor(at: cursorTarget)
@@ -135,13 +146,13 @@ public final class ComputerUseService {
                    try performPreferredClick(on: record, button: button, clickCount: clickCount) {
                     Thread.sleep(forTimeInterval: 0.15)
                 } else {
-                    debugInputFallback(
-                        tool: "click",
+                    try performGlobalClickFallback(
+                        at: targetPoint,
+                        button: button,
+                        clickCount: clickCount,
                         targetDescription: "x=\(Int(point.x)) y=\(Int(point.y))",
                         snapshot: snapshot
                     )
-                    InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
-                    try InputSimulation.clickGlobally(at: targetPoint, button: button, clickCount: clickCount)
                 }
             } catch {
                 settleVisualCursor(at: cursorTarget)
@@ -343,13 +354,13 @@ public final class ComputerUseService {
     }
 
     private func performPreferredClick(on record: ElementRecord, button: MouseButtonKind, clickCount: Int) throws -> Bool {
-        guard let element = record.element, clickCount == 1 else {
+        guard let element = record.element else {
             return false
         }
 
         switch button {
         case .left:
-            if try performAction(named: kAXPressAction as String, on: element, availableActions: record.rawActions) {
+            if try performAction(named: kAXPressAction as String, on: element, availableActions: record.rawActions, repeatCount: clickCount) {
                 return true
             }
 
@@ -357,11 +368,11 @@ public final class ComputerUseService {
                 return true
             }
 
-            if try performAction(named: kAXConfirmAction as String, on: element, availableActions: record.rawActions) {
+            if try performAction(named: kAXConfirmAction as String, on: element, availableActions: record.rawActions, repeatCount: clickCount) {
                 return true
             }
         case .right:
-            if try performAction(named: kAXShowMenuAction as String, on: element, availableActions: record.rawActions) {
+            if try performAction(named: kAXShowMenuAction as String, on: element, availableActions: record.rawActions, repeatCount: clickCount) {
                 return true
             }
         case .middle:
@@ -371,20 +382,27 @@ public final class ComputerUseService {
         return false
     }
 
-    private func performAction(named action: String, on element: AXUIElement, availableActions: [String]) throws -> Bool {
+    private func performAction(named action: String, on element: AXUIElement, availableActions: [String], repeatCount: Int = 1) throws -> Bool {
         guard availableActions.contains(where: { $0.caseInsensitiveCompare(action) == .orderedSame }) else {
             return false
         }
 
-        let result = AXUIElementPerformAction(element, action as CFString)
-        switch result {
-        case .success:
-            return true
-        case .actionUnsupported, .cannotComplete, .noValue:
-            return false
-        default:
-            throw ComputerUseError.message("AXUIElementPerformAction(\(action)) failed with \(result.rawValue)")
+        let attempts = max(repeatCount, 1)
+        for index in 0..<attempts {
+            let result = AXUIElementPerformAction(element, action as CFString)
+            switch result {
+            case .success:
+                if index < attempts - 1 {
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+            case .actionUnsupported, .cannotComplete, .noValue:
+                return false
+            default:
+                throw ComputerUseError.message("AXUIElementPerformAction(\(action)) failed with \(result.rawValue)")
+            }
         }
+
+        return true
     }
 
     private func activateClickTarget(element: AXUIElement, availableActions: [String]) throws -> Bool {
@@ -613,6 +631,28 @@ public final class ComputerUseService {
             "[open-computer-use] global pointer fallback tool=\(tool) app=\(appReference) target=\(targetDescription)\n",
             stderr
         )
+    }
+
+    private func performGlobalClickFallback(
+        at point: CGPoint,
+        button: MouseButtonKind,
+        clickCount: Int,
+        targetDescription: String,
+        snapshot: AppSnapshot
+    ) throws {
+        guard globalPointerFallbacksEnabled(environment: ProcessInfo.processInfo.environment) else {
+            throw ComputerUseError.message(
+                "click could not be handled through accessibility, and global pointer fallback is disabled. Set OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 to allow physical-pointer fallback for this process."
+            )
+        }
+
+        debugInputFallback(
+            tool: "click",
+            targetDescription: targetDescription,
+            snapshot: snapshot
+        )
+        InputSimulation.prepareAppForGlobalPointerInput(snapshot.app)
+        try InputSimulation.clickGlobally(at: point, button: button, clickCount: clickCount)
     }
 
     private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {

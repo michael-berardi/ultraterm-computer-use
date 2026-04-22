@@ -65,14 +65,14 @@
 - overlay 的 progress 曲线也不再是固定 `easeInOut`；主线现在复用官方 `response=1.4`、`dampingFraction=0.9`、`dt=1/240` 的 spring/`VelocityVerlet` 形状，但 wall-clock duration 仍做本地校准，因为官方 transaction-level 时长映射还没有完全恢复。
 - overlay 不再依赖临时 `terminal settle` 补丁来修尾；主线现在统一改成“路径层给目标点，visual dynamics 层给可见姿态”的双层模型，所以 move 末段、pulse 和 idle 共用同一套状态，不会再出现 endpoint 锁住后只剩原地翻角的收尾。
 - overlay 的渲染输入也从单一 `rotation` 扩展成 `rotation + cursorBodyOffset + fogOffset + fogScale`，让速度滞后能真正体现在画面上，而不是只存在于主循环内部状态；其中 `rotation` 现在按二进制里 `SoftwareCursorStyle.angle + CursorView._animatedAngleOffsetDegrees` 的分层去近似，不再把“跟随运动方向的主朝向”和“小幅 wiggle offset”压成同一个受限小角度。
-- 动作型 tools 对普通 app 采用“非侵入优先，HID 兜底”策略：
+- 动作型 tools 对普通 app 采用“非侵入优先，物理指针路径显式 opt-in”策略：
   - `AXUIElementPerformAction`
   - `AXUIElementSetAttributeValue`
-  - element-targeted `click` 的左键路径会先试 `AXPress`，再试窗口/根元素常见的 `AXRaise`、`kAXMainAttribute`、`kAXFocusedAttribute`；这里不再把 `AXUIElementIsAttributeSettable` 的结果当成硬门槛，因为像 `TextEdit` window 这类元素在 `kAXFocusedAttribute` 上会出现“`isSettable=false` 但直接 set 成功”的官方同款场景
+  - element-targeted `click` 的左键路径会先试 `AXPress`，再试窗口/根元素常见的 `AXRaise`、`kAXMainAttribute`、`kAXFocusedAttribute`；这里不再把 `AXUIElementIsAttributeSettable` 的结果当成硬门槛，因为像 `TextEdit` window 这类元素在 `kAXFocusedAttribute` 上会出现“`isSettable=false` 但直接 set 成功”的官方同款场景；`click_count > 1` 会优先重复可用的 AX action，而不是直接退到全局鼠标事件
   - `AXUIElementCopyElementAtPosition` 做坐标命中，尽量把 coordinate click 反解成可操作 AX 元素
   - `CGEvent.postToPid` 定向发送键盘事件，避免为了 `type_text` / `press_key` 抢前台
-  - 当必须退回全局鼠标路径时，先尝试对目标窗口做 `AXRaise` / main-window 聚焦，只有这些 AX 提升失败后才调用 `NSRunningApplication.activate`
-  - 只有 drag 或无法命中 AX 元素的鼠标路径，才退回全局 `CGEvent` 键鼠事件并尽量缩小对用户当前焦点的影响
+  - `click` 不再默认退回全局 `CGEvent.post(tap: .cghidEventTap)`，因为该路径会发送 `.mouseMoved` 并移动系统硬件光标；只有设置 `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` 时才允许这条物理指针兜底
+  - `drag` 当前仍是 coordinate-only API，无法通过 AX action 完整表达时会继续使用全局鼠标事件；这条路径后续需要继续向官方的 window / event-target aware 路由收敛
 
 ### 4. Fixture Bridge
 
