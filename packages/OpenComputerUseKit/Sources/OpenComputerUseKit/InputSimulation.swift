@@ -65,6 +65,18 @@ enum InputSimulation {
         }
     }
 
+    static func clickTargeted(at point: CGPoint, button: MouseButtonKind, clickCount: Int, pid: pid_t) throws {
+        guard let source = CGEventSource(stateID: .combinedSessionState) else {
+            throw ComputerUseError.message("Failed to create targeted event source.")
+        }
+
+        for _ in 0..<max(clickCount, 1) {
+            try postMouseEventToPid(type: .mouseMoved, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
+            try postMouseEventToPid(type: button.downEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
+            try postMouseEventToPid(type: button.upEvent, source: source, point: point, button: button.cgButton, clickState: clickCount, pid: pid)
+        }
+    }
+
     static func scrollTargeted(at point: CGPoint, direction: String, pages: Double, pid: pid_t) throws {
         guard let event = CGEvent(scrollWheelEvent2Source: nil, units: .line, wheelCount: 2, wheel1: wheel1(direction: direction, pages: pages), wheel2: wheel2(direction: direction, pages: pages), wheel3: 0) else {
             throw ComputerUseError.message("Failed to create scroll event.")

@@ -57,7 +57,7 @@
 
 ```bash
 swift test
-node ./scripts/npm/build-packages.mjs --skip-build --out-dir dist/release/npm-staging-check
+node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 ./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version 0.1.14
 ```
 
@@ -69,6 +69,8 @@ ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
 ```
 
 如果这里打印的不是目标版本，或者 DMG 没按目标版本名产出，不要打 tag。
+
+如果当前 checkout 里已经有和目标版本一致的 `dist/Open Computer Use.app`，也可以临时加 `--skip-build` 跳过重复构建；但在干净 checkout 里不要默认加这个参数，否则 staging 脚本会因为缺少 `dist/Open Computer Use.app` 而失败。
 
 ### 3. 提交版本 bump
 
