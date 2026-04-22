@@ -25,7 +25,7 @@ func currentVisualCursorScreenMappings() -> [VisualCursorScreenMapping] {
     }
 }
 
-func visualCursorAppKitPoint(
+func screenStatePointToAppKitGlobalPoint(
     fromScreenStatePoint point: CGPoint,
     screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
 ) -> CGPoint {
@@ -42,6 +42,16 @@ func visualCursorAppKitPoint(
     )
 }
 
+func visualCursorAppKitPoint(
+    fromScreenStatePoint point: CGPoint,
+    screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
+) -> CGPoint {
+    screenStatePointToAppKitGlobalPoint(
+        fromScreenStatePoint: point,
+        screenMappings: screenMappings
+    )
+}
+
 func makeVisualCursorTarget(
     at point: CGPoint,
     targetWindowID: CGWindowID?,
@@ -49,7 +59,7 @@ func makeVisualCursorTarget(
     screenMappings: [VisualCursorScreenMapping] = currentVisualCursorScreenMappings()
 ) -> VisualCursorTarget {
     VisualCursorTarget(
-        point: visualCursorAppKitPoint(
+        point: screenStatePointToAppKitGlobalPoint(
             fromScreenStatePoint: point,
             screenMappings: screenMappings
         ),

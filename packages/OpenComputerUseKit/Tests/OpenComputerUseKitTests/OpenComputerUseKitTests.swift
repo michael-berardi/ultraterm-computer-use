@@ -556,6 +556,38 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(point, CGPoint(x: 2415, y: 1783))
     }
 
+    func testScreenStatePointToAppKitGlobalPointConvertsTargetedMouseCoordinates() {
+        let point = screenStatePointToAppKitGlobalPoint(
+            fromScreenStatePoint: CGPoint(x: 2415, y: 181),
+            screenMappings: [
+                VisualCursorScreenMapping(
+                    screenStateFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964),
+                    appKitFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964)
+                ),
+            ]
+        )
+
+        XCTAssertEqual(point, CGPoint(x: 2415, y: 1783))
+    }
+
+    func testScreenStatePointToAppKitGlobalPointPreservesDisplayOffsets() {
+        let point = screenStatePointToAppKitGlobalPoint(
+            fromScreenStatePoint: CGPoint(x: 3320, y: 120),
+            screenMappings: [
+                VisualCursorScreenMapping(
+                    screenStateFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964),
+                    appKitFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964)
+                ),
+                VisualCursorScreenMapping(
+                    screenStateFrame: CGRect(x: 3024, y: 0, width: 1728, height: 1117),
+                    appKitFrame: CGRect(x: 3024, y: -153, width: 1728, height: 1117)
+                ),
+            ]
+        )
+
+        XCTAssertEqual(point, CGPoint(x: 3320, y: 844))
+    }
+
     func testCursorWindowGeometryAnchorsTipPosition() {
         let geometry = CursorWindowGeometry(
             windowSize: CGSize(width: 128, height: 128),
