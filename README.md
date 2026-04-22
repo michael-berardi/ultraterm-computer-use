@@ -4,6 +4,10 @@
 
 [![Open Computer Use custom demo cover](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
 
+https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
+
+<sub><em>Gemini CLI connected to `open-computer-use` through MCP, driving real Computer Use actions end to end.</em></sub>
+
 `open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS. An experimental Windows runtime now lives in this repo too, with the same 9-tool surface implemented as a standalone Go-built `.exe`.
 
 This project was inspired by OpenAI's recently released [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of macOS Accessibility, which is why I decided to build an open-source version.

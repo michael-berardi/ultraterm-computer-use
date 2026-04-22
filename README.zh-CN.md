@@ -4,6 +4,10 @@
 
 [![open-computer-use 自定义演示封面](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
 
+https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
+
+<sub><em>Gemini CLI 作为 host 接入 `open-computer-use` MCP，并完整触发真实的 Computer Use 操作。</em></sub>
+
 `open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS 上的 `Computer Use` 能力。仓库里也已经新增实验性的 Windows runtime，用 Go 生成独立 `.exe`，暴露同样的 9 个 tool。
 
 项目的背后是 OpenAI 刚发布的 [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/)，让我看到了基于 Accessibility 可以实现非抢占式 CUA 能力，因此决定复刻一个开源版本
