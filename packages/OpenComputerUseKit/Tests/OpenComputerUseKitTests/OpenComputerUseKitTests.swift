@@ -34,7 +34,20 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         XCTAssertEqual(
             try parseOpenComputerUseCLI(arguments: ["call", "--calls", calls]),
-            .call(.sequence(callsJSON: calls, callsFile: nil))
+            .call(.sequence(
+                callsJSON: calls,
+                callsFile: nil,
+                interCallDelay: openComputerUseDefaultInterCallDelay
+            ))
+        )
+    }
+
+    func testCLIRecognizesJSONSequenceCallCommandWithCustomSleep() throws {
+        let calls = #"[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]"#
+
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["call", "--calls", calls, "--sleep", "0.5"]),
+            .call(.sequence(callsJSON: calls, callsFile: nil, interCallDelay: 0.5))
         )
     }
 
@@ -67,6 +80,30 @@ final class OpenComputerUseKitTests: XCTestCase {
                 error as? OpenComputerUseCLIError,
                 OpenComputerUseCLIError(
                     message: "call sequence does not accept a tool name, --args, or --args-file",
+                    helpCommand: "call"
+                )
+            )
+        }
+    }
+
+    func testCLIRejectsSleepForSingleToolCall() {
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["call", "list_apps", "--sleep", "0.5"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(
+                    message: "--sleep is only supported with --calls or --calls-file",
+                    helpCommand: "call"
+                )
+            )
+        }
+    }
+
+    func testCLIRejectsInvalidSequenceSleepValue() {
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["call", "--calls", "[]", "--sleep", "-1"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(
+                    message: "--sleep requires a non-negative number of seconds",
                     helpCommand: "call"
                 )
             )
@@ -139,13 +176,32 @@ final class OpenComputerUseKitTests: XCTestCase {
         let output = try runOpenComputerUseCall(
             .sequence(
                 callsJSON: #"[{"tool":"not_a_tool"},{"tool":"list_apps"}]"#,
-                callsFile: nil
+                callsFile: nil,
+                interCallDelay: openComputerUseDefaultInterCallDelay
             )
         )
 
         let outputs = try XCTUnwrap(output.jsonObject as? [[String: Any]])
         XCTAssertEqual(outputs.count, 1)
         XCTAssertTrue(output.hasToolError)
+    }
+
+    func testRunCallSequenceSleepsBetweenSuccessfulOperations() throws {
+        var recordedSleeps: [TimeInterval] = []
+
+        let output = try runOpenComputerUseCall(
+            .sequence(
+                callsJSON: #"[{"tool":"list_apps"},{"tool":"list_apps"},{"tool":"list_apps"}]"#,
+                callsFile: nil,
+                interCallDelay: openComputerUseDefaultInterCallDelay
+            ),
+            sleepHandler: { recordedSleeps.append($0) }
+        )
+
+        let outputs = try XCTUnwrap(output.jsonObject as? [[String: Any]])
+        XCTAssertEqual(outputs.count, 3)
+        XCTAssertEqual(recordedSleeps, [openComputerUseDefaultInterCallDelay, openComputerUseDefaultInterCallDelay])
+        XCTAssertFalse(output.hasToolError)
     }
 
     func testPermissionDiagnosticsListsMissingPermissionsInCanonicalOrder() {
@@ -379,15 +435,15 @@ final class OpenComputerUseKitTests: XCTestCase {
 
     func testSnapshotRenderedTextStartsDirectlyWithAppHeader() {
         let snapshot = makeSnapshot(
-            treeLines: ["\t0 standard window Feishu"],
+            treeLines: ["\t0 standard window Sample Chat"],
             focusedSummary: "247 text entry area"
         )
 
         let rendered = snapshot.renderedText(style: .actionResult)
         let lines = rendered.components(separatedBy: "\n")
 
-        XCTAssertEqual(lines.first, "App=com.electron.lark (pid 18465)")
-        XCTAssertEqual(lines.dropFirst().first, "Window: \"Feishu\", App: Feishu.")
+        XCTAssertEqual(lines.first, "App=com.example.SampleChat (pid 18465)")
+        XCTAssertEqual(lines.dropFirst().first, "Window: \"Sample Chat\", App: Sample Chat.")
         XCTAssertFalse(rendered.contains("Computer Use state (CUA App Version: 750)"))
         XCTAssertFalse(rendered.contains("<app_state>"))
         XCTAssertFalse(rendered.contains("</app_state>"))
@@ -452,17 +508,24 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testMakeVisualCursorTargetUsesWindowRelativeElementCenter() {
+        let screenMappings = [
+            VisualCursorScreenMapping(
+                screenStateFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000),
+                appKitFrame: CGRect(x: 0, y: 0, width: 1600, height: 1000)
+            ),
+        ]
         let target = makeVisualCursorTarget(
             localFrame: CGRect(x: 24, y: 32, width: 120, height: 48),
             windowBounds: CGRect(x: 400, y: 220, width: 900, height: 640),
             targetWindowID: 321,
-            targetWindowLayer: 8
+            targetWindowLayer: 8,
+            screenMappings: screenMappings
         )
 
         XCTAssertEqual(
             target,
             VisualCursorTarget(
-                point: CGPoint(x: 484, y: 276),
+                point: CGPoint(x: 484, y: 724),
                 window: CursorTargetWindow(windowID: 321, layer: 8)
             )
         )
@@ -477,6 +540,20 @@ final class OpenComputerUseKitTests: XCTestCase {
                 targetWindowLayer: 8
             )
         )
+    }
+
+    func testVisualCursorAppKitPointConvertsScreenStateYDownCoordinates() {
+        let point = visualCursorAppKitPoint(
+            fromScreenStatePoint: CGPoint(x: 2415, y: 181),
+            screenMappings: [
+                VisualCursorScreenMapping(
+                    screenStateFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964),
+                    appKitFrame: CGRect(x: 0, y: 0, width: 3024, height: 1964)
+                ),
+            ]
+        )
+
+        XCTAssertEqual(point, CGPoint(x: 2415, y: 1783))
     }
 
     func testCursorWindowGeometryAnchorsTipPosition() {
@@ -784,12 +861,12 @@ final class OpenComputerUseKitTests: XCTestCase {
     private func makeSnapshot(treeLines: [String], focusedSummary: String?, selectedText: String? = nil) -> AppSnapshot {
         AppSnapshot(
             app: RunningAppDescriptor(
-                name: "Feishu",
-                bundleIdentifier: "com.electron.lark",
+                name: "Sample Chat",
+                bundleIdentifier: "com.example.SampleChat",
                 pid: 18_465,
                 runningApplication: NSRunningApplication.current
             ),
-            windowTitle: "Feishu",
+            windowTitle: "Sample Chat",
             windowBounds: nil,
             targetWindowID: nil,
             targetWindowLayer: nil,

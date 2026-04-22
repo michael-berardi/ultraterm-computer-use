@@ -12,12 +12,12 @@ import (
 func TestReadToolArgsAcceptsJSONObject(t *testing.T) {
 	t.Parallel()
 
-	args, err := readToolArgs(`{"app":"Feishu","clicks":2}`, "")
+	args, err := readToolArgs(`{"app":"TextEdit","clicks":2}`, "")
 	if err != nil {
 		t.Fatalf("readToolArgs returned error: %v", err)
 	}
 
-	if got, want := args["app"], "Feishu"; got != want {
+	if got, want := args["app"], "TextEdit"; got != want {
 		t.Fatalf("app = %#v, want %#v", got, want)
 	}
 

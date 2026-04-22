@@ -62,11 +62,11 @@ sqlite3 -readonly "$HOME/.codex/logs_2.sqlite" ".tables"
 对官方 `computer-use`，常见形态类似：
 
 ```text
-ToolCall: mcp__computer_use__click {"app":"com.electron.lark","x":194,"y":321}
+ToolCall: mcp__computer_use__click {"app":"com.example.SampleChat","x":194,"y":321}
 ```
 
 ```text
-event.name="codex.tool_result" tool_name=mcp__computer_use__click ... arguments={"app":"com.electron.lark","x":194,"y":321} ... output=...
+event.name="codex.tool_result" tool_name=mcp__computer_use__click ... arguments={"app":"com.example.SampleChat","x":194,"y":321} ... output=...
 ```
 
 当日志粒度足够时，还能看到：

@@ -146,9 +146,12 @@ public struct OpenComputerUseCallOutput {
     }
 }
 
+public typealias OpenComputerUseSleepHandler = (TimeInterval) -> Void
+
 public func runOpenComputerUseCall(
     _ invocation: OpenComputerUseCallInvocation,
-    service: ComputerUseService = ComputerUseService()
+    service: ComputerUseService = ComputerUseService(),
+    sleepHandler: OpenComputerUseSleepHandler = { Thread.sleep(forTimeInterval: $0) }
 ) throws -> OpenComputerUseCallOutput {
     let dispatcher = ComputerUseToolDispatcher(service: service)
 
@@ -164,12 +167,12 @@ public func runOpenComputerUseCall(
             hasToolError: result.isError
         )
 
-    case let .sequence(callsJSON, callsFile):
+    case let .sequence(callsJSON, callsFile, interCallDelay):
         let calls = try readOpenComputerUseCallSequence(json: callsJSON, file: callsFile)
         var outputs: [[String: Any]] = []
         var hasToolError = false
 
-        for call in calls {
+        for (index, call) in calls.enumerated() {
             let result = dispatcher.callToolAsResult(name: call.tool, arguments: call.arguments)
             outputs.append([
                 "tool": call.tool,
@@ -179,6 +182,10 @@ public func runOpenComputerUseCall(
             if result.isError {
                 hasToolError = true
                 break
+            }
+
+            if index < calls.count - 1, interCallDelay > 0 {
+                sleepHandler(interCallDelay)
             }
         }
 

@@ -59,7 +59,9 @@ open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 
 # 在同一个进程里编排连续动作，复用 get_app_state 拿到的 element_index
+# 连续动作默认会在成功的相邻操作之间 sleep 1 秒
 open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
+open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 
 # 检查权限；只有缺失时才会拉起引导，已全部授权则只打印状态并退出
 open-computer-use doctor
