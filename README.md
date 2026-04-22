@@ -44,8 +44,14 @@ Besides using the MCP JSON config above, you can also use the built-in subcomman
 ```bash
 # Install into Claude Code by writing to ~/.claude.json
 open-computer-use install-claude-mcp
+# Install into Gemini CLI for the current project by writing to ./.gemini/settings.json
+open-computer-use install-gemini-mcp
+# Install into Gemini CLI user config instead
+open-computer-use install-gemini-mcp --scope user
 # Install into Codex by writing to ~/.codex/config.toml
 open-computer-use install-codex-mcp
+# Install into opencode by writing to ~/.config/opencode/opencode.json (or the active config file)
+open-computer-use install-opencode-mcp
 # Install as a Codex plugin, mainly for Codex App usage; if you use this, you usually do not need install-codex-mcp as well
 open-computer-use install-codex-plugin
 # Start the MCP server directly
