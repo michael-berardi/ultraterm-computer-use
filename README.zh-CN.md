@@ -1,36 +1,57 @@
 # open-computer-use
 
-[English Version](./README.md)
+[![English](https://img.shields.io/badge/English-Click-yellow)](./README.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-orange)](./README.zh-CN.md)
+[![Release](https://img.shields.io/github/v/release/iFurySt/open-codex-computer-use)](https://github.com/iFurySt/open-codex-computer-use/releases)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/iFurySt/open-codex-computer-use)
+<a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2FiFurySt%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/iFurySt/open-codex-computer-use" alt="LLMAPIS" width="20" /></a>
 
-[![open-computer-use 自定义演示封面](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
+---
 
-https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
-
-<sub><em>Gemini CLI 作为 host 接入 `open-computer-use` MCP，并完整触发真实的 Computer Use 操作。</em></sub>
-
-`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS、Linux 和 Windows 上的 `Computer Use` 能力。macOS 侧以 app bundle 分发，Windows 和 Linux runtime 用 Go 生成独立二进制，暴露同样的 9 个 tool。
+`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS、Linux 和 Windows 上的 `Computer Use` 能力。
 
 项目的背后是 OpenAI 刚发布的 [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/)，让我看到了基于 Accessibility 可以实现非抢占式 CUA 能力，因此决定复刻一个开源版本
 
 在这期间我利用了之前写的 [harness 模版](https://github.com/iFurySt/harness-template) 开启了这个新项目。这是一个可以快速拉起面向 AI 仓库的 template，非常适合 100% AI-Generated 的项目，也是这一个月来我们最大的实践和收获。现在我们可以基于这套方法论快速实现很多东西；如果你有兴趣，我也写了一篇[文章](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/)专门介绍这套方法论
 
-## Quick Start
+## 演示
 
-当前 npm 包会内置 macOS、Linux、Windows 的 native runtime，并由 root launcher 按当前 `os-arch` 拉起对应制品：
+### Codex App 和 Codex CLI
+
+[![open-computer-use 自定义演示封面](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
+
+<sub><em>`open-computer-use` 作为 Computer Use，在 Codex App 和 Codex CLI 里使用，和官方体验一致。</em></sub>
+
+### Gemini CLI
+
+https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
+
+<sub><em>Gemini CLI 通过MCP接入使用 `open-computer-use`，实现完整的 Computer Use 操作。</em></sub>
+
+### Linux
+
+https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
+
+<sub><em>`open-computer-use` 在 Linux 里使用</em></sub>
+
+## Quick Start
 
 ```bash
 npm i -g open-computer-use
 ```
 
-macOS 第一次使用前，给你实际准备长期保留的那个 `Open Computer Use.app` 授予 `Accessibility` 和 `Screen Recording` 权限。CI 产出的 release 包继续作为正式分发身份；本地 debug/dev 构建会故意打成 `Open Computer Use (Dev).app`，这样系统设置里会明确显示成一个开发版 app，而不是再出现两个同名的 `Open Computer Use`。
-
-Linux 和 Windows 需要跑在已登录桌面 session 里，这样 AT-SPI2 或 UI Automation 才能看到 GUI app。先用下面的命令确认内置 native runtime 已经接好：
-
+**macOS 第一次使用前，需要授权 `Accessibility` 和 `Screen Recording` 的权限，windows和linux无需执行**
 ```bash
-open-computer-use --version
+open-computer-use
 ```
 
-接着把它配到你的 MCP client 里：
+开始用前可以通过一键安装到主流的Agent里：
+```bash
+# 一键安装到 Codex，写到 ~/.codex/config.toml 中
+open-computer-use install-codex-mcp
+```
+
+也可以手动配置到你自己的客户端里：
 
 ```json
 {
@@ -48,6 +69,12 @@ open-computer-use --version
 除了直接用上面的 MCP JSON 配置，你也可以用一些内置子命令：
 
 ```bash
+# 一键安装到 Codex，写到 ~/.codex/config.toml 中
+open-computer-use install-codex-mcp
+
+# 一键安装到 Codex 插件，主要方便在 Codex App 中使用
+open-computer-use install-codex-plugin
+
 # 一键安装到 Claude Code，写到 ~/.claude.json 中
 open-computer-use install-claude-mcp
 
@@ -57,17 +84,8 @@ open-computer-use install-gemini-mcp
 # 一键安装到 Gemini CLI 用户级配置
 open-computer-use install-gemini-mcp --scope user
 
-# 一键安装到 Codex，写到 ~/.codex/config.toml 中
-open-computer-use install-codex-mcp
-
 # 一键安装到 opencode，写到 ~/.config/opencode/opencode.json（或当前生效的配置文件）
 open-computer-use install-opencode-mcp
-
-# 一键安装到 Codex 插件，主要方便在 Codex App 中使用
-open-computer-use install-codex-plugin
-
-# 直接启动 MCP server
-open-computer-use mcp
 
 # 直接调用单个 Computer Use tool，输出 MCP 风格的 JSON result
 open-computer-use call list_apps
@@ -85,47 +103,9 @@ open-computer-use doctor
 open-computer-use -h
 ```
 
-## Windows Runtime
-
-Windows 侧不复用 Swift `.app`，而是放在 `apps/OpenComputerUseWindows` 里独立构建；执行时优先走 Windows UI Automation，必要时用 Win32 window message 做 fallback。
-
-```bash
-# 从仓库里构建 Windows arm64 exe
-./scripts/build-open-computer-use-windows.sh --arch arm64
-
-# 在 Windows 里直接运行
-open-computer-use.exe mcp
-open-computer-use.exe call list_apps
-open-computer-use.exe call --calls "[{\"tool\":\"get_app_state\",\"args\":{\"app\":\"notepad\"}},{\"tool\":\"type_text\",\"args\":{\"app\":\"notepad\",\"text\":\"hello\"}}]"
-```
-
-这个 `.exe` 需要跑在已登录的桌面 session 里。作为 Windows service 或纯 SSH 脱离桌面运行时，系统可能不给它暴露顶层 UI Automation 窗口。
-
-默认情况下，Windows runtime 只连接已经运行的 app，不会自动启动目标 app，也不会执行 `SetFocus`；`type_text` 也会避开 UIA `ValuePattern.SetValue` fallback，因为有些 app 会在这条路径里主动把自己带到前台。如果确实需要旧的前台行为，可以设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` 允许启动 fallback，设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1` 允许 `SetFocus` secondary action，设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1` 允许 UIA text fallback。
-
-## Linux Runtime
-
-Linux 侧也不复用 Swift `.app`，而是放在 `apps/OpenComputerUseLinux` 里独立构建；执行时走已登录桌面 session 的 AT-SPI2 / D-Bus accessibility。默认优先用语义化 action、editable text 和 value 接口；坐标鼠标、拖拽和键盘合成只是 best-effort fallback，不等价于一套通用的 Wayland 后台输入模型。
-
-```bash
-# 从仓库里构建 Linux arm64 binary
-./scripts/build-open-computer-use-linux.sh --arch arm64
-
-# 在 Linux 已登录桌面 session 里直接运行
-open-computer-use mcp
-open-computer-use call list_apps
-open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"gnome-text-editor"}},{"tool":"type_text","args":{"app":"gnome-text-editor","text":"hello"}}]'
-```
-
-runtime 需要桌面用户的 D-Bus 和 display session。缺少这些变量时，它会在启动时尝试从 `/run/user/<uid>` 和常见桌面进程自动发现当前用户已登录的桌面 session，所以 Codex 的正常接入路径仍然是 `npm i -g open-computer-use`、`open-computer-use install-codex-mcp`，然后用同一个桌面用户重启 Codex。纯 SSH tty 如果找不到已登录桌面 session，可以构建和启动二进制，但不能直接 inspect 或操作 GUI session。GNOME Wayland 下截图是 best-effort，如果 compositor 返回黑图，Linux bridge 会省略 image block。
-
 ## Cursor Motion
 
-Cursor Motion 是一个面向 macOS 的开源光标运动系统，基于 Software.Inc 几位大佬的公开信息实现的开源版本，可以代码里运行，也可以到 [Releases 页面](https://github.com/iFurySt/open-codex-computer-use/releases) 下载 app 运行。
-
-```bash
-swift run CursorMotion
-```
+Cursor Motion 是一个面向 macOS 的开源光标运动系统，基于 Software.Inc 几位大佬的公开信息实现的开源版本，也可以到 [Releases 页面](https://github.com/iFurySt/open-codex-computer-use/releases) 下载 app 运行。
 
 [![Cursor Motion 自定义演示封面](./docs/generated/readme-assets/cursor-motion-demo-cover.png)](https://youtu.be/KRUq5GUHv1Q)
 

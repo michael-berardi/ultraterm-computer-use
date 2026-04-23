@@ -1,36 +1,59 @@
 # open-computer-use
 
-[中文说明](./README.zh-CN.md)
+[![English](https://img.shields.io/badge/English-Click-yellow)](./README.md)
+[![简体中文](https://img.shields.io/badge/简体中文-点击查看-orange)](./README.zh-CN.md)
+[![Release](https://img.shields.io/github/v/release/iFurySt/open-codex-computer-use)](https://github.com/iFurySt/open-codex-computer-use/releases)
+[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/iFurySt/open-codex-computer-use)
+<a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2FiFurySt%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/iFurySt/open-codex-computer-use" alt="LLMAPIS" width="20" /></a>
+
+---
+
+`open-computer-use` is an open-source `Computer Use` service wrapped as `MCP`. Any AI agent or MCP client can use it to run Computer Use on macOS, Linux, and Windows.
+
+This project was inspired by OpenAI's [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of Accessibility, so I decided to build an open-source version.
+
+I started this repo with my [harness template](https://github.com/iFurySt/harness-template), a template for quickly spinning up AI-first projects. It has been one of our most useful workflows lately, especially for nearly 100% AI-generated projects. I also wrote [a post](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/) about the methodology behind it.
+
+## Demos
+
+### Codex App and Codex CLI
 
 [![Open Computer Use custom demo cover](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
 
+<sub><em>`open-computer-use` used as Computer Use in Codex App and Codex CLI, matching the official experience.</em></sub>
+
+### Gemini CLI
+
 https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 
-<sub><em>Gemini CLI connected to `open-computer-use` through MCP, driving real Computer Use actions end to end.</em></sub>
+<sub><em>Gemini CLI connects to `open-computer-use` through MCP and runs full Computer Use actions.</em></sub>
 
-`open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS, Linux, and Windows. The macOS runtime ships as an app bundle, while the Windows and Linux runtimes expose the same 9-tool surface through standalone Go-built binaries.
+### Linux
 
-This project was inspired by OpenAI's recently released [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of macOS Accessibility, which is why I decided to build an open-source version.
+https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 
-I bootstrapped this repo with my earlier [harness template](https://github.com/iFurySt/harness-template). It is a template for spinning up an AI-oriented repository quickly, especially for projects that are close to 100% AI-generated. This has been one of our most useful workflows over the past month, and it now lets us ship new ideas very quickly. If you are interested, I also wrote [a post](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/) about the methodology behind it.
+<sub><em>`open-computer-use` running on Linux.</em></sub>
 
 ## Quick Start
-
-The npm package bundles the macOS, Linux, and Windows native runtimes, then the root launcher selects the artifact that matches your current `os-arch`:
 
 ```bash
 npm i -g open-computer-use
 ```
 
-On macOS, grant `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` you actually plan to keep installed. The CI-built release package remains the stable identity for distribution. Local debug/dev builds are intentionally packaged as `Open Computer Use (Dev).app`, so System Settings shows them as a separate development app instead of another indistinguishable `Open Computer Use`.
-
-On Linux and Windows, run it in the signed-in desktop session so AT-SPI2 or UI Automation can see GUI apps. To confirm the bundled native runtime is wired correctly, run:
+**On macOS, run it once and grant `Accessibility` and `Screen Recording`. Windows and Linux do not need this step.**
 
 ```bash
-open-computer-use --version
+open-computer-use
 ```
 
-Then add it to your MCP client:
+Before using it, install it into your agent:
+
+```bash
+# Install into Codex by writing to ~/.codex/config.toml
+open-computer-use install-codex-mcp
+```
+
+Or add it to your own client manually:
 
 ```json
 {
@@ -45,77 +68,46 @@ Then add it to your MCP client:
 
 ## More
 
-Besides using the MCP JSON config above, you can also use the built-in subcommands:
+Besides the MCP JSON config above, you can also use the built-in commands:
 
 ```bash
-# Install into Claude Code by writing to ~/.claude.json
-open-computer-use install-claude-mcp
-# Install into Gemini CLI for the current project by writing to ./.gemini/settings.json
-open-computer-use install-gemini-mcp
-# Install into Gemini CLI user config instead
-open-computer-use install-gemini-mcp --scope user
 # Install into Codex by writing to ~/.codex/config.toml
 open-computer-use install-codex-mcp
+
+# Install as a Codex plugin, mainly for Codex App
+open-computer-use install-codex-plugin
+
+# Install into Claude Code by writing to ~/.claude.json
+open-computer-use install-claude-mcp
+
+# Install into Gemini CLI for the current project by writing to ./.gemini/settings.json
+open-computer-use install-gemini-mcp
+
+# Install into Gemini CLI user config instead
+open-computer-use install-gemini-mcp --scope user
+
 # Install into opencode by writing to ~/.config/opencode/opencode.json (or the active config file)
 open-computer-use install-opencode-mcp
-# Install as a Codex plugin, mainly for Codex App usage; if you use this, you usually do not need install-codex-mcp as well
-open-computer-use install-codex-plugin
-# Start the MCP server directly
-open-computer-use mcp
+
 # Call a single Computer Use tool and print the MCP-style JSON result
 open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
+
 # Run a sequence in one process so element_index state can be reused
 # Sequence runs sleep 1s between successful operations by default
 open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
 open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
+
 # Check permissions; onboarding only opens when something is missing
 open-computer-use doctor
+
 # Show help
 open-computer-use -h
 ```
 
-## Windows Runtime
-
-The Windows runtime is intentionally separate from the macOS Swift `.app`. It is built from `apps/OpenComputerUseWindows` and uses Windows UI Automation first, then Win32 window messages for fallback input.
-
-```bash
-# Build a Windows arm64 executable from this repo
-./scripts/build-open-computer-use-windows.sh --arch arm64
-
-# On Windows, run it directly
-open-computer-use.exe mcp
-open-computer-use.exe call list_apps
-open-computer-use.exe call --calls "[{\"tool\":\"get_app_state\",\"args\":{\"app\":\"notepad\"}},{\"tool\":\"type_text\",\"args\":{\"app\":\"notepad\",\"text\":\"hello\"}}]"
-```
-
-Run the `.exe` in the signed-in desktop session. Running it as a Windows service or a detached SSH-only process may not expose top-level UI Automation windows.
-
-By default, the Windows runtime only attaches to already running apps, does not call `SetFocus`, and avoids the UIA `ValuePattern.SetValue` fallback for `type_text` because some apps bring themselves forward from that path. If you explicitly want the old foreground behavior, set `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` to allow app launch fallback, `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1` to allow the `SetFocus` secondary action, and `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1` to allow UIA text fallback.
-
-## Linux Runtime
-
-The Linux runtime is also separate from the macOS Swift `.app`. It is built from `apps/OpenComputerUseLinux` and uses AT-SPI2 accessibility over the signed-in desktop session's D-Bus bus. Semantic actions, editable text, and value updates are preferred; coordinate mouse, drag, and key synthesis are best-effort fallbacks rather than a universal Wayland background input model.
-
-```bash
-# Build a Linux arm64 binary from this repo
-./scripts/build-open-computer-use-linux.sh --arch arm64
-
-# On Linux, run it in the signed-in desktop session
-open-computer-use mcp
-open-computer-use call list_apps
-open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"gnome-text-editor"}},{"tool":"type_text","args":{"app":"gnome-text-editor","text":"hello"}}]'
-```
-
-The runtime needs the desktop user's D-Bus and display session. When those variables are missing, it tries to discover the current user's signed-in desktop session at launch from `/run/user/<uid>` and common desktop processes, so the normal Codex setup remains `npm i -g open-computer-use`, `open-computer-use install-codex-mcp`, then restart Codex from the same desktop user. A pure SSH tty without a discoverable signed-in desktop session can build and launch the binary, but it cannot inspect or operate the GUI session. Screenshot capture is best-effort on GNOME Wayland and may be omitted when the compositor returns a black frame.
-
 ## Cursor Motion
 
-Cursor Motion is an open-source cursor motion system for macOS, based on public information shared by members of the Software.Inc team. You can run it from source or download the app from the [Releases page](https://github.com/iFurySt/open-codex-computer-use/releases).
-
-```bash
-swift run CursorMotion
-```
+Cursor Motion is an open-source cursor motion system for macOS, based on public information shared by members of the Software.Inc team. You can download the app from the [Releases page](https://github.com/iFurySt/open-codex-computer-use/releases).
 
 [![Cursor Motion custom demo cover](./docs/generated/readme-assets/cursor-motion-demo-cover.png)](https://youtu.be/KRUq5GUHv1Q)
 
