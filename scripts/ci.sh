@@ -21,6 +21,10 @@ if command -v go >/dev/null 2>&1; then
     cd "${repo_root}/apps/OpenComputerUseWindows"
     go test ./...
   )
+  (
+    cd "${repo_root}/apps/OpenComputerUseLinux"
+    go test ./...
+  )
 fi
 
 echo "基础 CI 检查通过"

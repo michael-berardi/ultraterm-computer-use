@@ -1,6 +1,6 @@
 # 架构总览
 
-这个仓库当前已经从模板收敛成一个本地 `computer-use` 项目。主线仍是 Swift 实现的 macOS automation MCP server，同时新增了实验性的 Windows runtime，用独立 Go `.exe` 暴露同一组 9 个 Computer Use tools。
+这个仓库当前已经从模板收敛成一个本地 `computer-use` 项目。主线仍是 Swift 实现的 macOS automation MCP server，同时新增了实验性的 Windows 和 Linux runtime，用独立 Go 二进制暴露同一组 9 个 Computer Use tools。
 
 ## 当前目录结构
 
@@ -12,6 +12,8 @@
   端到端 smoke runner，会拉起 fixture 和 MCP server，并通过 JSON-RPC 真实调用 9 个 tools；同时也支持单独的 visual cursor idle smoke，用跨进程 observation file 断言等待下一次 move 时是 anchored tip + tiny rotate wobble，而不是横向漂移。
 - `apps/OpenComputerUseWindows`
   实验性 Windows runtime。它不依赖 Swift 或 `.app` bundle，Go CLI/MCP 入口会嵌入 PowerShell UI Automation bridge，构建产物是 `open-computer-use.exe`。
+- `apps/OpenComputerUseLinux`
+  实验性 Linux runtime。它不依赖 Swift 或 `.app` bundle，Go CLI/MCP 入口会嵌入 Python AT-SPI bridge，构建产物是 `open-computer-use`。
 - `packages/OpenComputerUseKit`
   核心库，包含：
   - MCP stdio transport 与 tool registry
@@ -25,7 +27,7 @@
 - `experiments/StandaloneCursor`
   新的独立 Swift cursor viewer，直接复用 `scripts/cursor-motion-re/official_cursor_motion.py` 里收敛出来的候选路径、score 与 raw spring timeline，用来观察更贴近 binary lift 的表现。
 - `scripts/`
-  仓库级自动化命令，包括 smoke test、`.app` 打包入口、Windows `.exe` 构建入口、npm 分发脚本，以及 `scripts/computer-use-cli/` 这个用于探测官方 bundled `computer-use` 的 Go helper。
+  仓库级自动化命令，包括 smoke test、`.app` 打包入口、Windows `.exe` / Linux binary 构建入口、npm 分发脚本，以及 `scripts/computer-use-cli/` 这个用于探测官方 bundled `computer-use` 的 Go helper。
 - `docs/`
   逆向分析、执行计划、history 和项目约束。
 
@@ -106,6 +108,17 @@
 - Windows UI Automation 需要运行在已登录用户的桌面 session 里。通过 SSH 作为脱离桌面的后台进程运行时，PowerShell 可以启动并返回 JSON，但系统可能不给它暴露顶层窗口；这种情况下 `list_apps` 会是空，`get_app_state` 可能返回 `appNotFound(...)`。
 - 当前 Windows 侧仍是功能性第一版：没有 visual cursor overlay、没有 installer/onboarding、没有 code signing，也没有独立的 Windows smoke fixture。后续 TODO 记录在 `docs/exec-plans/active/20260422-windows-computer-use-runtime.md`。
 
+### 7. Linux Runtime
+
+- Linux runtime 位于 `apps/OpenComputerUseLinux`，以 Go 维护 CLI、`call --calls` sequence、MCP JSON-RPC、tool schema 和进程内 snapshot cache。
+- 构建入口是 `scripts/build-open-computer-use-linux.sh --arch arm64|amd64`，默认输出到 `dist/linux/<arch>/open-computer-use`；当前 npm 包仍只发布 macOS app bundle，Linux 分发还没有接入 release package。
+- Go runtime 通过 `go:embed` 带上 `runtime.py`，执行 tool call 时临时落盘并调用 `python3`。Python bridge 使用 GNOME/GObject Introspection 暴露的 AT-SPI2 接口做 app/window discovery、accessibility tree rendering、semantic action、editable text、value set，以及 best-effort 的 key/mouse fallback。
+- Linux 上最接近 macOS AX 的是 AT-SPI2/D-Bus accessibility，而不是一套统一的后台键鼠输入模型。第一版优先使用元素暴露的 AT-SPI action、EditableText 和 Value 接口；coordinate `click` / `drag` 与 `press_key` 使用 AT-SPI event synthesis fallback，在 Wayland 下只能按 best-effort 处理。
+- Linux runtime 需要运行在已登录桌面用户 session 里，并带有 `XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS` 和 display 环境。纯 SSH tty 可以启动二进制，但不能直接 inspect 或操作 GUI session；实机验证时通过 `runuser -u <desktop-user>` 挂到 `/run/user/<uid>/bus`。
+- `get_app_state` 的 accessibility tree 在 GTK/GNOME app 上可能很深，Linux bridge 当前把 traversal depth 放宽到 64。截图通过 GDK root window best-effort capture；GNOME Wayland 可能返回黑图，bridge 会检测全黑采样并省略 image block。
+- 这 9 个 tool 的协议面与 macOS / Windows 保持一致：`list_apps`、`get_app_state`、`click`、`perform_secondary_action`、`scroll`、`drag`、`type_text`、`press_key`、`set_value`。其中 element-targeted action 会优先复用上一轮 `get_app_state` 的 runtime path metadata，coordinate action 使用 screenshot/window-relative 坐标。
+- 当前 Linux 侧仍是功能性第一版：没有 visual cursor overlay、没有 installer/desktop entry、没有 release artifact，也没有独立 Linux fixture。后续 TODO 记录在 `docs/exec-plans/active/20260422-linux-computer-use-runtime.md`。
+
 ## 关键边界
 
 - 开源版当前不复刻官方闭源实现里的 caller signing、私有 IPC、完整 overlay choreography 和 plugin 自安装逻辑。
@@ -125,6 +138,8 @@
 - release tgz：`./scripts/release-package.sh`
 - Windows runtime 单测：`(cd apps/OpenComputerUseWindows && go test ./...)`
 - Windows exe 构建：`./scripts/build-open-computer-use-windows.sh --arch arm64`
+- Linux runtime 单测：`(cd apps/OpenComputerUseLinux && go test ./...)`
+- Linux binary 构建：`./scripts/build-open-computer-use-linux.sh --arch arm64`
 - 对比样本：`artifacts/tool-comparisons/20260417-focus-behavior/`
 - 手工诊断：
   - `.build/debug/OpenComputerUse doctor`

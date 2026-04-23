@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 
 <sub><em>Gemini CLI 作为 host 接入 `open-computer-use` MCP，并完整触发真实的 Computer Use 操作。</em></sub>
 
-`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS 上的 `Computer Use` 能力。仓库里也已经新增实验性的 Windows runtime，用 Go 生成独立 `.exe`，暴露同样的 9 个 tool。
+`open-computer-use` 是一个开源的 `Computer Use` 服务，已经包装成 `MCP` 协议，支持所有的 AI Agent 或 MCP Client 快速调用，实现 macOS 上的 `Computer Use` 能力。仓库里也已经新增实验性的 Windows 和 Linux runtime，用 Go 生成独立二进制，暴露同样的 9 个 tool。
 
 项目的背后是 OpenAI 刚发布的 [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/)，让我看到了基于 Accessibility 可以实现非抢占式 CUA 能力，因此决定复刻一个开源版本
 
@@ -100,6 +100,22 @@ open-computer-use.exe call --calls "[{\"tool\":\"get_app_state\",\"args\":{\"app
 这个 `.exe` 需要跑在已登录的桌面 session 里。作为 Windows service 或纯 SSH 脱离桌面运行时，系统可能不给它暴露顶层 UI Automation 窗口。
 
 默认情况下，Windows runtime 只连接已经运行的 app，不会自动启动目标 app，也不会执行 `SetFocus`；`type_text` 也会避开 UIA `ValuePattern.SetValue` fallback，因为有些 app 会在这条路径里主动把自己带到前台。如果确实需要旧的前台行为，可以设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` 允许启动 fallback，设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1` 允许 `SetFocus` secondary action，设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1` 允许 UIA text fallback。
+
+## Linux Runtime
+
+Linux 侧也不复用 Swift `.app`，而是放在 `apps/OpenComputerUseLinux` 里独立构建；执行时走已登录桌面 session 的 AT-SPI2 / D-Bus accessibility。默认优先用语义化 action、editable text 和 value 接口；坐标鼠标、拖拽和键盘合成只是 best-effort fallback，不等价于一套通用的 Wayland 后台输入模型。
+
+```bash
+# 从仓库里构建 Linux arm64 binary
+./scripts/build-open-computer-use-linux.sh --arch arm64
+
+# 在 Linux 已登录桌面 session 里直接运行
+open-computer-use mcp
+open-computer-use call list_apps
+open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"gnome-text-editor"}},{"tool":"type_text","args":{"app":"gnome-text-editor","text":"hello"}}]'
+```
+
+这个进程需要桌面用户的 `XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS` 和 display 环境。纯 SSH tty 可以构建和启动二进制，但不能直接 inspect 或操作 GUI session。GNOME Wayland 下截图是 best-effort，如果 compositor 返回黑图，Linux bridge 会省略 image block。
 
 ## Cursor Motion
 

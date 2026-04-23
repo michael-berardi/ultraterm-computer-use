@@ -8,7 +8,7 @@ https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 
 <sub><em>Gemini CLI connected to `open-computer-use` through MCP, driving real Computer Use actions end to end.</em></sub>
 
-`open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS. An experimental Windows runtime now lives in this repo too, with the same 9-tool surface implemented as a standalone Go-built `.exe`.
+`open-computer-use` is an open-source `Computer Use` service exposed over `MCP`, so any AI agent or MCP client can call it directly and use computer interaction capabilities on macOS. Experimental Windows and Linux runtimes now live in this repo too, each exposing the same 9-tool surface through standalone Go-built binaries.
 
 This project was inspired by OpenAI's recently released [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of macOS Accessibility, which is why I decided to build an open-source version.
 
@@ -90,6 +90,22 @@ open-computer-use.exe call --calls "[{\"tool\":\"get_app_state\",\"args\":{\"app
 Run the `.exe` in the signed-in desktop session. Running it as a Windows service or a detached SSH-only process may not expose top-level UI Automation windows.
 
 By default, the Windows runtime only attaches to already running apps, does not call `SetFocus`, and avoids the UIA `ValuePattern.SetValue` fallback for `type_text` because some apps bring themselves forward from that path. If you explicitly want the old foreground behavior, set `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` to allow app launch fallback, `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1` to allow the `SetFocus` secondary action, and `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1` to allow UIA text fallback.
+
+## Linux Runtime
+
+The Linux runtime is also separate from the macOS Swift `.app`. It is built from `apps/OpenComputerUseLinux` and uses AT-SPI2 accessibility over the signed-in desktop session's D-Bus bus. Semantic actions, editable text, and value updates are preferred; coordinate mouse, drag, and key synthesis are best-effort fallbacks rather than a universal Wayland background input model.
+
+```bash
+# Build a Linux arm64 binary from this repo
+./scripts/build-open-computer-use-linux.sh --arch arm64
+
+# On Linux, run it in the signed-in desktop session
+open-computer-use mcp
+open-computer-use call list_apps
+open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"gnome-text-editor"}},{"tool":"type_text","args":{"app":"gnome-text-editor","text":"hello"}}]'
+```
+
+The process needs the desktop user's `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, and display environment. A pure SSH tty without those variables can build and launch the binary, but it cannot inspect or operate the GUI session. Screenshot capture is best-effort on GNOME Wayland and may be omitted when the compositor returns a black frame.
 
 ## Cursor Motion
 
