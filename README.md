@@ -107,7 +107,7 @@ open-computer-use call list_apps
 open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"gnome-text-editor"}},{"tool":"type_text","args":{"app":"gnome-text-editor","text":"hello"}}]'
 ```
 
-The process needs the desktop user's `XDG_RUNTIME_DIR`, `DBUS_SESSION_BUS_ADDRESS`, and display environment. A pure SSH tty without those variables can build and launch the binary, but it cannot inspect or operate the GUI session. Screenshot capture is best-effort on GNOME Wayland and may be omitted when the compositor returns a black frame.
+The runtime needs the desktop user's D-Bus and display session. When those variables are missing, it tries to discover the current user's signed-in desktop session at launch from `/run/user/<uid>` and common desktop processes, so the normal Codex setup remains `npm i -g open-computer-use`, `open-computer-use install-codex-mcp`, then restart Codex from the same desktop user. A pure SSH tty without a discoverable signed-in desktop session can build and launch the binary, but it cannot inspect or operate the GUI session. Screenshot capture is best-effort on GNOME Wayland and may be omitted when the compositor returns a black frame.
 
 ## Cursor Motion
 

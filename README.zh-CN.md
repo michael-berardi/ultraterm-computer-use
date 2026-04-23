@@ -117,7 +117,7 @@ open-computer-use call list_apps
 open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"gnome-text-editor"}},{"tool":"type_text","args":{"app":"gnome-text-editor","text":"hello"}}]'
 ```
 
-这个进程需要桌面用户的 `XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS` 和 display 环境。纯 SSH tty 可以构建和启动二进制，但不能直接 inspect 或操作 GUI session。GNOME Wayland 下截图是 best-effort，如果 compositor 返回黑图，Linux bridge 会省略 image block。
+runtime 需要桌面用户的 D-Bus 和 display session。缺少这些变量时，它会在启动时尝试从 `/run/user/<uid>` 和常见桌面进程自动发现当前用户已登录的桌面 session，所以 Codex 的正常接入路径仍然是 `npm i -g open-computer-use`、`open-computer-use install-codex-mcp`，然后用同一个桌面用户重启 Codex。纯 SSH tty 如果找不到已登录桌面 session，可以构建和启动二进制，但不能直接 inspect 或操作 GUI session。GNOME Wayland 下截图是 best-effort，如果 compositor 返回黑图，Linux bridge 会省略 image block。
 
 ## Cursor Motion
 

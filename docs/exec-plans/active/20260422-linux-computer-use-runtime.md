@@ -35,7 +35,7 @@
   - Linux 上最接近 macOS AX 的桌面接口是 AT-SPI2，经由 D-Bus 暴露 app/window/accessibility tree、actions、editable text 和 value 接口。
   - Ubuntu GNOME 默认 Wayland session 下，任意后台坐标键鼠和截图都不是一套等价于 macOS AX 的通用模型。
   - 第一版策略是 AT-SPI semantic action / editable text / value 优先，coordinate click / drag / key synthesis 仅作为 best-effort fallback。
-  - SSH tty 默认没有 `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` / display 环境；真实 UI 测试需要跑在已登录桌面用户 session 里。
+  - SSH tty 默认没有 `XDG_RUNTIME_DIR` / `DBUS_SESSION_BUS_ADDRESS` / display 环境；runtime 会尝试为当前 Unix 用户自动发现已登录桌面 session，但跨用户 root 进程不应该被当作普通用户桌面的控制入口。
 
 ## 风险
 
@@ -67,7 +67,7 @@
   - 运行 `get_app_state -> set_value -> type_text -> press_key -> perform_secondary_action -> click -> scroll -> drag` sequence。
   - 确认每个 tool 返回 `isError=false`，并且 Text Editor 内容包含 marker。
 - 观测检查：
-  - 纯 SSH tty 没有桌面环境变量时应返回明确错误，而不是误判为 AT-SPI 逻辑失败。
+  - 当前桌面用户缺少桌面环境变量时，runtime 应先尝试自动发现同用户 session env；如果找不到已登录 session，再返回明确错误，而不是误判为 AT-SPI 逻辑失败。
 
 ## 进度记录
 
@@ -82,6 +82,7 @@
 - [x] 在 Ubuntu VM 中验证 `call list_apps` 返回 `isError=false` 并包含 `gnome-text-editor`。
 - [x] 在 Ubuntu VM 中验证 MCP `initialize` / `tools/list`，tool count 为 9。
 - [x] 在 Ubuntu VM 中验证 8-tool sequence：`get_app_state`、`set_value`、`type_text`、`press_key`、`perform_secondary_action`、`click`、`scroll`、`drag` 均 `isError=false`。
+- [x] 在 Ubuntu VM 中验证 `0.1.36` 预发布二进制可在 `leo` 用户 `env -i` 下自动发现 session env，并跑通 MCP `tools/list`、`tools/call(list_apps)` 和 9-tool sequence。
 - [ ] 增加 Linux fixture 和可重复 smoke runner。
 - [ ] 评估 xdg-desktop-portal / compositor-specific screenshot 路径，补非黑图 capture。
 - [x] 将 Linux artifact 接入 npm release packaging，作为既有 npm root/alias packages 的 bundled artifacts 分发。
@@ -95,3 +96,4 @@
 - 2026-04-22：GNOME Text Editor 的 AT-SPI tree 深度超过 Windows runtime 沿用的 16 层，Linux bridge 单独把 traversal depth 放宽到 64。
 - 2026-04-22：GNOME Wayland 下 GDK root capture 在 VM 上返回黑图；Linux bridge 检测全黑采样后省略 image block，后续再评估 portal/compositor-specific capture。
 - 2026-04-23：Linux release artifact 接入 npm package bundled artifacts，不新增系统 installer；root `open-computer-use` package 通过 launcher 按 `linux-arm64` / `linux-x64` 自动选择 binary。
+- 2026-04-23：Linux runtime 不把 session env 写入 Codex config 或 shell profile；Go runtime 在每次启动 Python AT-SPI bridge 前为当前 Unix 用户动态发现 `/run/user/<uid>`、session bus、Wayland / X11 display 和 AT-SPI 相关环境。

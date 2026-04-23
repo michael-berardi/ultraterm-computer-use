@@ -31,7 +31,7 @@
 也就是说：
 
 - 只改 git tag，不改这个 manifest，不会得到新 npm 版本。
-- `scripts/npm/build-packages.mjs` 会从这个 manifest 读取版本，再生成三个 root/alias staging 包和六个 `open-computer-use-<os>-<arch>` platform staging 包。
+- `scripts/npm/build-packages.mjs` 会从这个 manifest 读取版本，再生成三个 root/alias staging 包；每个包内置 macOS、Linux 和 Windows runtime artifacts。
 - 所以 release 前必须先把这份 manifest bump 到目标版本。
 - 如果要让 `CursorMotion` 的 DMG 文件名和 release 页面资产名正确落到目标版本，也必须使用目标 tag 推送，或本地显式传入同样的 `--version`。
 

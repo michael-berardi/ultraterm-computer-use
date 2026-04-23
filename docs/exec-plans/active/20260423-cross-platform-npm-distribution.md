@@ -43,8 +43,8 @@
   - 缓解方式：launcher 输出明确的缺失 bundled artifact 路径和重装命令。
 - 风险：CI macOS runner 没有 Go toolchain，导致 Linux/Windows cross compile 失败。
   - 缓解方式：release workflow 显式 setup Go。
-- 风险：Linux runtime 需要桌面 session，纯 SSH 不能验证 GUI 操作。
-  - 缓解方式：本次 Linux 发布后验证目标限定为 npm install、版本、MCP initialize 和 `tools/list`。
+- 风险：Linux runtime 需要同一个桌面用户的已登录 session；跨用户 root 进程不能可靠控制普通用户桌面。
+  - 缓解方式：runtime 自动发现当前用户的 session env，发布后用 `leo` 桌面用户验证 npm install、MCP initialize、`tools/list` 和实际 `list_apps`。
 
 ## 里程碑
 
@@ -71,6 +71,7 @@
   - GitHub Actions release workflow 成功：`24816330343`。
   - npm registry `open-computer-use@0.1.35`、`open-computer-use-mcp@0.1.35`、`open-codex-computer-use-mcp@0.1.35` 可见。
   - Linux VM `npm i -g open-computer-use@0.1.35` 后 raw MCP `tools/list` 返回 9 个 tools。
+  - Linux VM `0.1.36` 预发布二进制在 `leo` 用户 `env -i` 下可自动发现 session env，并通过 raw MCP `tools/list` / `tools/call(list_apps)`。
 
 ## 进度记录
 
@@ -81,6 +82,7 @@
 - [x] 完成本地验证：staging / release tarballs / dry-run publish / Swift tests / Linux Go tests / Windows Go tests / macOS npm prefix install / MCP tools list。
 - [x] 完成 tag release、CI 跟踪、npm registry 验证。
 - [x] 完成 Linux VM npm install 与 MCP tools/list 验证。
+- [x] 完成 Linux VM `0.1.36` 预发布二进制 env-less MCP tools/list 与 list_apps 验证。
 
 ## 决策记录
 
