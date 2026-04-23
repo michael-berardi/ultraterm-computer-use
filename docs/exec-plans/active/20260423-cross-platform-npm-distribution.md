@@ -72,6 +72,9 @@
   - npm registry `open-computer-use@0.1.35`、`open-computer-use-mcp@0.1.35`、`open-codex-computer-use-mcp@0.1.35` 可见。
   - Linux VM `npm i -g open-computer-use@0.1.35` 后 raw MCP `tools/list` 返回 9 个 tools。
   - Linux VM `0.1.36` 预发布二进制在 `leo` 用户 `env -i` 下可自动发现 session env，并通过 raw MCP `tools/list` / `tools/call(list_apps)`。
+  - GitHub Actions release workflow `24817430041` 成功。
+  - npm registry `open-computer-use@0.1.36`、`open-computer-use-mcp@0.1.36`、`open-codex-computer-use-mcp@0.1.36` 可见。
+  - Linux VM `npm i -g open-computer-use@0.1.36` 后，Codex MCP config、raw MCP `tools/list` 和 `call list_apps` 均通过。
 
 ## 进度记录
 
@@ -83,6 +86,7 @@
 - [x] 完成 tag release、CI 跟踪、npm registry 验证。
 - [x] 完成 Linux VM npm install 与 MCP tools/list 验证。
 - [x] 完成 Linux VM `0.1.36` 预发布二进制 env-less MCP tools/list 与 list_apps 验证。
+- [x] 完成 `v0.1.36` release workflow、npm registry、GitHub Release notes 和 Linux VM npm 安装后验证。
 
 ## 决策记录
 
