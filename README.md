@@ -16,7 +16,7 @@ I bootstrapped this repo with my earlier [harness template](https://github.com/i
 
 ## Quick Start
 
-The npm package installs a root launcher plus the native package that matches your current `os-arch`:
+The npm package bundles the macOS, Linux, and Windows native runtimes, then the root launcher selects the artifact that matches your current `os-arch`:
 
 ```bash
 npm i -g open-computer-use
@@ -24,7 +24,7 @@ npm i -g open-computer-use
 
 On macOS, grant `Accessibility` and `Screen Recording` permission to the `Open Computer Use.app` you actually plan to keep installed. The CI-built release package remains the stable identity for distribution. Local debug/dev builds are intentionally packaged as `Open Computer Use (Dev).app`, so System Settings shows them as a separate development app instead of another indistinguishable `Open Computer Use`.
 
-On Linux and Windows, run it in the signed-in desktop session so AT-SPI2 or UI Automation can see GUI apps. To confirm the installed native package is wired correctly, run:
+On Linux and Windows, run it in the signed-in desktop session so AT-SPI2 or UI Automation can see GUI apps. To confirm the bundled native runtime is wired correctly, run:
 
 ```bash
 open-computer-use --version

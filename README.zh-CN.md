@@ -16,7 +16,7 @@ https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
 
 ## Quick Start
 
-当前 npm 包会安装 root launcher，并按当前 `os-arch` 拉起对应 native package：
+当前 npm 包会内置 macOS、Linux、Windows 的 native runtime，并由 root launcher 按当前 `os-arch` 拉起对应制品：
 
 ```bash
 npm i -g open-computer-use
@@ -24,7 +24,7 @@ npm i -g open-computer-use
 
 macOS 第一次使用前，给你实际准备长期保留的那个 `Open Computer Use.app` 授予 `Accessibility` 和 `Screen Recording` 权限。CI 产出的 release 包继续作为正式分发身份；本地 debug/dev 构建会故意打成 `Open Computer Use (Dev).app`，这样系统设置里会明确显示成一个开发版 app，而不是再出现两个同名的 `Open Computer Use`。
 
-Linux 和 Windows 需要跑在已登录桌面 session 里，这样 AT-SPI2 或 UI Automation 才能看到 GUI app。先用下面的命令确认 native package 已经接好：
+Linux 和 Windows 需要跑在已登录桌面 session 里，这样 AT-SPI2 或 UI Automation 才能看到 GUI app。先用下面的命令确认内置 native runtime 已经接好：
 
 ```bash
 open-computer-use --version

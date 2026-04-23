@@ -68,8 +68,9 @@ node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 
 ```bash
 node -p "require('./dist/release/npm-staging-check/open-computer-use/package.json').version"
-node -p "require('./dist/release/npm-staging-check/open-computer-use-linux-arm64/package.json').version"
-node -p "require('./dist/release/npm-staging-check/open-computer-use/package.json').optionalDependencies['open-computer-use-linux-arm64']"
+test -x "dist/release/npm-staging-check/open-computer-use/dist/linux/arm64/open-computer-use"
+test -f "dist/release/npm-staging-check/open-computer-use/dist/windows/arm64/open-computer-use.exe"
+node -e "if (require('./dist/release/npm-staging-check/open-computer-use/package.json').optionalDependencies) process.exit(1)"
 ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
 ```
 
@@ -146,7 +147,7 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
 - `Open Computer Use` 的 npm release 产物在没有配置 `OPEN_COMPUTER_USE_CODESIGN_P12_BASE64` / `OPEN_COMPUTER_USE_CODESIGN_P12_PASSWORD` 等 secrets 时，仍会退回 ad-hoc signing；配置后会先导入 `Developer ID Application` 证书，再按该 identity 统一签名。
 - `Cursor Motion` 当前 release 资产会优先复用 `OPEN_COMPUTER_USE_CODESIGN_*` 对 app 做 `Developer ID Application` 签名；如果同时配置 `APPLE_NOTARY_API_KEY_P8_BASE64`、`APPLE_NOTARY_KEY_ID`、`APPLE_NOTARY_ISSUER_ID`、`APPLE_DEVELOPER_TEAM_ID`，workflow 会继续对 `.dmg` 执行 notarization 和 staple。
 - 如果上述 secrets 缺失，workflow 会分别退回 ad-hoc signing 或跳过 notarization，而不是阻塞整条 release。
-- `open-computer-use` npm root 包通过 `optionalDependencies` 拉取 platform packages。如果用户安装时使用 `--omit=optional`，root launcher 会缺少 native runtime 并给出重装提示；release 前要确认 platform packages 先于 root/alias packages 发布。
+- `open-computer-use` npm root 包会内置六个 `os-arch` native artifacts，包体积会比 macOS-only 版本更大；release 前要确认 staging 包里包含 `dist/Open Computer Use.app`、`dist/linux/` 和 `dist/windows/`，并确认 launcher 没有声明 `optionalDependencies`。
 
 ## 如果 tag 已经打错了
 

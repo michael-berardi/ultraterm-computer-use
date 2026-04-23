@@ -81,7 +81,7 @@
 - [ ] 增加 Windows fixture 和可重复 smoke runner。
 - [ ] 评估用 `PrintWindow` / Windows Graphics Capture 补一条不依赖窗口可见性的 background screenshot 路径。
 - [ ] 为必须依赖前台输入的 app/toolkit 场景补更明确的 capability/error，避免静默退到抢焦点行为。
-- [x] 将 Windows artifact 接入 npm release packaging，通过 `open-computer-use-win32-arm64` / `open-computer-use-win32-x64` platform packages 分发。
+- [x] 将 Windows artifact 接入 npm release packaging，作为既有 npm root/alias packages 的 bundled artifacts 分发。
 - [ ] 补 Windows signing / installer 方案。
 - [ ] 评估把 PowerShell bridge 替换为原生 Go COM/UIA 的收益和风险。
 
@@ -96,4 +96,4 @@
 - 2026-04-22：为避免 Windows tools 主动抢占用户焦点，`Resolve-App` 默认不再 `Start-Process` 目标 app，`SetFocus` secondary action 默认返回错误；需要前台行为时分别设置 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_APP_LAUNCH=1` 或 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_FOCUS_ACTIONS=1`。
 - 2026-04-22：Notepad 实测反馈 `type_text` 的 UIA `ValuePattern.SetValue` 会把窗口带到前台；默认改为 child HWND `EM_REPLACESEL` 后台消息路径，旧 UIA fallback 需要 `OPEN_COMPUTER_USE_WINDOWS_ALLOW_UIA_TEXT_FALLBACK=1`。
 - 2026-04-22：Windows 交互式 scheduled task 验证显示新 `type_text` 能写入 Notepad 且不会把前台从 Codex 切到 Notepad；Notepad 文本控件 UIA class 为 `RichEditD2DPT`，有 child native handle，可接收 `EM_REPLACESEL`。
-- 2026-04-23：Windows release artifact 接入 npm platform package，不新增系统 installer/signing；root `open-computer-use` package 通过 optional dependency 按 `win32-arm64` / `win32-x64` 自动选择 `.exe`。
+- 2026-04-23：Windows release artifact 接入 npm package bundled artifacts，不新增系统 installer/signing；root `open-computer-use` package 通过 launcher 按 `win32-arm64` / `win32-x64` 自动选择 `.exe`。

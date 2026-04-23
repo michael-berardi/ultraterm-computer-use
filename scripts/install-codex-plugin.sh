@@ -38,10 +38,7 @@ resolve_app_bundle() {
   fi
 
   for bundle_name in "${candidates[@]}"; do
-    for candidate in \
-      "${repo_root}/dist/${bundle_name}" \
-      "${repo_root}/node_modules/open-computer-use-darwin-$(node_arch)/dist/${bundle_name}" \
-      "${repo_root}/../open-computer-use-darwin-$(node_arch)/dist/${bundle_name}"; do
+    for candidate in "${repo_root}/dist/${bundle_name}"; do
       if [[ -d "${candidate}" ]]; then
         printf '%s\n' "${candidate}"
         return 0
@@ -61,19 +58,11 @@ resolve_native_binary() {
 
   case "${platform}" in
     linux)
-      candidates+=(
-        "${repo_root}/node_modules/open-computer-use-linux-${arch}/bin/open-computer-use"
-        "${repo_root}/../open-computer-use-linux-${arch}/bin/open-computer-use"
-      )
       if [[ -n "${go_arch}" ]]; then
         candidates+=("${repo_root}/dist/linux/${go_arch}/open-computer-use")
       fi
       ;;
     win32)
-      candidates+=(
-        "${repo_root}/node_modules/open-computer-use-win32-${arch}/bin/open-computer-use.exe"
-        "${repo_root}/../open-computer-use-win32-${arch}/bin/open-computer-use.exe"
-      )
       if [[ -n "${go_arch}" ]]; then
         candidates+=("${repo_root}/dist/windows/${go_arch}/open-computer-use.exe")
       fi

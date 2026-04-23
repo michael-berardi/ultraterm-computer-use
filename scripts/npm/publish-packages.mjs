@@ -95,10 +95,7 @@ function readPackageMetadata(packageDir) {
   };
 }
 
-function publishPriority(packageName) {
-  if (/^open-computer-use-(darwin|linux|win32)-/.test(packageName)) {
-    return 0;
-  }
+function publishPriority(_packageName) {
   return 1;
 }
 

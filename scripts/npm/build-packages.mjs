@@ -26,61 +26,50 @@ const metaPackageNames = [
   "open-computer-use-mcp",
   "open-codex-computer-use-mcp",
 ];
-const platformPackages = [
+const runtimeTargets = [
   {
-    name: "open-computer-use-darwin-arm64",
     os: "darwin",
     cpu: "arm64",
     kind: "macos-app",
     executablePath: ["dist", appBundleName, "Contents", "MacOS", appExecutableName],
   },
   {
-    name: "open-computer-use-darwin-x64",
     os: "darwin",
     cpu: "x64",
     kind: "macos-app",
     executablePath: ["dist", appBundleName, "Contents", "MacOS", appExecutableName],
   },
   {
-    name: "open-computer-use-linux-arm64",
     os: "linux",
     cpu: "arm64",
     kind: "binary",
     buildArch: "arm64",
-    sourcePath: ["dist", "linux", "arm64", "open-computer-use"],
-    executablePath: ["bin", "open-computer-use"],
+    executablePath: ["dist", "linux", "arm64", "open-computer-use"],
   },
   {
-    name: "open-computer-use-linux-x64",
     os: "linux",
     cpu: "x64",
     kind: "binary",
     buildArch: "amd64",
-    sourcePath: ["dist", "linux", "amd64", "open-computer-use"],
-    executablePath: ["bin", "open-computer-use"],
+    executablePath: ["dist", "linux", "amd64", "open-computer-use"],
   },
   {
-    name: "open-computer-use-win32-arm64",
     os: "win32",
     cpu: "arm64",
     kind: "binary",
     buildArch: "arm64",
-    sourcePath: ["dist", "windows", "arm64", "open-computer-use.exe"],
-    executablePath: ["bin", "open-computer-use.exe"],
+    executablePath: ["dist", "windows", "arm64", "open-computer-use.exe"],
   },
   {
-    name: "open-computer-use-win32-x64",
     os: "win32",
     cpu: "x64",
     kind: "binary",
     buildArch: "amd64",
-    sourcePath: ["dist", "windows", "amd64", "open-computer-use.exe"],
-    executablePath: ["bin", "open-computer-use.exe"],
+    executablePath: ["dist", "windows", "amd64", "open-computer-use.exe"],
   },
 ];
 const packageNames = [
   ...metaPackageNames,
-  ...platformPackages.map((platformPackage) => platformPackage.name),
 ];
 
 function parseArgs(argv) {
@@ -213,11 +202,10 @@ function writeExecutable(filePath, content) {
 
 function platformLaunchTable() {
   return Object.fromEntries(
-    platformPackages.map((platformPackage) => [
-      `${platformPackage.os}-${platformPackage.cpu}`,
+    runtimeTargets.map((runtimeTarget) => [
+      `${runtimeTarget.os}-${runtimeTarget.cpu}`,
       {
-        packageName: platformPackage.name,
-        executablePath: platformPackage.executablePath,
+        executablePath: runtimeTarget.executablePath,
       },
     ]),
   );
@@ -269,7 +257,7 @@ Global options:
   -v, --version        Show version.
 
 Notes:
-  This npm package installs a small launcher plus one platform package selected by npm.
+  This npm package bundles native runtimes for supported platforms and selects the current os-arch at launch.
   Use 'open-computer-use help <command>' for command-specific help.\`);
 }
 
@@ -334,22 +322,12 @@ function resolveNativeExecutable() {
     fail(\`Unsupported platform \${platformKey}. Supported platforms: \${supported}.\`);
   }
 
-  let manifestPath;
-  try {
-    manifestPath = require.resolve(\`\${target.packageName}/package.json\`, { paths: [packageRoot] });
-  } catch (error) {
-    fail(\`Missing platform package \${target.packageName}.
-
-This usually means npm optional dependencies were omitted or pruned. Reinstall with:
-  npm install -g open-computer-use
-
-If you intentionally use --omit=optional, install the matching platform package too.\`);
-  }
-
-  const platformRoot = path.dirname(manifestPath);
-  const executablePath = path.join(platformRoot, ...target.executablePath);
+  const executablePath = path.join(packageRoot, ...target.executablePath);
   if (!fs.existsSync(executablePath)) {
-    fail(\`Platform package \${target.packageName} is installed, but its executable is missing at \${executablePath}.\`);
+    fail(\`Missing bundled native runtime for \${platformKey} at \${executablePath}.
+
+Reinstall with:
+  npm install -g open-computer-use\`);
   }
 
   return executablePath;
@@ -409,7 +387,7 @@ const lines = [
   "Installed ${packageName}@${version}.",
   "Package: https://www.npmjs.com/package/${packageName}",
   "Commands: open-computer-use, open-computer-use-mcp, open-codex-computer-use-mcp",
-  "Native package is selected by npm optionalDependencies for " + process.platform + "-" + process.arch + ".",
+  "Native runtime will be selected from bundled artifacts for " + process.platform + "-" + process.arch + ".",
   "",
   "Next:",
   "1. Run open-computer-use --version",
@@ -431,9 +409,9 @@ function renderReadme(packageName, version) {
 
 Cross-platform npm distribution for the open-source **Open Computer Use** MCP server.
 
-This package installs a small Node launcher and lets npm choose one native package through \`optionalDependencies\`:
+This package bundles native runtimes for these supported platforms and lets the Node launcher choose the current \`process.platform\` / \`process.arch\` pair:
 
-${platformPackages.map((platformPackage) => `- \`${platformPackage.name}\` for \`${platformPackage.os}-${platformPackage.cpu}\``).join("\n")}
+${runtimeTargets.map((runtimeTarget) => `- \`${runtimeTarget.os}-${runtimeTarget.cpu}\``).join("\n")}
 
 Global command aliases:
 
@@ -447,7 +425,7 @@ Global command aliases:
 npm install -g ${packageName}
 \`\`\`
 
-The root launcher resolves the current \`process.platform\` / \`process.arch\` pair and runs the matching native runtime. Do not install with \`--omit=optional\` unless you also install the matching platform package yourself.
+The root launcher resolves the current \`process.platform\` / \`process.arch\` pair and runs the matching bundled native runtime.
 
 ## MCP config
 
@@ -498,22 +476,6 @@ Source repository: https://github.com/iFurySt/open-codex-computer-use
 `;
 }
 
-function renderPlatformReadme(platformPackage, version) {
-  const platformKey = `${platformPackage.os}-${platformPackage.cpu}`;
-  return `# ${platformPackage.name}
-
-Native Open Computer Use runtime package for \`${platformKey}\`.
-
-This package is installed automatically as an optional dependency of \`open-computer-use@${version}\` when npm runs on \`${platformKey}\`. Most users should install the root package instead:
-
-\`\`\`bash
-npm install -g open-computer-use
-\`\`\`
-
-Source repository: https://github.com/iFurySt/open-codex-computer-use
-`;
-}
-
 function packageKeywords(extraKeywords = []) {
   return [
     "computer-use",
@@ -525,12 +487,6 @@ function packageKeywords(extraKeywords = []) {
     "automation",
     ...extraKeywords,
   ];
-}
-
-function platformOptionalDependencies(version) {
-  return Object.fromEntries(
-    platformPackages.map((platformPackage) => [platformPackage.name, version]),
-  );
 }
 
 function renderMetaPackageJson(packageName, version) {
@@ -548,7 +504,6 @@ function renderMetaPackageJson(packageName, version) {
       url: "https://github.com/iFurySt/open-codex-computer-use/issues",
     },
     keywords: packageKeywords(),
-    optionalDependencies: platformOptionalDependencies(version),
     preferGlobal: true,
     publishConfig: {
       access: "public",
@@ -564,6 +519,9 @@ function renderMetaPackageJson(packageName, version) {
     files: [
       ".agents/plugins/marketplace.json",
       "bin/",
+      "dist/Open Computer Use.app/",
+      "dist/linux/",
+      "dist/windows/",
       "plugins/open-computer-use/.codex-plugin/",
       "plugins/open-computer-use/.mcp.json",
       "plugins/open-computer-use/assets/",
@@ -578,34 +536,6 @@ function renderMetaPackageJson(packageName, version) {
       "README.md",
       "LICENSE",
     ],
-  };
-}
-
-function renderPlatformPackageJson(platformPackage, version) {
-  const platformKey = `${platformPackage.os}-${platformPackage.cpu}`;
-  const files = platformPackage.kind === "macos-app"
-    ? [`dist/${appBundleName}/`, "README.md", "LICENSE"]
-    : ["bin/", "README.md", "LICENSE"];
-  return {
-    name: platformPackage.name,
-    version,
-    description: `Native Open Computer Use runtime for ${platformKey}.`,
-    license: "MIT",
-    homepage: "https://github.com/iFurySt/open-codex-computer-use",
-    repository: {
-      type: "git",
-      url: "git+https://github.com/iFurySt/open-codex-computer-use.git",
-    },
-    bugs: {
-      url: "https://github.com/iFurySt/open-codex-computer-use/issues",
-    },
-    keywords: packageKeywords([platformPackage.os, platformPackage.cpu]),
-    os: [platformPackage.os],
-    cpu: [platformPackage.cpu],
-    publishConfig: {
-      access: "public",
-    },
-    files,
   };
 }
 
@@ -628,12 +558,44 @@ function copyInstallerScripts(packageRoot) {
   }
 }
 
+function assertFileExists(filePath, packageName) {
+  if (!existsSync(filePath)) {
+    throw new Error(`Missing artifact for ${packageName}: ${filePath}. Run without --skip-build first.`);
+  }
+}
+
+function copyBundledRuntimes(packageRoot, packageName) {
+  const distRoot = path.join(packageRoot, "dist");
+  mkdirSync(distRoot, { recursive: true });
+
+  const macosSourcePath = path.join(repoRoot, "dist", appBundleName);
+  const macosDestinationPath = path.join(distRoot, appBundleName);
+  assertFileExists(macosSourcePath, packageName);
+  cpSync(macosSourcePath, macosDestinationPath, { recursive: true });
+
+  for (const platformDir of ["linux", "windows"]) {
+    const sourcePath = path.join(repoRoot, "dist", platformDir);
+    const destinationPath = path.join(distRoot, platformDir);
+    assertFileExists(sourcePath, packageName);
+    cpSync(sourcePath, destinationPath, { recursive: true });
+  }
+
+  for (const runtimeTarget of runtimeTargets) {
+    const executablePath = path.join(packageRoot, ...runtimeTarget.executablePath);
+    assertFileExists(executablePath, packageName);
+    if (runtimeTarget.kind !== "macos-app") {
+      chmodSync(executablePath, 0o755);
+    }
+  }
+}
+
 function stageMetaPackage(packageName, version, outDir) {
   const packageRoot = path.join(outDir, packageName);
   rmSync(packageRoot, { recursive: true, force: true });
 
   mkdirSync(path.join(packageRoot, ".agents", "plugins"), { recursive: true });
   mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
   mkdirSync(path.join(packageRoot, "plugins"), { recursive: true });
   mkdirSync(path.join(packageRoot, "scripts"), { recursive: true });
 
@@ -642,6 +604,7 @@ function stageMetaPackage(packageName, version, outDir) {
     recursive: true,
   });
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
+  copyBundledRuntimes(packageRoot, packageName);
   copyInstallerScripts(packageRoot);
 
   const launcher = renderLauncher();
@@ -655,50 +618,12 @@ function stageMetaPackage(packageName, version, outDir) {
   removeJunkFiles(packageRoot);
 }
 
-function assertFileExists(filePath, packageName) {
-  if (!existsSync(filePath)) {
-    throw new Error(`Missing artifact for ${packageName}: ${filePath}. Run without --skip-build first.`);
-  }
-}
-
-function stagePlatformPackage(platformPackage, version, outDir) {
-  const packageRoot = path.join(outDir, platformPackage.name);
-  rmSync(packageRoot, { recursive: true, force: true });
-
-  mkdirSync(path.join(packageRoot, "bin"), { recursive: true });
-  mkdirSync(path.join(packageRoot, "dist"), { recursive: true });
-
-  if (platformPackage.kind === "macos-app") {
-    const sourcePath = path.join(repoRoot, "dist", appBundleName);
-    assertFileExists(sourcePath, platformPackage.name);
-    cpSync(sourcePath, path.join(packageRoot, "dist", appBundleName), {
-      recursive: true,
-    });
-  } else {
-    const sourcePath = path.join(repoRoot, ...platformPackage.sourcePath);
-    const destinationPath = path.join(packageRoot, ...platformPackage.executablePath);
-    assertFileExists(sourcePath, platformPackage.name);
-    cpSync(sourcePath, destinationPath);
-    chmodSync(destinationPath, 0o755);
-  }
-
-  cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
-  writeFileSync(path.join(packageRoot, "README.md"), renderPlatformReadme(platformPackage, version), "utf-8");
-  writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderPlatformPackageJson(platformPackage, version), null, 2)}\n`, "utf-8");
-  removeJunkFiles(packageRoot);
-}
-
 function stagePackage(packageName, version, outDir) {
-  if (metaPackageNames.includes(packageName)) {
-    stageMetaPackage(packageName, version, outDir);
-    return;
-  }
-
-  const platformPackage = platformPackages.find((candidate) => candidate.name === packageName);
-  if (!platformPackage) {
+  if (!metaPackageNames.includes(packageName)) {
     throw new Error(`Unsupported package name: ${packageName}`);
   }
-  stagePlatformPackage(platformPackage, version, outDir);
+
+  stageMetaPackage(packageName, version, outDir);
 }
 
 function main() {

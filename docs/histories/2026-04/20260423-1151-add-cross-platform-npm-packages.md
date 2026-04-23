@@ -6,16 +6,16 @@
 
 ## 主要改动
 
-- **[NPM Packaging]**: 将 npm staging 从单一 macOS package 改为三个 root/alias packages 加六个 platform packages：`darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64`、`win32-arm64`、`win32-x64`。
-- **[Runtime Launcher]**: root package 的 `bin/open-computer-use` 改为跨平台 Node launcher，通过 `process.platform` / `process.arch` 解析并执行对应 native package；缺少 optional dependency 时给出明确重装提示。
-- **[Release Flow]**: release package 构建现在会同时构建 macOS app、Linux binaries、Windows exes；publish script 会先发布 platform packages，再发布 root/alias packages。
+- **[NPM Packaging]**: 将 npm staging 从单一 macOS package 改为三个既有 root/alias packages，每个包内置 `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64`、`win32-arm64`、`win32-x64` runtime。
+- **[Runtime Launcher]**: root package 的 `bin/open-computer-use` 改为跨平台 Node launcher，通过 `process.platform` / `process.arch` 解析并执行对应 bundled native runtime；缺少 artifact 时给出明确重装提示。
+- **[Release Flow]**: release package 构建现在会同时构建 macOS app、Linux binaries、Windows exes；publish script 的发布面保持为 `open-computer-use`、`open-computer-use-mcp`、`open-codex-computer-use-mcp` 三个既有包名。
 - **[Plugin Path]**: Codex plugin launcher 和 installer 增加 Linux / Windows native payload fallback，保留 macOS app bundle 路径。
-- **[Version Bump]**: 将插件 manifest、Swift 版本常量、Linux/Windows Go runtime、smoke/test 输入和 CLI helper 文档统一 bump 到 `0.1.34`。
+- **[Version Bump]**: 将插件 manifest、Swift 版本常量、Linux/Windows Go runtime、smoke/test 输入和 CLI helper 文档统一 bump 到 `0.1.35`。
 - **[Docs]**: 同步 README、中文 README、架构文档、CI/CD、质量说明、release guide、feature release notes 和相关 execution plans。
 
 ## 设计动机
 
-使用 npm 原生的 `optionalDependencies`、`os`、`cpu` 机制，而不是 postinstall 下载制品。这样 root package 可以保持一个用户入口，平台包由 npm 根据当前环境选择，安装路径也更容易复现和审计。macOS 继续构建 universal `.app`，但拆成 `darwin-arm64` / `darwin-x64` 两个 npm platform packages，让 launcher 的映射规则在三端保持一致。
+最初实现使用 npm 原生的 `optionalDependencies`、`os`、`cpu` 机制，但 `v0.1.34` CI 在发布新增 platform package 名时被 npm 权限挡住。`v0.1.35` 改为把三端六个 runtime 直接 bundled 到既有三个 npm 包里，避免新增 package 权限问题，同时仍由 launcher 根据 `process.platform` / `process.arch` 做本地选择。
 
 ## 受影响文件
 
@@ -34,12 +34,12 @@
 
 - 通过：`node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check`
 - 通过：`./scripts/release-package.sh`
-- 通过：本地 npm prefix 安装 `open-computer-use-0.1.34.tgz` + `open-computer-use-darwin-arm64-0.1.34.tgz` 后，`open-computer-use --version` 输出 `0.1.34`。
+- 通过：本地 npm prefix 只安装 `open-computer-use-0.1.35.tgz` 后，`open-computer-use --version` 输出 `0.1.35`。
 - 通过：本地 npm prefix 安装后的 `open-computer-use mcp` raw JSON-RPC `tools/list` 返回 9 个 tools。
 - 通过：`swift test`
 - 通过：`(cd apps/OpenComputerUseLinux && go test ./...)`
 - 通过：`(cd apps/OpenComputerUseWindows && go test ./...)`
-- 通过：`node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging --dry-run`，发布顺序为六个 platform packages 先于三个 root/alias packages。
+- 通过：`node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging --dry-run`，发布面为三个既有 root/alias packages。
 - 通过：`git diff --check`
 - 待补：GitHub Actions release workflow。
 - 待补：Linux VM npm 全局安装和 MCP `tools/list`。

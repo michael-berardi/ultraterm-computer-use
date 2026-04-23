@@ -2,14 +2,14 @@
 
 ## 目标
 
-让 `npm i -g open-computer-use` 在 macOS、Linux 和 Windows 上都能安装同一个 root package，并由 root launcher 根据当前 `os-arch` 调用对应的 native app 或 binary。
+让 `npm i -g open-computer-use` 在 macOS、Linux 和 Windows 上都能安装同一个既有 npm package，并由 root launcher 根据当前 `os-arch` 调用包内对应的 native app 或 binary。
 
 ## 范围
 
 - 包含：
-  - 把 npm staging 从单一 macOS app 包改成 root/meta package + platform packages。
-  - 为 `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64`、`win32-arm64`、`win32-x64` 生成可发布 npm 包。
-  - 调整 release/publish 顺序，先发布平台包，再发布 root/alias 包。
+  - 把 npm staging 从单一 macOS app 包改成三端 bundled artifacts。
+  - 既有 `open-computer-use`、`open-computer-use-mcp`、`open-codex-computer-use-mcp` 三个包内置 `darwin-arm64`、`darwin-x64`、`linux-arm64`、`linux-x64`、`win32-arm64`、`win32-x64` runtime。
+  - 保持 release/publish 面只包含既有三个 npm 包名。
   - 更新 release workflow、README、架构文档、发版指南和 history。
   - bump patch version、tag release，并用 Linux VM 实测 npm 全局安装后的 MCP `tools/list`。
 - 不包含：
@@ -37,10 +37,10 @@
 
 ## 风险
 
-- 风险：root package 发布早于 platform packages，用户立刻安装时缺少 optional dependency。
-  - 缓解方式：publish script 按 package 类型排序，platform packages 优先。
-- 风险：用户用 `--omit=optional` 或 npm 跳过 optional dependency 后，root launcher 找不到 native runtime。
-  - 缓解方式：launcher 输出明确的缺失平台包和重装命令。
+- 风险：包体积比 macOS-only 版本更大。
+  - 缓解方式：先保持既有 npm 包名和可复现安装路径，后续如果 npm package 权限准备好再评估拆分平台包。
+- 风险：launcher 找不到当前 `os-arch` 的 bundled runtime。
+  - 缓解方式：launcher 输出明确的缺失 bundled artifact 路径和重装命令。
 - 风险：CI macOS runner 没有 Go toolchain，导致 Linux/Windows cross compile 失败。
   - 缓解方式：release workflow 显式 setup Go。
 - 风险：Linux runtime 需要桌面 session，纯 SSH 不能验证 GUI 操作。
@@ -64,9 +64,9 @@
   - `(cd apps/OpenComputerUseWindows && go test ./...)`
   - `node ./scripts/npm/publish-packages.mjs --skip-build --out-dir dist/release/npm-staging --dry-run`
 - 手工检查：
-  - root packages 包含 `optionalDependencies`。
-  - platform packages 包含正确的 `os` / `cpu`。
-  - npm tarball 数量和 release manifest 对齐。
+  - root/alias packages 不再声明 `optionalDependencies`。
+  - staging 包包含 `dist/Open Computer Use.app`、`dist/linux/` 和 `dist/windows/`。
+  - npm tarball 数量为 3，和 release manifest 对齐。
 - 观测检查：
   - GitHub Actions release workflow 成功。
   - npm registry 最新版可见。
@@ -75,8 +75,8 @@
 ## 进度记录
 
 - [x] 确认当前 npm 包仍是 macOS-only。
-- [x] 完成 root/meta package 与 platform package staging。
-- [x] 完成 publish 顺序与 CI Go toolchain 调整。
+- [x] 完成 root/alias package bundled artifact staging。
+- [x] 完成 publish 面收敛到既有三个 npm 包，并保留 CI Go toolchain 调整。
 - [x] 完成版本、文档、history 同步。
 - [x] 完成本地验证：staging / release tarballs / dry-run publish / Swift tests / Linux Go tests / Windows Go tests / macOS npm prefix install / MCP tools list。
 - [ ] 完成 tag release、CI 跟踪、npm registry 验证。
@@ -84,5 +84,5 @@
 
 ## 决策记录
 
-- 2026-04-23：采用 npm `optionalDependencies` + 每平台 `os`/`cpu` package，而不是 postinstall 下载制品。这样安装路径更可复现，也避免 install script 依赖额外网络下载逻辑。
-- 2026-04-23：macOS 仍构建 universal `.app`，但发布为 `darwin-arm64` 和 `darwin-x64` 两个 npm platform package。这样 root launcher 统一按 `process.platform-process.arch` 做映射。
+- 2026-04-23：初版采用 npm `optionalDependencies` + 每平台 `os`/`cpu` package，但 `v0.1.34` release 在 CI 发布新 npm package 名时被 npm 权限挡住。
+- 2026-04-23：`v0.1.35` 改为在既有三个 npm package 中 bundled 三端六个 runtime，避免新增 package 名权限问题；root launcher 继续按 `process.platform-process.arch` 做映射。
