@@ -25,7 +25,17 @@ enum OpenComputerUseMain {
     @MainActor
     private static func run() throws {
         let arguments = Array(CommandLine.arguments.dropFirst())
+
+        if MacOSAppAgentProxy.isAgentInvocation(arguments: arguments) {
+            try MacOSAppAgentProxy.runAgent(arguments: arguments)
+            return
+        }
+
         let command = try parseOpenComputerUseCLI(arguments: arguments)
+
+        if MacOSAppAgentProxy.shouldProxy(command: command) {
+            exit(try MacOSAppAgentProxy.runProxy(command: command, arguments: arguments))
+        }
 
         switch command {
         case .mcp:

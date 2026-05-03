@@ -5,6 +5,8 @@ import QuartzCore
 
 @MainActor
 enum PermissionOnboardingApp {
+    private static var presentedWindowController: PermissionWindowController?
+
     static func launch() {
         guard !PermissionDiagnostics.current().allGranted else {
             return
@@ -17,6 +19,21 @@ enum PermissionOnboardingApp {
         let delegate = PermissionOnboardingAppDelegate()
         application.delegate = delegate
         application.run()
+    }
+
+    static func present(terminateOnCompletion: Bool = true) {
+        guard !PermissionDiagnostics.current().allGranted else {
+            return
+        }
+
+        let application = NSApplication.shared
+        application.setActivationPolicy(.accessory)
+        application.applicationIconImage = Branding.makeAppIconImage(size: 256)
+
+        let controller = PermissionWindowController(terminateOnCompletion: terminateOnCompletion)
+        presentedWindowController = controller
+        controller.showWindow(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 }
 
@@ -42,8 +59,11 @@ final class PermissionWindowController: NSWindowController {
     private lazy var accessoryPanelController = PermissionAccessoryPanelController { [weak self] in
         self?.handleAccessoryPanelBack()
     }
+    private let terminateOnCompletion: Bool
 
-    init() {
+    init(terminateOnCompletion: Bool = true) {
+        self.terminateOnCompletion = terminateOnCompletion
+
         let window = NSWindow(
             contentRect: NSRect(
                 x: 0,
@@ -97,7 +117,9 @@ extension PermissionWindowController: PermissionContentControllerDelegate {
     func permissionContentControllerDidCompleteAllPermissions(_ controller: PermissionContentController) {
         accessoryPanelController.hide()
         close()
-        NSApp.terminate(nil)
+        if terminateOnCompletion {
+            NSApp.terminate(nil)
+        }
     }
 
     private func handleAccessoryPanelBack() {

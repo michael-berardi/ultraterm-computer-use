@@ -204,6 +204,68 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(output.hasToolError)
     }
 
+    func testMacOSAppAgentProxyDecisionRoutesAutomationCommandsThroughAppBundle() {
+        for command in [
+            OpenComputerUseCLICommand.mcp,
+            .doctor,
+            .listApps,
+            .snapshot(app: "TextEdit"),
+            .call(.single(toolName: "list_apps", argumentsJSON: nil, argumentsFile: nil)),
+        ] {
+            XCTAssertTrue(shouldUseMacOSAppAgentProxy(
+                command: command,
+                proxyDisabled: false,
+                appBundleAvailable: true,
+                runningFromLaunchServicesAppInstance: false
+            ))
+        }
+    }
+
+    func testMacOSAppAgentProxyDecisionKeepsNonAutomationCommandsLocal() {
+        for command in [
+            OpenComputerUseCLICommand.turnEnded(payload: nil),
+            .help(command: nil),
+            .version,
+        ] {
+            XCTAssertFalse(shouldUseMacOSAppAgentProxy(
+                command: command,
+                proxyDisabled: false,
+                appBundleAvailable: true,
+                runningFromLaunchServicesAppInstance: false
+            ))
+        }
+    }
+
+    func testMacOSAppAgentProxyDecisionDoesNotProxyLaunchServicesAppOpen() {
+        XCTAssertTrue(shouldUseMacOSAppAgentProxy(
+            command: .launchOnboarding,
+            proxyDisabled: false,
+            appBundleAvailable: true,
+            runningFromLaunchServicesAppInstance: false
+        ))
+        XCTAssertFalse(shouldUseMacOSAppAgentProxy(
+            command: .launchOnboarding,
+            proxyDisabled: false,
+            appBundleAvailable: true,
+            runningFromLaunchServicesAppInstance: true
+        ))
+    }
+
+    func testMacOSAppAgentProxyDecisionHonorsDisableAndMissingBundle() {
+        XCTAssertFalse(shouldUseMacOSAppAgentProxy(
+            command: .doctor,
+            proxyDisabled: true,
+            appBundleAvailable: true,
+            runningFromLaunchServicesAppInstance: false
+        ))
+        XCTAssertFalse(shouldUseMacOSAppAgentProxy(
+            command: .doctor,
+            proxyDisabled: false,
+            appBundleAvailable: false,
+            runningFromLaunchServicesAppInstance: false
+        ))
+    }
+
     func testPermissionDiagnosticsListsMissingPermissionsInCanonicalOrder() {
         let diagnostics = PermissionDiagnostics(
             accessibilityTrusted: false,
