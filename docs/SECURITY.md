@@ -2,9 +2,9 @@
 
 ## 当前实现边界
 
-- 当前 server 只提供本地 `stdio` MCP，不对外监听 TCP/HTTP 端口。
+- 对 MCP host 暴露的接口仍是本地 `stdio`；macOS CLI 与 `.app` app agent 之间会使用用户临时目录下的 Unix domain socket，socket 创建后会收紧为当前用户读写，且不对外监听 TCP/HTTP 端口。
 - 所有动作都必须显式带 `app` 参数；当前不会在后台自动扫描并控制任意 app。
-- 真实 app 路径依赖宿主进程已经获得 macOS `Accessibility` 与 `Screen Recording` 权限。
+- macOS 真实 app 路径依赖 `Open Computer Use.app` 已获得 `Accessibility` 与 `Screen Recording` 权限；终端里的 CLI / Node launcher 会把 `mcp`、`doctor`、`call`、`snapshot` 和 `list-apps` 转发给由 LaunchServices 启动的本地 app agent，避免把权限要求落到 iTerm / Terminal 身上。
 - 实验性 Linux runtime 依赖已登录桌面用户的 AT-SPI2 / D-Bus session；coordinate mouse、drag、keyboard synthesis 只是 best-effort fallback，不应被视为跨 Wayland compositor 的通用后台输入授权。
 
 ## 数据处理
@@ -23,7 +23,7 @@
 - 这意味着开源版当前的安全边界主要由：
   - 明确的 tool 调用参数
   - 内置高风险 denylist
-  - 宿主进程权限
+  - `Open Computer Use.app` 的系统权限
   - 本地使用场景
   共同提供。
 - 下一阶段应优先补：

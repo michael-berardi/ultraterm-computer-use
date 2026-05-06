@@ -19,6 +19,26 @@ public enum OpenComputerUseCallInvocation: Equatable {
 
 public let openComputerUseDefaultInterCallDelay: TimeInterval = 1
 
+public func shouldUseMacOSAppAgentProxy(
+    command: OpenComputerUseCLICommand,
+    proxyDisabled: Bool,
+    appBundleAvailable: Bool,
+    runningFromLaunchServicesAppInstance: Bool
+) -> Bool {
+    guard !proxyDisabled, appBundleAvailable else {
+        return false
+    }
+
+    switch command {
+    case .launchOnboarding:
+        return !runningFromLaunchServicesAppInstance
+    case .mcp, .doctor, .listApps, .snapshot, .call:
+        return true
+    case .turnEnded, .help, .version:
+        return false
+    }
+}
+
 public struct OpenComputerUseCLIError: LocalizedError, Equatable {
     public let message: String
     public let helpCommand: String?
