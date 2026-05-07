@@ -5,6 +5,7 @@ import OpenComputerUseKit
 
 private let appAgentCommand = "__open-computer-use-app-agent"
 private let appAgentDisableEnvironmentKey = "OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"
+private let appAgentProcessStartDate = Date()
 
 enum MacOSAppAgentProxy {
     static func isAgentInvocation(arguments: [String]) -> Bool {
@@ -73,14 +74,19 @@ enum MacOSAppAgentProxy {
 
     @MainActor
     private static func connectOrLaunchAgent(socketPath: String) throws -> AppAgentSocketClient {
-        if let client = AppAgentSocketClient.connect(path: socketPath) {
-            return client
-        }
-
-        unlink(socketPath)
-
         guard let appURL = PermissionSupport.currentAppBundleURL() else {
             throw OpenComputerUseCLIError(message: "Unable to locate Open Computer Use.app for app-scoped macOS permissions.")
+        }
+
+        if let client = AppAgentSocketClient.connect(path: socketPath) {
+            if (try? client.isCurrentAgent(for: appURL)) == true {
+                return client
+            }
+
+            _ = try? client.request(["kind": "terminate"])
+            unlink(socketPath)
+        } else {
+            unlink(socketPath)
         }
 
         let configuration = NSWorkspace.OpenConfiguration()
@@ -306,6 +312,18 @@ private final class AppAgentConnection: @unchecked Sendable {
             }
 
             switch kind {
+            case "agentInfo":
+                return [
+                    "bundleIdentifier": Bundle.main.bundleIdentifier ?? "",
+                    "bundleURL": Bundle.main.bundleURL.standardizedFileURL.path,
+                    "executableURL": Bundle.main.executableURL?.standardizedFileURL.path ?? "",
+                    "processStartTime": appAgentProcessStartDate.timeIntervalSince1970,
+                ]
+            case "terminate":
+                Task { @MainActor in
+                    NSApp.terminate(nil)
+                }
+                return ["ok": true]
             case "mcp":
                 let line = request["line"] as? String ?? ""
                 if let response = server.handle(line: line) {
@@ -450,6 +468,42 @@ private final class AppAgentSocketClient: @unchecked Sendable {
         }
 
         return response
+    }
+
+    func isCurrentAgent(for appURL: URL) throws -> Bool {
+        let response = try request(["kind": "agentInfo"])
+        let expectedBundleURL = appURL.standardizedFileURL
+
+        guard response["bundleURL"] as? String == expectedBundleURL.path else {
+            return false
+        }
+
+        guard let processStartTime = response["processStartTime"] as? TimeInterval else {
+            return false
+        }
+
+        guard let executableURL = executableURL(for: expectedBundleURL),
+              let modifiedAt = try? executableURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+        else {
+            return true
+        }
+
+        return processStartTime + 0.5 >= modifiedAt.timeIntervalSince1970
+    }
+
+    private func executableURL(for appURL: URL) -> URL? {
+        guard let bundle = Bundle(url: appURL),
+              let executableName = bundle.object(forInfoDictionaryKey: kCFBundleExecutableKey as String) as? String,
+              !executableName.isEmpty
+        else {
+            return nil
+        }
+
+        return appURL
+            .appendingPathComponent("Contents", isDirectory: true)
+            .appendingPathComponent("MacOS", isDirectory: true)
+            .appendingPathComponent(executableName)
+            .standardizedFileURL
     }
 }
 
