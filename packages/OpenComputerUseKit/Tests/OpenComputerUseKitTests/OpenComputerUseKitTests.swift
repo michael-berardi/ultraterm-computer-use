@@ -540,11 +540,11 @@ final class OpenComputerUseKitTests: XCTestCase {
     }
 
     func testAccessibilityTreeBudgetAllowsDeepElectronWebViews() {
-        XCTAssertEqual(accessibilityTreeMaxNodeCount, 500)
+        XCTAssertEqual(accessibilityTreeMaxNodeCount, 1200)
         XCTAssertEqual(accessibilityTreeMaxDepth, 64)
         XCTAssertTrue(shouldContinueRendering(nextIndex: 120, depth: 16))
-        XCTAssertTrue(shouldContinueRendering(nextIndex: 499, depth: 63))
-        XCTAssertFalse(shouldContinueRendering(nextIndex: 500, depth: 20))
+        XCTAssertTrue(shouldContinueRendering(nextIndex: 1199, depth: 63))
+        XCTAssertFalse(shouldContinueRendering(nextIndex: 1200, depth: 20))
         XCTAssertFalse(shouldContinueRendering(nextIndex: 120, depth: 64))
     }
 
@@ -559,6 +559,16 @@ final class OpenComputerUseKitTests: XCTestCase {
             actions: [],
             childCount: 3
         ))
+        XCTAssertTrue(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 0
+        ))
         XCTAssertFalse(shouldElideNode(
             role: kAXGroupRole as String,
             title: "Send",
@@ -569,6 +579,33 @@ final class OpenComputerUseKitTests: XCTestCase {
             actions: [],
             childCount: 3
         ))
+        XCTAssertFalse(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 3,
+            genericTextSummary: "AgentSphere 17:18 okay"
+        ))
+    }
+
+    func testAccessibilityRendererOnlyMergesShortTextOnlySiblingRuns() {
+        XCTAssertTrue(shouldMergeTextOnlySiblings(["AgentSphere", "17:18", "好的，谢谢"]))
+        XCTAssertFalse(shouldMergeTextOnlySiblings(["日期", "时间", "2026年5月7日", "晚餐", "18:00-20:00"]))
+        XCTAssertFalse(shouldMergeTextOnlySiblings([
+            "📌 3层简卡轻食",
+            "自助餐",
+            "🐂主荤：香烤鸡腿肉，孜然巴沙鱼",
+            "🍡半荤：卤鸡蛋",
+            "🥒素菜：剁椒娃娃菜，酸辣金针菇，清炒上海青，清炒胡萝卜，清炒青笋，海带丝拌千张，清炒西葫芦",
+            "🍚主食：螺旋意面，蒸玉米，烤面包",
+            "🥛饮品：冬瓜蛋花汤",
+            "🍒水果：黄瓜",
+            "※注意：餐食饮品等仅供职场便利，请勿带离工区",
+        ]))
     }
 
     func testAccessibilityRendererFiltersScrollToVisibleNoise() {
@@ -578,6 +615,16 @@ final class OpenComputerUseKitTests: XCTestCase {
                 role: kAXButtonRole as String
             ),
             ["Raise"]
+        )
+    }
+
+    func testAccessibilityRendererFiltersImplicitMenuActions() {
+        XCTAssertEqual(
+            meaningfulActions(
+                ["AXCancel", "AXPick", kAXPressAction as String],
+                role: kAXMenuBarItemRole as String
+            ),
+            []
         )
     }
 
