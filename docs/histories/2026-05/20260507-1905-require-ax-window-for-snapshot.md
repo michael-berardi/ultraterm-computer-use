@@ -36,3 +36,15 @@ Official `computer-use` returns an unavailable-window error for the observed Lar
 - `git diff --check`
 - `./scripts/run-tool-smoke-tests.sh`
 - Manual comparison: official `computer-use` and current source build both return unavailable-window errors for the current Lark / Chrome / System Settings no-window state.
+
+### 🔁 Follow-up (2026-05-07, match official no-window text)
+
+**Additional changes:**
+- Introduced a shared `computerUseNoWindowFoundMessage` constant with the official observed text: `Apple event error -10005: cgWindowNotFound`.
+- Reused that message for both missing AX window and missing visible CG window paths.
+- Added a focused unit test for the exact no-window message.
+- Synchronized `docs/ARCHITECTURE.md` to call out the official-style no-window error text.
+
+**Validation:**
+- `swift test --filter NoWindowErrorMessageMatchesOfficialShape`
+- Manual comparison: source build now returns the same no-window text as official `computer-use` for current Lark and Chrome no-window states.

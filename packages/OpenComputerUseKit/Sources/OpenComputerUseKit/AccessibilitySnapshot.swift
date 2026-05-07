@@ -92,12 +92,12 @@ enum SnapshotBuilder {
         let systemWide = AXUIElementCreateSystemWide()
         let focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
         guard let focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide) else {
-            throw ComputerUseError.stateUnavailable("No key window is available for \(app.bundleIdentifier ?? app.name). Bring the app window on screen and call get_app_state again.")
+            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
         }
 
         let windowTitle = stringValue(of: focusedWindow, attribute: kAXTitleAttribute)
         guard let windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle) else {
-            throw ComputerUseError.stateUnavailable("No visible window is available for \(app.bundleIdentifier ?? app.name). Bring the app window on screen and call get_app_state again.")
+            throw ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage)
         }
 
         let rootElement = focusedWindow

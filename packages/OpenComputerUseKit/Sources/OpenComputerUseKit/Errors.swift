@@ -1,5 +1,7 @@
 import Foundation
 
+let computerUseNoWindowFoundMessage = "Apple event error -10005: cgWindowNotFound"
+
 public enum ComputerUseError: Error, LocalizedError {
     case message(String)
     case unsupportedTool(String)

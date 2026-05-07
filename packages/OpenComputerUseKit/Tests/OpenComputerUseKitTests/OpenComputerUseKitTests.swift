@@ -701,6 +701,14 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(ComputerUseError.invalidArguments("bad").toolResultIsError)
     }
 
+    func testNoWindowErrorMessageMatchesOfficialShape() {
+        XCTAssertEqual(computerUseNoWindowFoundMessage, "Apple event error -10005: cgWindowNotFound")
+        XCTAssertEqual(
+            ComputerUseError.stateUnavailable(computerUseNoWindowFoundMessage).errorDescription,
+            "Apple event error -10005: cgWindowNotFound"
+        )
+    }
+
     func testAppSafetyPolicyDoesNotBlockNonPasswordApps() {
         XCTAssertFalse(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.google.Chrome"))
         XCTAssertFalse(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.googlecode.iterm2"))
