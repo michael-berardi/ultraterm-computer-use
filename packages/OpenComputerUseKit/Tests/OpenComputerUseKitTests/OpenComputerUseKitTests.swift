@@ -628,6 +628,10 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testAccessibilityRendererUsesOfficialZoomWindowActionName() {
+        XCTAssertEqual(meaningfulActions(["AXZoomWindow"], role: kAXButtonRole as String), ["zoom the window"])
+    }
+
     func testBlockingAsyncBridgeTimesOutScreenshotWork() {
         XCTAssertThrowsError(
             try BlockingAsyncBridge.run(timeout: 0.01) {

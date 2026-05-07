@@ -452,7 +452,7 @@ private struct TreeRenderer {
             if help == title || help == label {
                 return ""
             }
-            return ", Help: \(help)"
+            return " Help: \(help)"
         }()
         let urlSegment = formattedURLSegment(for: root, title: title, label: label)
         let identifierSegment = displayIdentifierSegment(for: root, role: role, identifier: axIdentifier, title: title)
@@ -461,7 +461,12 @@ private struct TreeRenderer {
             rawValueSegment,
             precedingSegments: [labelSegment, helpSegment, urlSegment, identifierSegment]
         )
-        let actionsPrefix = (title != nil || inlineRowSummary != nil) ? ", Secondary Actions: " : " Secondary Actions: "
+        let actionsPrefix = shouldCommaSeparateActions(
+            title: title,
+            inlineRowSummary: inlineRowSummary,
+            genericTextSummary: genericTextSummary,
+            segments: [labelSegment, helpSegment, urlSegment, identifierSegment, valueSegment]
+        ) ? ", Secondary Actions: " : " Secondary Actions: "
         let actionsSegment = prettyActions.isEmpty ? "" : "\(actionsPrefix)\(prettyActions.joined(separator: ", "))"
         let linePrefix = roleText.isEmpty ? "\(index)" : "\(index) \(roleText)"
 
@@ -834,6 +839,18 @@ private func formattedValueSegmentWithSeparator(_ valueSegment: String, precedin
     return ",\(valueSegment)"
 }
 
+private func shouldCommaSeparateActions(
+    title: String?,
+    inlineRowSummary: String?,
+    genericTextSummary: String?,
+    segments: [String]
+) -> Bool {
+    title != nil
+        || inlineRowSummary != nil
+        || genericTextSummary != nil
+        || segments.contains(where: { !$0.isEmpty })
+}
+
 private func formattedURLSegment(for element: AXUIElement, title: String?, label: String?) -> String {
     guard stringValue(of: element, attribute: kAXRoleAttribute) == "AXWebArea" else {
         return ""
@@ -1034,7 +1051,7 @@ private func displayRoleText(
     }
 
     if suppressChildren {
-        return "text"
+        return "container"
     }
 
     if baseRoleText == "radio group", role == kAXRadioGroupRole as String, title == nil, label != nil {
@@ -1119,6 +1136,10 @@ func meaningfulActions(_ values: [String], role: String) -> [String] {
 }
 
 private func prettyActionName(_ value: String) -> String {
+    if value == "AXZoomWindow" {
+        return "zoom the window"
+    }
+
     let stripped = value.hasPrefix("AX") ? String(value.dropFirst(2)) : value
     let withoutPage = stripped.replacingOccurrences(of: "ByPage", with: "")
     return splitCamelCase(withoutPage)
