@@ -17,11 +17,12 @@ public enum SystemPermissionKind: String, CaseIterable, Sendable {
     }
 
     public var subtitle: String {
+        let appName = PermissionSupport.currentBundleDisplayName()
         switch self {
         case .accessibility:
-            return "Allows Open Computer Use to access app interfaces"
+            return "Allows \(appName) to access app interfaces"
         case .screenRecording:
-            return "Open Computer Use uses screenshots to know where to click"
+            return "\(appName) uses screenshots to know where to click"
         }
     }
 
