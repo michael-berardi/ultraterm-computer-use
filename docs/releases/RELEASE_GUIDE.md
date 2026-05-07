@@ -11,6 +11,12 @@
   - 看 GitHub Actions release 失败原因
   - 重发某个失败版本
 
+## 什么时候才发公开版本
+
+- 日常修复、官方 `computer-use` 对齐验证和本地回归，默认只构建本地 app / 二进制并让 MCP client 指向本地构建产物。
+- 不要把 patch release 当作普通验证手段；只有用户明确要求公开发版，或某个修复已经达到需要交付给外部用户的稳定状态时，才进入下面的 release checklist。
+- 如果只是为了让 Codex 使用最新本地实现，优先更新本机 `~/.codex/config.toml` 中的 `open-computer-use` MCP server command，指向仓库本地构建产物，而不是 bump 版本、打 tag、推 release。
+
 ## 当前 release 入口
 
 - 本地 staging / 打 tgz：`./scripts/release-package.sh`
