@@ -608,6 +608,12 @@ final class OpenComputerUseKitTests: XCTestCase {
         ]))
     }
 
+    func testAccessibilityRendererRendersSummariesWithImagesAsChildren() {
+        XCTAssertTrue(shouldRenderGenericTextSummaryAsChildren("AgentSphere 17:18 好的，谢谢", summaryImageCount: 1))
+        XCTAssertFalse(shouldRenderGenericTextSummaryAsChildren("AgentSphere 17:18 好的，谢谢", summaryImageCount: 0))
+        XCTAssertFalse(shouldRenderGenericTextSummaryAsChildren(nil, summaryImageCount: 1))
+    }
+
     func testAccessibilityRendererFiltersScrollToVisibleNoise() {
         XCTAssertEqual(
             meaningfulActions(

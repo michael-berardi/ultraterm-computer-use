@@ -393,6 +393,11 @@ private struct TreeRenderer {
             role: role,
             childElements: childElements
         )
+        let summaryImageChildren = genericTextSummary == nil ? [] : summaryImageDescendants(of: root)
+        let rendersSummaryAsChildren = shouldRenderGenericTextSummaryAsChildren(
+            genericTextSummary,
+            summaryImageCount: summaryImageChildren.count
+        )
         let title = preferredDisplayTitle(
             for: root,
             role: role,
@@ -443,7 +448,8 @@ private struct TreeRenderer {
 
         let traitsSegment = traits.isEmpty ? "" : " (\(traits.joined(separator: ", ")))"
         let titleSegment = title.map { " \($0)" } ?? ""
-        let rowSummarySegment = (inlineRowSummary ?? genericTextSummary).map { " \($0)" } ?? ""
+        let rowSummary = inlineRowSummary ?? (rendersSummaryAsChildren ? nil : genericTextSummary)
+        let rowSummarySegment = rowSummary.map { " \($0)" } ?? ""
         let labelSegment = label != nil && label != title ? " Description: \(label!)" : ""
         let helpSegment = {
             guard let help else {
@@ -498,6 +504,14 @@ private struct TreeRenderer {
             return
         }
 
+        if rendersSummaryAsChildren, let genericTextSummary {
+            renderSyntheticText(genericTextSummary, representedBy: root, depth: depth + 1)
+            for image in summaryImageChildren {
+                render(image, depth: depth + 1, ancestors: nextAncestors)
+            }
+            return
+        }
+
         if hidesChildren {
             return
         }
@@ -505,6 +519,25 @@ private struct TreeRenderer {
         for child in childElements {
             render(child, depth: depth + 1, ancestors: nextAncestors)
         }
+    }
+
+    private mutating func renderSyntheticText(_ text: String, representedBy element: AXUIElement, depth: Int) {
+        guard shouldContinueRendering(nextIndex: nextIndex, depth: depth) else {
+            return
+        }
+
+        let index = nextIndex
+        nextIndex += 1
+        lines.append("\(String(repeating: "\t", count: depth + 1))\(index) text \(text)")
+
+        records[index] = ElementRecord(
+            index: index,
+            identifier: nil,
+            element: element,
+            localFrame: resolveLocalFrame(of: element, windowBounds: context.windowBounds),
+            rawActions: [],
+            prettyActions: []
+        )
     }
 
     private func opaqueIdentifier(for element: AXUIElement) -> String {
@@ -1004,6 +1037,40 @@ private func summarizedGenericText(
     let joined = sanitizeText(texts.joined(separator: " "))
         .replacingOccurrences(of: " : ", with: " :  ")
     return joined.isEmpty ? nil : joined
+}
+
+private func summaryImageDescendants(of element: AXUIElement, depth: Int = 0) -> [AXUIElement] {
+    guard depth < 4 else {
+        return []
+    }
+
+    let children = copyArray(element, attribute: kAXChildrenAttribute) ?? []
+    var images: [AXUIElement] = []
+
+    for child in children {
+        let role = stringValue(of: child, attribute: kAXRoleAttribute) ?? ""
+        if role == kAXImageRole as String {
+            if !images.contains(where: { CFEqual($0, child) }) {
+                images.append(child)
+            }
+        } else {
+            for image in summaryImageDescendants(of: child, depth: depth + 1) {
+                if !images.contains(where: { CFEqual($0, image) }) {
+                    images.append(image)
+                }
+            }
+        }
+
+        if images.count >= 4 {
+            return Array(images.prefix(4))
+        }
+    }
+
+    return images
+}
+
+func shouldRenderGenericTextSummaryAsChildren(_ genericTextSummary: String?, summaryImageCount: Int) -> Bool {
+    genericTextSummary != nil && summaryImageCount > 0
 }
 
 func shouldMergeTextOnlySiblings(_ texts: [String]) -> Bool {
