@@ -27,6 +27,10 @@ enum SnapshotMode {
     case fixture
 }
 
+let accessibilityTreeMaxNodeCount = 500
+let accessibilityTreeMaxDepth = 64
+let screenshotCaptureTimeout: TimeInterval = 5
+
 public struct AppSnapshot {
     public let app: RunningAppDescriptor
     public let windowTitle: String?
@@ -239,7 +243,7 @@ private struct WindowCapture {
     }
 
     private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
-        try? BlockingAsyncBridge.run {
+        try? BlockingAsyncBridge.run(timeout: screenshotCaptureTimeout) {
             let shareableContent = try await SCShareableContent.current
             guard let window = shareableContent.windows.first(where: { $0.windowID == windowID }) else {
                 return nil
@@ -279,12 +283,12 @@ private final class AsyncResultBox<T>: @unchecked Sendable {
     var result: Result<T, Error>?
 }
 
-private enum BlockingAsyncBridge {
-    static func run<T>(_ operation: @escaping @Sendable () async throws -> T) throws -> T {
+enum BlockingAsyncBridge {
+    static func run<T>(timeout: TimeInterval? = nil, _ operation: @escaping @Sendable () async throws -> T) throws -> T {
         let semaphore = DispatchSemaphore(value: 0)
         let resultBox = AsyncResultBox<T>()
 
-        Task.detached {
+        let task = Task.detached {
             do {
                 resultBox.result = .success(try await operation())
             } catch {
@@ -294,21 +298,36 @@ private enum BlockingAsyncBridge {
             semaphore.signal()
         }
 
-        waitForSignal(semaphore)
+        guard waitForSignal(semaphore, timeout: timeout) else {
+            task.cancel()
+            throw ComputerUseError.message("ScreenCaptureKit screenshot task timed out after \(timeout ?? 0) seconds.")
+        }
+
         return try resultBox.result?.get() ?? {
             throw ComputerUseError.message("ScreenCaptureKit screenshot task finished without producing a result.")
         }()
     }
 
-    private static func waitForSignal(_ semaphore: DispatchSemaphore) {
+    private static func waitForSignal(_ semaphore: DispatchSemaphore, timeout: TimeInterval?) -> Bool {
+        let deadline = timeout.map { Date(timeIntervalSinceNow: $0) }
+
         if Thread.isMainThread {
             while semaphore.wait(timeout: .now()) == .timedOut {
+                if let deadline, Date() >= deadline {
+                    return false
+                }
+
                 RunLoop.current.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
             }
-            return
+            return true
+        }
+
+        if let timeout {
+            return semaphore.wait(timeout: .now() + timeout) == .success
         }
 
         semaphore.wait()
+        return true
     }
 }
 
@@ -331,7 +350,7 @@ private struct TreeRenderer {
     }
 
     mutating func render(_ root: AXUIElement, depth: Int = 0) {
-        guard nextIndex < 500, depth < 16 else {
+        guard shouldContinueRendering(nextIndex: nextIndex, depth: depth) else {
             return
         }
 
@@ -484,15 +503,19 @@ private struct TreeRenderer {
     }
 }
 
+func shouldContinueRendering(nextIndex: Int, depth: Int) -> Bool {
+    nextIndex < accessibilityTreeMaxNodeCount && depth < accessibilityTreeMaxDepth
+}
+
 private func summarizeTraits(of element: AXUIElement) -> [String] {
     var values: [String] = []
 
-    if let selected = boolValue(of: element, attribute: kAXSelectedAttribute) {
-        values.append(selected ? "selected" : "selectable")
+    if boolValue(of: element, attribute: kAXSelectedAttribute) == true {
+        values.append("selected")
     }
 
-    if let expanded = boolValue(of: element, attribute: kAXExpandedAttribute) {
-        values.append(expanded ? "expanded" : "collapsed")
+    if boolValue(of: element, attribute: kAXExpandedAttribute) == true {
+        values.append("expanded")
     }
 
     if boolValue(of: element, attribute: kAXEnabledAttribute) == false {
@@ -576,7 +599,11 @@ private func stringValue(of element: AXUIElement, attribute: String) -> String? 
     }
 
     if CFGetTypeID(value) == CFStringGetTypeID() {
-        return value as? String
+        guard let string = value as? String else {
+            return nil
+        }
+
+        return string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? nil : string
     }
 
     return nil
@@ -613,7 +640,8 @@ private func isSettable(of element: AXUIElement, attribute: String) -> Bool {
 
 private func sanitizedValue(of element: AXUIElement) -> String? {
     if let string = stringValue(of: element, attribute: kAXValueAttribute) {
-        return sanitizeText(string)
+        let sanitized = sanitizeText(string)
+        return sanitized.isEmpty ? nil : sanitized
     }
 
     guard let value = attributeValue(of: element, attribute: kAXValueAttribute) else {
@@ -738,7 +766,7 @@ private func resolveLocalFrame(of element: AXUIElement, windowBounds: CGRect?) -
     return windowRelativeFrame(elementFrame: frame, windowBounds: windowBounds)
 }
 
-private func shouldElideNode(
+func shouldElideNode(
     role: String,
     title: String?,
     label: String?,
@@ -748,10 +776,6 @@ private func shouldElideNode(
     actions: [String],
     childCount: Int
 ) -> Bool {
-    guard childCount == 1 else {
-        return false
-    }
-
     let genericRoles = [kAXGroupRole as String, kAXUnknownRole as String]
     guard genericRoles.contains(role) else {
         return false
@@ -763,6 +787,7 @@ private func shouldElideNode(
         && identifier == nil
         && traits.isEmpty
         && actions.isEmpty
+        && childCount > 0
 }
 
 private func shouldSuppressChildren(
@@ -841,7 +866,7 @@ private func roleDescription(of element: AXUIElement, role: String, subrole: Str
     return humanizeAXToken(role)
 }
 
-private func meaningfulActions(_ values: [String], role: String) -> [String] {
+func meaningfulActions(_ values: [String], role: String) -> [String] {
     values
         .filter {
             ![
@@ -850,6 +875,7 @@ private func meaningfulActions(_ values: [String], role: String) -> [String] {
                 "AXShowAlternateUI",
                 "AXShowMenu",
                 "AXConfirm",
+                "AXScrollToVisible",
             ].contains($0)
         }
         .filter {

@@ -539,6 +539,61 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(rendered.contains("Pay special attention to the content selected by the user"))
     }
 
+    func testAccessibilityTreeBudgetAllowsDeepElectronWebViews() {
+        XCTAssertEqual(accessibilityTreeMaxNodeCount, 500)
+        XCTAssertEqual(accessibilityTreeMaxDepth, 64)
+        XCTAssertTrue(shouldContinueRendering(nextIndex: 120, depth: 16))
+        XCTAssertTrue(shouldContinueRendering(nextIndex: 499, depth: 63))
+        XCTAssertFalse(shouldContinueRendering(nextIndex: 500, depth: 20))
+        XCTAssertFalse(shouldContinueRendering(nextIndex: 120, depth: 64))
+    }
+
+    func testAccessibilityRendererElidesEmptyGenericElectronWrappers() {
+        XCTAssertTrue(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 3
+        ))
+        XCTAssertFalse(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: "Send",
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 3
+        ))
+    }
+
+    func testAccessibilityRendererFiltersScrollToVisibleNoise() {
+        XCTAssertEqual(
+            meaningfulActions(
+                [kAXPressAction as String, "AXScrollToVisible", "AXShowMenu", "AXRaise"],
+                role: kAXButtonRole as String
+            ),
+            ["Raise"]
+        )
+    }
+
+    func testBlockingAsyncBridgeTimesOutScreenshotWork() {
+        XCTAssertThrowsError(
+            try BlockingAsyncBridge.run(timeout: 0.01) {
+                try await Task.sleep(nanoseconds: 200_000_000)
+                return "late"
+            }
+        ) { error in
+            XCTAssertTrue(
+                (error as? ComputerUseError)?.errorDescription?.contains("timed out") == true
+            )
+        }
+    }
+
     func testComputerUseErrorsFormatLikeToolText() {
         XCTAssertEqual(ComputerUseError.appNotFound("Sublime Text").errorDescription, #"appNotFound("Sublime Text")"#)
         XCTAssertTrue(ComputerUseError.appNotFound("Sublime Text").toolResultIsError)

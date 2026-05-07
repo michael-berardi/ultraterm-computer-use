@@ -14,7 +14,7 @@
 
 - macOS 上必须给 `Open Computer Use.app` 授权 `Accessibility` 与 `Screen Recording`；终端本身不应该再是必需授权对象。
 - smoke suite 依赖本地 GUI session，不能把它当成无头环境命令。
-- 普通 app 的 `get_app_state` 结果依赖 AX tree 和窗口截图，复杂 app 上输出会有差异。
+- 普通 app 的 `get_app_state` 结果依赖 AX tree 和窗口截图，复杂 app 上输出会有差异；Electron/WebView app 的 AX tree 通常很深，当前会压缩空 wrapper 并放宽遍历深度，以优先保留可操作文本、按钮和输入框。
 - Linux runtime 依赖已登录桌面用户 session；缺少 `XDG_RUNTIME_DIR`、`DBUS_SESSION_BUS_ADDRESS` 或 display 环境时，会尝试从 `/run/user/<uid>` 和常见桌面进程自动发现当前用户的 session env。纯 SSH tty 如果找不到桌面 session 仍不能直接访问 AT-SPI GUI tree。
 - GNOME Wayland 截图可能被 compositor 限制，当前 Linux bridge 会把黑图视为无效截图并省略 image block。
 
@@ -29,7 +29,7 @@
 ## 后续补强方向
 
 - 增加结构化日志和失败原因分类。
-- 对 screenshot capture / AX traversal 增加更明确的 timeout 和 fallback。
+- 继续补充 screenshot capture / AX traversal 的失败上下文和普通 app 回归样本。
 - 增加普通 app 回归样本，而不是只覆盖 fixture。
 
 CI/CD 流程结构和 release 自动化的默认方案，统一写在 `docs/CICD.md`。

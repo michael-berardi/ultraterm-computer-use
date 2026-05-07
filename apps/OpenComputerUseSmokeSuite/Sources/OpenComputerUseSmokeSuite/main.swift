@@ -187,7 +187,7 @@ enum OpenComputerUseSmokeSuite {
     }
 
     private static func runFullSmoke(serverURL: URL, appName: String) throws {
-        let client = try MCPClient(executableURL: serverURL, arguments: ["mcp"])
+        let client = try MCPClient(executableURL: serverURL, arguments: ["mcp"], environment: smokeServerEnvironment())
         defer {
             client.terminate()
         }
@@ -302,7 +302,7 @@ enum OpenComputerUseSmokeSuite {
         print("1. cursor idle observation setup")
         let observationURL = cursorObservationFileURL()
         try? FileManager.default.removeItem(at: observationURL)
-        var environment = ProcessInfo.processInfo.environment
+        var environment = smokeServerEnvironment()
         environment["OPEN_COMPUTER_USE_VISUAL_CURSOR"] = "1"
         environment["OPEN_COMPUTER_USE_VISUAL_CURSOR_OBSERVATION_FILE"] = observationURL.path
 
@@ -342,6 +342,12 @@ enum OpenComputerUseSmokeSuite {
         try expect(abs(secondRotation - firstRotation) > 0.01, "idle cursor should keep a clearly visible tiny rotation wobble")
 
         print("Cursor idle smoke completed.")
+    }
+
+    private static func smokeServerEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"] = "1"
+        return environment
     }
 
     private static func locateProductsDirectory() throws -> URL {
