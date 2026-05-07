@@ -20,3 +20,19 @@ Official `computer-use` returns an unavailable-window error for the observed Lar
 
 ### 📁 Files Modified
 - `packages/OpenComputerUseKit/Sources/OpenComputerUseKit/AccessibilitySnapshot.swift`
+
+### 🔁 Follow-up (2026-05-07, require matching visible CG window)
+
+**Additional evidence:** Official `computer-use` `1.0.770` strings include `cgWindowNotFound`, `noWindowsAvailable`, `matchingWindowNotFound`, and `AXWindowMiniaturized` / `AXWindowDeminiaturized`, and current official calls return `cgWindowNotFound` for Lark, Chrome, and System Settings when the desktop exposes no usable window state.
+
+**Additional changes:**
+- Filtered window candidates to non-minimized `AXWindow` elements.
+- Required a matching on-screen `CGWindow` before rendering a real-app snapshot.
+- Synchronized `docs/ARCHITECTURE.md` with the stricter window precondition.
+
+**Validation:**
+- `swift test`
+- `./scripts/check-docs.sh`
+- `git diff --check`
+- `./scripts/run-tool-smoke-tests.sh`
+- Manual comparison: official `computer-use` and current source build both return unavailable-window errors for the current Lark / Chrome / System Settings no-window state.

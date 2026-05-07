@@ -96,10 +96,13 @@ enum SnapshotBuilder {
         }
 
         let windowTitle = stringValue(of: focusedWindow, attribute: kAXTitleAttribute)
-        let windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle)
+        guard let windowCapture = WindowCapture.resolve(for: app.pid, titleHint: windowTitle) else {
+            throw ComputerUseError.stateUnavailable("No visible window is available for \(app.bundleIdentifier ?? app.name). Bring the app window on screen and call get_app_state again.")
+        }
+
         let rootElement = focusedWindow
-        let windowBounds = windowCapture?.bounds
-        let screenshotPNGData = windowCapture?.pngDataIfAvailable()
+        let windowBounds = windowCapture.bounds
+        let screenshotPNGData = windowCapture.pngDataIfAvailable()
         let focusedElement = preferredFocusedElement(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
         let selectedText = focusedElement.flatMap(copySelectedText(_:))
         let context = RenderContext(windowBounds: windowBounds, focusedElement: focusedElement)
@@ -116,8 +119,8 @@ enum SnapshotBuilder {
             app: app,
             windowTitle: windowTitle,
             windowBounds: windowBounds,
-            targetWindowID: windowCapture?.windowID,
-            targetWindowLayer: windowCapture?.layer,
+            targetWindowID: windowCapture.windowID,
+            targetWindowLayer: windowCapture.layer,
             screenshotPNGData: screenshotPNGData,
             mode: .accessibility,
             treeLines: renderer.lines,
@@ -132,31 +135,32 @@ enum SnapshotBuilder {
             return nil
         }
 
-        return windows.first(where: isWindowElement(_:))
+        return windows.first(where: isUsableWindowElement(_:))
     }
 
     private static func preferredFocusedWindow(appElement: AXUIElement, appPID: pid_t, focusedApplication: AXUIElement?, systemWide: AXUIElement) -> AXUIElement? {
         if let focusedApplication, pid(of: focusedApplication) == appPID {
-            return windowElement(from: copyElement(systemWide, attribute: kAXFocusedWindowAttribute))
-                ?? windowElement(from: copyElement(focusedApplication, attribute: kAXFocusedWindowAttribute))
+            return usableWindowElement(from: copyElement(systemWide, attribute: kAXFocusedWindowAttribute))
+                ?? usableWindowElement(from: copyElement(focusedApplication, attribute: kAXFocusedWindowAttribute))
                 ?? firstWindow(for: focusedApplication)
-                ?? windowElement(from: copyElement(appElement, attribute: kAXFocusedWindowAttribute))
+                ?? usableWindowElement(from: copyElement(appElement, attribute: kAXFocusedWindowAttribute))
                 ?? firstWindow(for: appElement)
         }
 
-        return windowElement(from: copyElement(appElement, attribute: kAXFocusedWindowAttribute)) ?? firstWindow(for: appElement)
+        return usableWindowElement(from: copyElement(appElement, attribute: kAXFocusedWindowAttribute)) ?? firstWindow(for: appElement)
     }
 
-    private static func windowElement(from element: AXUIElement?) -> AXUIElement? {
-        guard let element, isWindowElement(element) else {
+    private static func usableWindowElement(from element: AXUIElement?) -> AXUIElement? {
+        guard let element, isUsableWindowElement(element) else {
             return nil
         }
 
         return element
     }
 
-    private static func isWindowElement(_ element: AXUIElement) -> Bool {
+    private static func isUsableWindowElement(_ element: AXUIElement) -> Bool {
         stringValue(of: element, attribute: kAXRoleAttribute) == kAXWindowRole as String
+            && boolValue(of: element, attribute: kAXMinimizedAttribute) != true
     }
 
     private static func preferredFocusedElement(appElement: AXUIElement, appPID: pid_t, focusedApplication: AXUIElement?, systemWide: AXUIElement) -> AXUIElement? {
