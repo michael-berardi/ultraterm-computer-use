@@ -590,6 +590,50 @@ final class OpenComputerUseKitTests: XCTestCase {
             childCount: 3,
             genericTextSummary: "AgentSphere 17:18 okay"
         ))
+        XCTAssertFalse(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 3,
+            webAreaDepth: 4
+        ))
+        XCTAssertTrue(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 0,
+            webAreaDepth: 4
+        ))
+        XCTAssertFalse(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 2,
+            webAreaDepth: 8
+        ))
+        XCTAssertTrue(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
+            childCount: 1,
+            webAreaDepth: 8
+        ))
     }
 
     func testAccessibilityRendererOnlyMergesShortTextOnlySiblingRuns() {

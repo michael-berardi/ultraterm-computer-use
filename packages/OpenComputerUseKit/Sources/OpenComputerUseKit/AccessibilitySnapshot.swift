@@ -30,6 +30,7 @@ enum SnapshotMode {
 let accessibilityTreeMaxNodeCount = 1200
 let accessibilityTreeMaxDepth = 64
 let screenshotCaptureTimeout: TimeInterval = 5
+private let axWebAreaRole = "AXWebArea"
 
 public struct AppSnapshot {
     public let app: RunningAppDescriptor
@@ -385,6 +386,7 @@ private struct TreeRenderer {
         let traits = summarizeTraits(of: root)
         let actions = copyActions(root) ?? []
         let prettyActions = meaningfulActions(actions, role: role)
+        let webAreaDepth = webAreaDepth(role: role, ancestors: ancestors)
         let localFrame = resolveLocalFrame(of: root, windowBounds: context.windowBounds)
         let rowTexts = role == kAXRowRole as String ? flattenedRowTexts(of: root) : []
         let childElements = children(of: root)
@@ -436,7 +438,8 @@ private struct TreeRenderer {
             traits: traits,
             actions: prettyActions,
             childCount: childElements.count,
-            genericTextSummary: genericTextSummary
+            genericTextSummary: genericTextSummary,
+            webAreaDepth: webAreaDepth
         ) {
             for child in childElements {
                 render(child, depth: depth, ancestors: nextAncestors)
@@ -542,6 +545,20 @@ private struct TreeRenderer {
 
     private func opaqueIdentifier(for element: AXUIElement) -> String {
         String(CFHash(element))
+    }
+
+    private func webAreaDepth(role: String, ancestors: [AXUIElement]) -> Int? {
+        if role == axWebAreaRole {
+            return 0
+        }
+
+        guard let webAreaIndex = ancestors.firstIndex(where: { ancestor in
+            stringValue(of: ancestor, attribute: kAXRoleAttribute) == axWebAreaRole
+        }) else {
+            return nil
+        }
+
+        return ancestors.count - webAreaIndex
     }
 
     private func children(of element: AXUIElement) -> [AXUIElement] {
@@ -970,7 +987,8 @@ func shouldElideNode(
     traits: [String],
     actions: [String],
     childCount: Int,
-    genericTextSummary: String? = nil
+    genericTextSummary: String? = nil,
+    webAreaDepth: Int? = nil
 ) -> Bool {
     let genericRoles = [kAXGroupRole as String, kAXUnknownRole as String]
     guard genericRoles.contains(role) else {
@@ -981,12 +999,24 @@ func shouldElideNode(
         return false
     }
 
+    if shouldPreserveWebAreaGenericContainer(childCount: childCount, webAreaDepth: webAreaDepth) {
+        return false
+    }
+
     return title == nil
         && label == nil
         && value == nil
         && identifier == nil
         && traits.isEmpty
         && actions.isEmpty
+}
+
+func shouldPreserveWebAreaGenericContainer(childCount: Int, webAreaDepth: Int?) -> Bool {
+    guard childCount > 0, let webAreaDepth else {
+        return false
+    }
+
+    return childCount > 1 || webAreaDepth <= 4
 }
 
 private func shouldSuppressChildren(
