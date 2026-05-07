@@ -682,6 +682,29 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(meaningfulActions(["AXZoomWindow"], role: kAXButtonRole as String), ["zoom the window"])
     }
 
+    func testAccessibilityRendererFormatsPlaceholderSegment() {
+        XCTAssertEqual(
+            formattedPlaceholderSegment(
+                "Ask Google or type a URL",
+                title: nil,
+                label: "Address and search bar",
+                value: "example.com",
+                precedingSegments: [" Description: Address and search bar", " Value: example.com"]
+            ),
+            ", Placeholder: Ask Google or type a URL"
+        )
+        XCTAssertEqual(
+            formattedPlaceholderSegment(
+                "Search mail",
+                title: nil,
+                label: "Search mail",
+                value: nil,
+                precedingSegments: []
+            ),
+            ""
+        )
+    }
+
     func testBlockingAsyncBridgeTimesOutScreenshotWork() {
         XCTAssertThrowsError(
             try BlockingAsyncBridge.run(timeout: 0.01) {

@@ -508,6 +508,7 @@ private struct TreeRenderer {
         let traits = summarizeTraits(of: root)
         let actions = copyActions(root) ?? []
         let prettyActions = meaningfulActions(actions, role: role)
+        let placeholder = placeholderValue(of: root)
         let webAreaDepth = webAreaDepth(role: role, ancestors: ancestors)
         let localFrame = resolveLocalFrame(of: root, windowBounds: context.windowBounds)
         let rowTexts = role == kAXRowRole as String ? flattenedRowTexts(of: root) : []
@@ -592,16 +593,23 @@ private struct TreeRenderer {
             rawValueSegment,
             precedingSegments: [labelSegment, helpSegment, urlSegment, identifierSegment]
         )
+        let placeholderSegment = formattedPlaceholderSegment(
+            placeholder,
+            title: title,
+            label: label,
+            value: value,
+            precedingSegments: [labelSegment, helpSegment, urlSegment, identifierSegment, valueSegment]
+        )
         let actionsPrefix = shouldCommaSeparateActions(
             title: title,
             inlineRowSummary: inlineRowSummary,
             genericTextSummary: genericTextSummary,
-            segments: [labelSegment, helpSegment, urlSegment, identifierSegment, valueSegment]
+            segments: [labelSegment, helpSegment, urlSegment, identifierSegment, valueSegment, placeholderSegment]
         ) ? ", Secondary Actions: " : " Secondary Actions: "
         let actionsSegment = prettyActions.isEmpty ? "" : "\(actionsPrefix)\(prettyActions.joined(separator: ", "))"
         let linePrefix = roleText.isEmpty ? "\(index)" : "\(index) \(roleText)"
 
-        let lineBody = "\(linePrefix)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)"
+        let lineBody = "\(linePrefix)\(traitsSegment)\(titleSegment)\(rowSummarySegment)\(labelSegment)\(helpSegment)\(urlSegment)\(identifierSegment)\(valueSegment)\(placeholderSegment)"
         lines.append("\(String(repeating: "\t", count: depth))\(lineBody)\(actionsSegment)")
 
         let record = ElementRecord(
@@ -899,6 +907,19 @@ private func sanitizedValue(of element: AXUIElement) -> String? {
     return nil
 }
 
+private func placeholderValue(of element: AXUIElement) -> String? {
+    for attribute in ["AXPlaceholderValue", "AXPlaceholder"] {
+        if let string = stringValue(of: element, attribute: attribute) {
+            let sanitized = sanitizeText(string)
+            if !sanitized.isEmpty {
+                return sanitized
+            }
+        }
+    }
+
+    return nil
+}
+
 private func numericValueRepresentsBoolean(for element: AXUIElement, value: CFTypeRef) -> Bool {
     guard let number = value as? NSNumber else {
         return false
@@ -1009,6 +1030,19 @@ private func formattedValueSegmentWithSeparator(_ valueSegment: String, precedin
     }
 
     return ",\(valueSegment)"
+}
+
+func formattedPlaceholderSegment(_ placeholder: String?, title: String?, label: String?, value: String?, precedingSegments: [String]) -> String {
+    guard let placeholder, !placeholder.isEmpty else {
+        return ""
+    }
+
+    if placeholder == title || placeholder == label || placeholder == value {
+        return ""
+    }
+
+    let prefix = precedingSegments.contains(where: { !$0.isEmpty }) || title != nil ? ", Placeholder: " : " Placeholder: "
+    return "\(prefix)\(placeholder)"
 }
 
 private func shouldCommaSeparateActions(
