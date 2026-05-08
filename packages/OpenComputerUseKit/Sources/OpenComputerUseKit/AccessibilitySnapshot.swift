@@ -1004,10 +1004,6 @@ private func markdownLinkText(for element: AXUIElement, title: String?, label: S
         return nil
     }
 
-    if text == url {
-        return url
-    }
-
     return "[\(markdownEscapedLinkText(text))](\(url))"
 }
 
@@ -1059,12 +1055,13 @@ private func formattedValueSegment(for element: AXUIElement, roleText: String, t
     return " Value: \(value)"
 }
 
-private func formattedLabelSegment(_ label: String?, title: String?, linkText: String?) -> String {
+func formattedLabelSegment(_ label: String?, title: String?, linkText: String?) -> String {
     guard let label, label != title else {
         return ""
     }
 
-    if let linkText, linkText.hasPrefix("[\(markdownEscapedLinkText(label))](") {
+    let comparableLabel = markdownEscapedLinkText(sanitizeText(label))
+    if let linkText, linkText.hasPrefix("[\(comparableLabel)](") {
         return ""
     }
 
@@ -1598,11 +1595,11 @@ private func summaryTextForLink(_ element: AXUIElement) -> String? {
         return nil
     }
 
-    if sanitized == url {
-        return url
-    }
+    return summaryMarkdownLinkText(text: sanitized, url: url)
+}
 
-    return "[\(markdownEscapedLinkText(sanitized))](\(url))"
+func summaryMarkdownLinkText(text: String, url: String) -> String {
+    "[\(markdownEscapedLinkText(text))](\(url))"
 }
 
 private func visibleRows(in rows: [AXUIElement], parent: AXUIElement) -> [AXUIElement] {

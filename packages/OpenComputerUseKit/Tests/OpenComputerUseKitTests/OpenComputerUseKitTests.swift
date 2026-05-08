@@ -763,6 +763,44 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testAccessibilityRendererKeepsMarkdownShapeForSummaryLinks() {
+        XCTAssertEqual(
+            summaryMarkdownLinkText(
+                text: "https://example.com/docs?topic=[agents]",
+                url: "https://example.com/docs?topic=%5Bagents%5D"
+            ),
+            "[https://example.com/docs?topic=\\[agents\\]](https://example.com/docs?topic=%5Bagents%5D)"
+        )
+        XCTAssertEqual(
+            summaryMarkdownLinkText(
+                text: "https://example.com/docs",
+                url: "https://example.com/docs"
+            ),
+            "[https://example.com/docs](https://example.com/docs)"
+        )
+    }
+
+    func testAccessibilityRendererSuppressesDuplicateDescriptionForSameTextMarkdownLinks() {
+        XCTAssertEqual(
+            formattedLabelSegment(
+                "https://example.com/docs",
+                title: "[https://example.com/docs](https://example.com/docs)",
+                linkText: "[https://example.com/docs](https://example.com/docs)"
+            ),
+            ""
+        )
+        let longURL = "https://example.com/docs?" + String(repeating: "query=value&", count: 20)
+        let truncatedURL = String(longURL.prefix(160)) + "..."
+        XCTAssertEqual(
+            formattedLabelSegment(
+                longURL,
+                title: "[\(truncatedURL)](\(truncatedURL))",
+                linkText: "[\(truncatedURL)](\(truncatedURL))"
+            ),
+            ""
+        )
+    }
+
     func testAccessibilityRendererFormatsPlaceholderSegment() {
         XCTAssertEqual(
             formattedPlaceholderSegment(
