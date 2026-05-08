@@ -168,6 +168,7 @@ enum OpenComputerUseSmokeSuite {
 
         let fixture = Process()
         fixture.executableURL = fixtureURL
+        fixture.environment = smokeFixtureEnvironment()
         fixture.standardOutput = Pipe()
         fixture.standardError = Pipe()
         try fixture.run()
@@ -347,6 +348,12 @@ enum OpenComputerUseSmokeSuite {
     private static func smokeServerEnvironment() -> [String: String] {
         var environment = ProcessInfo.processInfo.environment
         environment["OPEN_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"] = "1"
+        return environment
+    }
+
+    private static func smokeFixtureEnvironment() -> [String: String] {
+        var environment = ProcessInfo.processInfo.environment
+        environment["OPEN_COMPUTER_USE_FIXTURE_HEADLESS"] = "1"
         return environment
     }
 

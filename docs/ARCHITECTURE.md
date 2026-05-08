@@ -133,7 +133,7 @@
 - 单元测试：`swift test`
 - standalone cursor 构建：`swift build --product StandaloneCursor`
 - cursor lab 构建：`swift build --product CursorMotion`
-- 端到端 smoke：`./scripts/run-tool-smoke-tests.sh`（标准 9-tool smoke + visual cursor idle smoke）
+- 端到端 smoke：`./scripts/run-tool-smoke-tests.sh`（标准 9-tool smoke + visual cursor idle smoke；脚本默认以 headless 模式启动内部 fixture，避免在用户桌面弹出测试窗口）
 - app 打包：`./scripts/build-open-computer-use-app.sh debug`
 - npm staging：`node ./scripts/npm/build-packages.mjs`
 - release tgz：`./scripts/release-package.sh`

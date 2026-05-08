@@ -90,12 +90,19 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
     private var counter = 0
     private weak var observedScrollView: NSScrollView?
     private var commandObserver: NSObjectProtocol?
+    private let headless: Bool
+
+    init(headless: Bool) {
+        self.headless = headless
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildWindow()
         startCommandObserver()
         updateExportedState()
-        NSApp.activate(ignoringOtherApps: true)
+        if !headless {
+            NSApp.activate(ignoringOtherApps: true)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -183,7 +190,11 @@ final class FixtureAppDelegate: NSObject, NSApplicationDelegate, NSTextFieldDele
             inputField.widthAnchor.constraint(equalToConstant: 320),
         ])
 
-        window.makeKeyAndOrderFront(nil)
+        if headless {
+            window.orderOut(nil)
+        } else {
+            window.makeKeyAndOrderFront(nil)
+        }
     }
 
     @objc
@@ -422,10 +433,20 @@ enum OpenComputerUseFixtureMain {
     @MainActor
     static func main() {
         let application = NSApplication.shared
-        application.setActivationPolicy(.regular)
-        let delegate = FixtureAppDelegate()
+        let headless = fixtureHeadlessMode()
+        application.setActivationPolicy(headless ? .accessory : .regular)
+        let delegate = FixtureAppDelegate(headless: headless)
         Self.delegate = delegate
         application.delegate = delegate
         application.run()
+    }
+}
+
+private func fixtureHeadlessMode(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+    switch environment["OPEN_COMPUTER_USE_FIXTURE_HEADLESS"]?.lowercased() {
+    case "1", "true", "yes", "on":
+        return true
+    default:
+        return false
     }
 }

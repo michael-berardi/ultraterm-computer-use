@@ -363,7 +363,11 @@ enum AppDiscovery {
     }
 
     private static func isUserFacingListApp(_ app: NSRunningApplication) -> Bool {
-        app.activationPolicy == .regular
+        if appName(app) == FixtureBridge.appName {
+            return true
+        }
+
+        return app.activationPolicy == .regular
     }
 
     private static func bundleDisplayName(_ bundle: Bundle?) -> String? {
