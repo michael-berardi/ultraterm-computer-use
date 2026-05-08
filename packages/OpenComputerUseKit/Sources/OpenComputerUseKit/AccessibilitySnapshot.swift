@@ -1206,6 +1206,17 @@ func shouldElideNode(
         return false
     }
 
+    if childCount == 1,
+       title == nil,
+       label == nil,
+       value == nil,
+       identifier == nil,
+       actions.isEmpty,
+       traitsAreNonDescriptiveWrapperTraits(traits)
+    {
+        return true
+    }
+
     return title == nil
         && label == nil
         && value == nil
@@ -1215,11 +1226,15 @@ func shouldElideNode(
 }
 
 func shouldPreserveWebAreaGenericContainer(childCount: Int, webAreaDepth: Int?) -> Bool {
-    guard childCount > 0, let webAreaDepth else {
+    guard childCount > 0, webAreaDepth != nil else {
         return false
     }
 
-    return childCount > 1 || webAreaDepth <= 4
+    return childCount > 1
+}
+
+private func traitsAreNonDescriptiveWrapperTraits(_ traits: [String]) -> Bool {
+    traits.isEmpty || traits == ["settable", "string"]
 }
 
 private func shouldSuppressChildren(
@@ -1319,6 +1334,10 @@ func shouldMergeTextOnlySiblings(_ texts: [String]) -> Bool {
         return false
     }
 
+    if texts.contains(where: isStandaloneTimeRangeText(_:)) {
+        return false
+    }
+
     let totalLength = texts.reduce(0) { $0 + $1.count }
     return texts.count <= 8 && totalLength <= 220
 }
@@ -1327,11 +1346,19 @@ private func isSiblingCounterText(_ text: String) -> Bool {
     text.range(of: #"^\d+\s*/\s*\d+$"#, options: .regularExpression) != nil
 }
 
+private func isStandaloneTimeRangeText(_ text: String) -> Bool {
+    text.range(of: #"^\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}$"#, options: .regularExpression) != nil
+}
+
 private func isPlainGenericTextContainer(_ element: AXUIElement, children: [AXUIElement], depth: Int = 0) -> Bool {
     for child in children {
         let childRole = stringValue(of: child, attribute: kAXRoleAttribute) ?? ""
 
         if childRole == kAXStaticTextRole as String || childRole == kAXImageRole as String {
+            continue
+        }
+
+        if childRole == "AXLink", summaryTextForLink(child) != nil {
             continue
         }
 
@@ -1539,6 +1566,10 @@ private func descendantTextsForSummary(of element: AXUIElement, depth: Int = 0) 
     }
 
     let role = stringValue(of: element, attribute: kAXRoleAttribute) ?? ""
+    if role == "AXLink", let linkText = summaryTextForLink(element) {
+        return [linkText]
+    }
+
     if role == kAXStaticTextRole as String || role == kAXTextFieldRole as String {
         if let value = sanitizedValue(of: element), !value.isEmpty {
             return [value]
@@ -1552,6 +1583,26 @@ private func descendantTextsForSummary(of element: AXUIElement, depth: Int = 0) 
 
     return (copyArray(element, attribute: kAXChildrenAttribute) ?? [])
         .flatMap { descendantTextsForSummary(of: $0, depth: depth + 1) }
+}
+
+private func summaryTextForLink(_ element: AXUIElement) -> String? {
+    guard let url = urlValue(of: element, attribute: kAXURLAttribute), !url.isEmpty else {
+        return nil
+    }
+
+    let childText = (copyArray(element, attribute: kAXChildrenAttribute) ?? [])
+        .flatMap { descendantTextsForSummary(of: $0) }
+        .joined(separator: " ")
+    let sanitized = sanitizeText(childText)
+    guard !sanitized.isEmpty else {
+        return nil
+    }
+
+    if sanitized == url {
+        return url
+    }
+
+    return "[\(markdownEscapedLinkText(sanitized))](\(url))"
 }
 
 private func visibleRows(in rows: [AXUIElement], parent: AXUIElement) -> [AXUIElement] {

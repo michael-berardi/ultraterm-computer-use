@@ -644,6 +644,17 @@ final class OpenComputerUseKitTests: XCTestCase {
             identifier: nil,
             traits: [],
             actions: [],
+            childCount: 1,
+            webAreaDepth: 4
+        ))
+        XCTAssertTrue(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: [],
+            actions: [],
             childCount: 0,
             webAreaDepth: 4
         ))
@@ -669,11 +680,32 @@ final class OpenComputerUseKitTests: XCTestCase {
             childCount: 1,
             webAreaDepth: 8
         ))
+        XCTAssertTrue(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: ["settable", "string"],
+            actions: [],
+            childCount: 1
+        ))
+        XCTAssertFalse(shouldElideNode(
+            role: kAXGroupRole as String,
+            title: nil,
+            label: nil,
+            value: nil,
+            identifier: nil,
+            traits: ["settable", "string"],
+            actions: [],
+            childCount: 0
+        ))
     }
 
     func testAccessibilityRendererOnlyMergesShortTextOnlySiblingRuns() {
         XCTAssertTrue(shouldMergeTextOnlySiblings(["AgentSphere", "17:18", "好的，谢谢"]))
         XCTAssertFalse(shouldMergeTextOnlySiblings(["日期", "时间", "2026年5月7日", "晚餐", "18:00-20:00"]))
+        XCTAssertFalse(shouldMergeTextOnlySiblings(["as-next 10min 站会", "12 分钟后", "10:30 - 10:45"]))
         XCTAssertFalse(shouldMergeTextOnlySiblings([
             "📌 3层简卡轻食",
             "自助餐",
