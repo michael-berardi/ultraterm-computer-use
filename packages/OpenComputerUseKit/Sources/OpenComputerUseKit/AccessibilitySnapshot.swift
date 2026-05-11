@@ -35,6 +35,8 @@ let screenshotResultMaxDimension: CGFloat = 1280
 let screenshotResultMinScale: CGFloat = 0.25
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
+private let axContentsAttribute = "AXContents"
+private let axVisibleChildrenAttribute = "AXVisibleChildren"
 
 public struct AppSnapshot {
     public let app: RunningAppDescriptor
@@ -345,7 +347,7 @@ private struct WindowCapture {
             return nil
         }
 
-        let candidates = infoList.compactMap { info -> (CGWindowID, Int, CGRect, String?, Int)? in
+        let candidates = infoList.enumerated().compactMap { offset, info -> WindowCaptureCandidate? in
             guard
                 let ownerPID = info[kCGWindowOwnerPID as String] as? pid_t,
                 ownerPID == pid,
@@ -359,28 +361,23 @@ private struct WindowCapture {
 
             let title = info[kCGWindowName as String] as? String
             let area = Int(bounds.width * bounds.height)
-            return (CGWindowID(number.uint32Value), layer, bounds, title, area)
+            return WindowCaptureCandidate(
+                windowID: CGWindowID(number.uint32Value),
+                layer: layer,
+                bounds: bounds,
+                title: title,
+                area: area,
+                frontToBackIndex: offset
+            )
         }
 
-        guard let best = candidates.sorted(by: { lhs, rhs in
-            if let titleHint {
-                if lhs.3 == titleHint && rhs.3 != titleHint {
-                    return true
-                }
-
-                if rhs.3 == titleHint && lhs.3 != titleHint {
-                    return false
-                }
-            }
-
-            return lhs.4 > rhs.4
-        }).first else {
+        guard let best = preferredWindowCaptureCandidate(candidates, titleHint: titleHint) else {
             return nil
         }
 
-        let image = captureImage(windowID: best.0, bounds: best.2)
+        let image = captureImage(windowID: best.windowID, bounds: best.bounds)
 
-        return WindowCapture(windowID: best.0, layer: best.1, bounds: best.2, image: image)
+        return WindowCapture(windowID: best.windowID, layer: best.layer, bounds: best.bounds, image: image)
     }
 
     private static func captureImage(windowID: CGWindowID, bounds: CGRect) -> CGImage? {
@@ -417,6 +414,47 @@ private struct WindowCapture {
 
         return boundedScreenshotPNGData(for: image)
     }
+}
+
+struct WindowCaptureCandidate {
+    let windowID: CGWindowID
+    let layer: Int
+    let bounds: CGRect
+    let title: String?
+    let area: Int
+    let frontToBackIndex: Int
+}
+
+func preferredWindowCaptureCandidate(_ candidates: [WindowCaptureCandidate], titleHint: String?) -> WindowCaptureCandidate? {
+    let usable = candidates
+        .filter { $0.layer == 0 && $0.area >= 20_000 }
+        .sorted { lhs, rhs in
+            lhs.frontToBackIndex < rhs.frontToBackIndex
+        }
+
+    guard !usable.isEmpty else {
+        return candidates.sorted { lhs, rhs in
+            lhs.area > rhs.area
+        }.first
+    }
+
+    guard let titleHint, !titleHint.isEmpty,
+          let hinted = usable.first(where: { $0.title == titleHint })
+    else {
+        return usable.first
+    }
+
+    guard let frontmost = usable.first else {
+        return hinted
+    }
+
+    if frontmost.windowID != hinted.windowID,
+       frontmost.bounds.intersects(hinted.bounds)
+    {
+        return frontmost
+    }
+
+    return hinted
 }
 
 func boundedScreenshotPNGData(
@@ -761,26 +799,27 @@ private struct TreeRenderer {
     }
 
     private func children(of element: AXUIElement) -> [AXUIElement] {
-        let attributes = [kAXChildrenAttribute, kAXRowsAttribute]
+        let role = stringValue(of: element, attribute: kAXRoleAttribute)
+        let rows = copyArray(element, attribute: kAXRowsAttribute) ?? []
+        let visibleChildren = copyArray(element, attribute: axVisibleChildrenAttribute) ?? []
+        let attributes = childTraversalAttributes(
+            role: role,
+            hasRows: !rows.isEmpty,
+            hasVisibleChildren: !visibleChildren.isEmpty
+        )
         var children: [AXUIElement] = []
-        let rowsArePrimaryChildren = usesRowsAsPrimaryChildren(element)
 
         for attribute in attributes {
-            guard let sourceValues = copyArray(element, attribute: attribute) else {
-                continue
+            let sourceValues: [AXUIElement]
+            if attribute == kAXRowsAttribute {
+                sourceValues = rows
+            } else if attribute == axVisibleChildrenAttribute {
+                sourceValues = visibleChildren
+            } else {
+                sourceValues = copyArray(element, attribute: attribute) ?? []
             }
 
-            if attribute == kAXChildrenAttribute,
-               rowsArePrimaryChildren,
-               let rows = copyArray(element, attribute: kAXRowsAttribute),
-               !rows.isEmpty
-            {
-                continue
-            }
-
-            let values = attribute == kAXRowsAttribute
-                ? visibleRows(in: sourceValues, parent: element)
-                : sourceValues
+            let values = attribute == kAXRowsAttribute ? visibleRows(in: sourceValues, parent: element) : sourceValues
 
             for child in values {
                 if shouldSkipChild(child, of: element) {
@@ -797,14 +836,28 @@ private struct TreeRenderer {
     }
 }
 
-private func usesRowsAsPrimaryChildren(_ element: AXUIElement) -> Bool {
-    let role = stringValue(of: element, attribute: kAXRoleAttribute)
+func childTraversalAttributes(role: String?, hasRows: Bool, hasVisibleChildren: Bool) -> [String] {
+    var attributes: [String] = []
+    if !(hasRows && usesRowsAsPrimaryRole(role)) && !(hasVisibleChildren && usesVisibleChildrenAsPrimaryRole(role)) {
+        attributes.append(kAXChildrenAttribute)
+    }
+    attributes.append(kAXRowsAttribute)
+    attributes.append(axContentsAttribute)
+    attributes.append(axVisibleChildrenAttribute)
+    return attributes
+}
+
+private func usesRowsAsPrimaryRole(_ role: String?) -> Bool {
     return [
         kAXOutlineRole as String,
         kAXListRole as String,
         kAXTableRole as String,
         "AXBrowser",
     ].contains(role)
+}
+
+private func usesVisibleChildrenAsPrimaryRole(_ role: String?) -> Bool {
+    role == kAXListRole as String
 }
 
 private func shouldSkipChild(_ child: AXUIElement, of parent: AXUIElement) -> Bool {

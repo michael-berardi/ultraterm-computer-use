@@ -1026,6 +1026,64 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(point, CGPoint(x: 530, y: 395))
     }
 
+    func testWindowCapturePrefersFrontmostOverHintWhenModalOverlapsHintedWindow() {
+        let main = WindowCaptureCandidate(
+            windowID: 1,
+            layer: 0,
+            bounds: CGRect(x: 100, y: 100, width: 800, height: 600),
+            title: "Nomi",
+            area: 480_000,
+            frontToBackIndex: 1
+        )
+        let openPanel = WindowCaptureCandidate(
+            windowID: 2,
+            layer: 0,
+            bounds: CGRect(x: 120, y: 180, width: 880, height: 448),
+            title: "Open",
+            area: 394_240,
+            frontToBackIndex: 0
+        )
+
+        let selected = preferredWindowCaptureCandidate([openPanel, main], titleHint: "Nomi")
+
+        XCTAssertEqual(selected?.windowID, openPanel.windowID)
+    }
+
+    func testWindowCaptureKeepsHintedWindowWhenFrontmostDoesNotOverlap() {
+        let main = WindowCaptureCandidate(
+            windowID: 1,
+            layer: 0,
+            bounds: CGRect(x: 100, y: 100, width: 800, height: 600),
+            title: "Nomi",
+            area: 480_000,
+            frontToBackIndex: 1
+        )
+        let other = WindowCaptureCandidate(
+            windowID: 2,
+            layer: 0,
+            bounds: CGRect(x: 1_200, y: 100, width: 400, height: 300),
+            title: "Utility",
+            area: 120_000,
+            frontToBackIndex: 0
+        )
+
+        let selected = preferredWindowCaptureCandidate([other, main], titleHint: "Nomi")
+
+        XCTAssertEqual(selected?.windowID, main.windowID)
+    }
+
+    func testListTraversalPrefersVisibleChildrenAndReadsContents() {
+        let attributes = childTraversalAttributes(
+            role: kAXListRole as String,
+            hasRows: false,
+            hasVisibleChildren: true
+        )
+
+        XCTAssertFalse(attributes.contains(kAXChildrenAttribute))
+        XCTAssertTrue(attributes.contains("AXContents"))
+        XCTAssertTrue(attributes.contains("AXVisibleChildren"))
+    }
+
     func testCursorWindowGeometryAnchorsTipPosition() {
         let geometry = CursorWindowGeometry(
             windowSize: CGSize(width: 128, height: 128),

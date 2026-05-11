@@ -226,7 +226,8 @@ public final class ComputerUseService {
                     snapshot: snapshot,
                     button: button,
                     clickCount: clickCount,
-                    includeNearbyHitTesting: true
+                    includeNearbyHitTesting: true,
+                    allowActivationFallback: true
                 )) {
                     try performNonAXClickFallback(
                         at: targetPoint,
@@ -255,16 +256,23 @@ public final class ComputerUseService {
             moveVisualCursor(to: cursorTarget)
 
             do {
-                if let record = try hitTestElement(at: point, in: snapshot) ?? bestElement(containing: point, in: snapshot),
-                   (try performAXClickSequence(
-                       on: record,
-                       snapshot: snapshot,
-                       button: button,
-                       clickCount: clickCount,
-                       includeNearbyHitTesting: false
-                   )) {
-                    // handled
-                } else {
+                let candidates = try clickCandidates(at: point, in: snapshot)
+                var handled = false
+                for record in candidates {
+                    if try performAXClickSequence(
+                        on: record,
+                        snapshot: snapshot,
+                        button: button,
+                        clickCount: clickCount,
+                        includeNearbyHitTesting: false,
+                        allowActivationFallback: false
+                    ) {
+                        handled = true
+                        break
+                    }
+                }
+
+                if !handled {
                     try performNonAXClickFallback(
                         at: targetPoint,
                         button: button,
@@ -502,6 +510,10 @@ public final class ComputerUseService {
 
         switch button {
         case .left:
+            if clickCount <= 1, try selectContainingListItem(for: element) {
+                return true
+            }
+
             if try performAction(named: kAXPressAction as String, on: element, availableActions: record.rawActions, repeatCount: clickCount) {
                 return true
             }
@@ -524,12 +536,83 @@ public final class ComputerUseService {
         return false
     }
 
+    private func clickCandidates(at point: CGPoint, in snapshot: AppSnapshot) throws -> [ElementRecord] {
+        var candidates: [ElementRecord] = []
+
+        if let bestRecord = bestElement(containing: point, in: snapshot) {
+            candidates.append(bestRecord)
+        }
+
+        if let hitRecord = try hitTestElement(at: point, in: snapshot) {
+            candidates.append(hitRecord)
+        }
+
+        return candidates.reduce(into: []) { uniqueCandidates, candidate in
+            if !uniqueCandidates.contains(where: { sameElement($0.element, candidate.element) }) {
+                uniqueCandidates.append(candidate)
+            }
+        }
+    }
+
+    private func sameElement(_ lhs: AXUIElement?, _ rhs: AXUIElement?) -> Bool {
+        guard let lhs, let rhs else {
+            return false
+        }
+
+        return CFEqual(lhs, rhs)
+    }
+
+    private func selectContainingListItem(for element: AXUIElement) throws -> Bool {
+        guard let target = selectableListItem(containing: element) else {
+            return false
+        }
+
+        let result = AXUIElementSetAttributeValue(
+            target.list,
+            kAXSelectedChildrenAttribute as CFString,
+            [target.item] as CFArray
+        )
+
+        switch result {
+        case .success:
+            Thread.sleep(forTimeInterval: 0.15)
+            return true
+        case .failure, .attributeUnsupported, .actionUnsupported, .cannotComplete, .noValue, .invalidUIElement, .illegalArgument:
+            return false
+        default:
+            throw ComputerUseError.message("AXUIElementSetAttributeValue(\(kAXSelectedChildrenAttribute)) failed with \(result.rawValue)")
+        }
+    }
+
+    private func selectableListItem(containing element: AXUIElement) -> (list: AXUIElement, item: AXUIElement)? {
+        var current = element
+        var directChild = element
+
+        for _ in 0..<8 {
+            guard let parent = copyParent(of: current) else {
+                return nil
+            }
+
+            if stringValue(of: parent, attribute: kAXRoleAttribute) == kAXListRole as String,
+               isSettable(element: parent, attribute: kAXSelectedChildrenAttribute)
+            {
+                return (parent, directChild)
+            }
+
+            directChild = parent
+            current = parent
+        }
+
+        return nil
+    }
+
     private func performAXClickSequence(
         on record: ElementRecord,
         snapshot: AppSnapshot,
         button: MouseButtonKind,
         clickCount: Int,
-        includeNearbyHitTesting: Bool
+        includeNearbyHitTesting: Bool,
+        allowActivationFallback: Bool
     ) throws -> Bool {
         if try performPreferredClick(on: record, button: button, clickCount: clickCount) {
             Thread.sleep(forTimeInterval: 0.15)
@@ -563,7 +646,7 @@ public final class ComputerUseService {
             }
         }
 
-        guard button == .left, let element = record.element else {
+        guard allowActivationFallback, button == .left, let element = record.element else {
             return false
         }
 
@@ -793,6 +876,26 @@ public final class ComputerUseService {
         }
 
         return value as? [AXUIElement] ?? []
+    }
+
+    private func copyParent(of element: AXUIElement) -> AXUIElement? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &value)
+        guard result == .success, let value else {
+            return nil
+        }
+
+        return (value as! AXUIElement)
+    }
+
+    private func stringValue(of element: AXUIElement, attribute: String) -> String? {
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute as CFString, &value)
+        guard result == .success, let value else {
+            return nil
+        }
+
+        return value as? String
     }
 
     private func localFrame(of element: AXUIElement, windowBounds: CGRect?) -> CGRect? {
