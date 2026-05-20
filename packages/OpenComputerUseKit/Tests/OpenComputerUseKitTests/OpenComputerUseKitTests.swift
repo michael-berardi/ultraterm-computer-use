@@ -443,6 +443,14 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(tccAuthorizationGranted(authValues: []))
     }
 
+    func testPermissionGrantedKeepsRuntimePreflightAuthoritativeForCurrentProcess() {
+        XCTAssertTrue(permissionGranted(persisted: false, runtime: true))
+        XCTAssertTrue(permissionGranted(persisted: nil, runtime: true))
+        XCTAssertTrue(permissionGranted(persisted: true, runtime: false))
+        XCTAssertFalse(permissionGranted(persisted: false, runtime: false))
+        XCTAssertFalse(permissionGranted(persisted: nil, runtime: false))
+    }
+
     func testKeyPressParserSupportsCommandStyleChord() throws {
         let parsed = try KeyPressParser.parse("super+c")
         XCTAssertEqual(parsed.displayValue, "c")

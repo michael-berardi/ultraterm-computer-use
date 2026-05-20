@@ -70,10 +70,18 @@ public struct PermissionDiagnostics: Sendable {
 
     public static func current() -> PermissionDiagnostics {
         let persisted = TCCAuthorizationStore.current
+        let runtimeAccessibilityTrusted = AXIsProcessTrusted()
+        let runtimeScreenCaptureGranted = CGPreflightScreenCaptureAccess()
 
         return PermissionDiagnostics(
-            accessibilityTrusted: persisted.accessibility ?? AXIsProcessTrusted(),
-            screenCaptureGranted: persisted.screenRecording ?? CGPreflightScreenCaptureAccess()
+            accessibilityTrusted: permissionGranted(
+                persisted: persisted.accessibility,
+                runtime: runtimeAccessibilityTrusted
+            ),
+            screenCaptureGranted: permissionGranted(
+                persisted: persisted.screenRecording,
+                runtime: runtimeScreenCaptureGranted
+            )
         )
     }
 
@@ -455,6 +463,10 @@ public struct PermissionClientRecord: Sendable, Equatable, Hashable {
 
 func tccAuthorizationGranted(authValues: [Int32?]) -> Bool {
     authValues.contains(2)
+}
+
+func permissionGranted(persisted: Bool?, runtime: Bool) -> Bool {
+    (persisted == true) || runtime
 }
 
 private struct TCCAuthorizationStore {
