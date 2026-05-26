@@ -174,6 +174,30 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual((arguments["pages"] as? NSNumber)?.intValue, 2)
     }
 
+    func testElementIndexAcceptsNumericToolArgument() throws {
+        let arguments = try readOpenComputerUseToolArguments(
+            json: #"{"app":"TextEdit","element_index":0}"#,
+            file: nil
+        )
+
+        XCTAssertEqual(normalizedElementIndexArgument(arguments["element_index"]), "0")
+    }
+
+    func testElementIndexAcceptsNumericCallSequenceArgument() throws {
+        let calls = try readOpenComputerUseCallSequence(
+            json: #"[{"tool":"click","args":{"app":"TextEdit","element_index":0}}]"#,
+            file: nil
+        )
+
+        XCTAssertEqual(normalizedElementIndexArgument(calls[0].arguments["element_index"]), "0")
+    }
+
+    func testElementIndexRejectsMissingEmptyAndFractionalArguments() {
+        XCTAssertNil(normalizedElementIndexArgument(nil))
+        XCTAssertNil(normalizedElementIndexArgument(""))
+        XCTAssertNil(normalizedElementIndexArgument(1.5))
+    }
+
     func testReadToolArgumentsRejectsNonObject() {
         XCTAssertThrowsError(try readOpenComputerUseToolArguments(json: #"["TextEdit"]"#, file: nil)) { error in
             XCTAssertEqual(

@@ -46,7 +46,7 @@ Use `call` for one-off checks:
 ```sh
 open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
-open-computer-use call set_value --args '{"app":"TextEdit","element_index":1,"value":"Draft"}'
+open-computer-use call set_value --args '{"app":"TextEdit","element_index":"1","value":"Draft"}'
 ```
 
 Use `--calls` for short action sequences that need to reuse the same process state:
@@ -54,7 +54,7 @@ Use `--calls` for short action sequences that need to reuse the same process sta
 ```sh
 open-computer-use call --calls '[
   {"tool":"get_app_state","args":{"app":"TextEdit"}},
-  {"tool":"click","args":{"app":"TextEdit","element_index":1}},
+  {"tool":"click","args":{"app":"TextEdit","element_index":"1"}},
   {"tool":"type_text","args":{"app":"TextEdit","text":"Hello"}}
 ]'
 ```

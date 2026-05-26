@@ -1,5 +1,41 @@
 import Foundation
 
+func normalizedElementIndexArgument(_ value: Any?) -> String? {
+    if let string = value as? String {
+        return string.isEmpty ? nil : string
+    }
+
+    if let integer = value as? Int {
+        return String(integer)
+    }
+
+    if let number = value as? NSNumber {
+        if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
+            return nil
+        }
+
+        return normalizedElementIndexNumber(number.doubleValue)
+    }
+
+    if let double = value as? Double {
+        return normalizedElementIndexNumber(double)
+    }
+
+    return nil
+}
+
+private func normalizedElementIndexNumber(_ value: Double) -> String? {
+    guard value.isFinite, value.rounded(.towardZero) == value else {
+        return nil
+    }
+
+    guard value >= Double(Int.min), value <= Double(Int.max) else {
+        return nil
+    }
+
+    return String(Int(value))
+}
+
 public final class ComputerUseToolDispatcher {
     private let service: ComputerUseService
 
@@ -16,7 +52,7 @@ public final class ComputerUseToolDispatcher {
         case "click":
             return try service.click(
                 app: requireString("app", in: arguments),
-                elementIndex: optionalString("element_index", in: arguments),
+                elementIndex: optionalElementIndex(in: arguments),
                 x: optionalDouble("x", in: arguments),
                 y: optionalDouble("y", in: arguments),
                 clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
@@ -25,14 +61,14 @@ public final class ComputerUseToolDispatcher {
         case "perform_secondary_action":
             return try service.performSecondaryAction(
                 app: requireString("app", in: arguments),
-                elementIndex: requireString("element_index", in: arguments),
+                elementIndex: requireElementIndex(in: arguments),
                 action: requireString("action", in: arguments)
             )
         case "scroll":
             return try service.scroll(
                 app: requireString("app", in: arguments),
                 direction: requireString("direction", in: arguments),
-                elementIndex: requireString("element_index", in: arguments),
+                elementIndex: requireElementIndex(in: arguments),
                 pages: optionalDouble("pages", in: arguments) ?? 1
             )
         case "drag":
@@ -56,7 +92,7 @@ public final class ComputerUseToolDispatcher {
         case "set_value":
             return try service.setValue(
                 app: requireString("app", in: arguments),
-                elementIndex: requireString("element_index", in: arguments),
+                elementIndex: requireElementIndex(in: arguments),
                 value: requireString("value", in: arguments)
             )
         default:
@@ -88,6 +124,18 @@ public final class ComputerUseToolDispatcher {
 
     private func optionalString(_ key: String, in arguments: [String: Any]) -> String? {
         arguments[key] as? String
+    }
+
+    private func requireElementIndex(in arguments: [String: Any]) throws -> String {
+        guard let value = optionalElementIndex(in: arguments) else {
+            throw ComputerUseError.missingArgument("element_index")
+        }
+
+        return value
+    }
+
+    private func optionalElementIndex(in arguments: [String: Any]) -> String? {
+        normalizedElementIndexArgument(arguments["element_index"])
     }
 
     private func requireDouble(_ key: String, in arguments: [String: Any]) throws -> Double {
