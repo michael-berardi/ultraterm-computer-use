@@ -46,6 +46,22 @@ func TestReadArgumentsAcceptsJSONObject(t *testing.T) {
 	}
 }
 
+func TestElementIndexAcceptsStringAndJSONNumber(t *testing.T) {
+	args, err := readArguments(`{"app":"Notepad","element_index":0}`, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := optionalElementIndex(args); got != "0" {
+		t.Fatalf("numeric element_index = %q, want 0", got)
+	}
+	if got := optionalElementIndex(map[string]any{"element_index": "14"}); got != "14" {
+		t.Fatalf("string element_index = %q, want 14", got)
+	}
+	if got := optionalElementIndex(map[string]any{"element_index": json.Number("1.5")}); got != "" {
+		t.Fatalf("fractional element_index = %q, want empty", got)
+	}
+}
+
 func TestMCPInitializeResponseContainsToolsCapability(t *testing.T) {
 	request := map[string]any{
 		"jsonrpc": "2.0",

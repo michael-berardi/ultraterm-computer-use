@@ -41,7 +41,7 @@ open-computer-use -h
 open-computer-use doctor
 open-computer-use call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
-open-computer-use call click --args '{"app":"TextEdit","element_index":0}'
+open-computer-use call click --args '{"app":"TextEdit","element_index":"0"}'
 open-computer-use call type_text --args '{"app":"TextEdit","text":"Hello from Open Computer Use"}'
 ```
 

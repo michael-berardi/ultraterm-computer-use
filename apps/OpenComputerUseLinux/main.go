@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -176,7 +177,7 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "click":
 		return s.click(
 			requiredString(args, "app"),
-			optionalString(args, "element_index"),
+			optionalElementIndex(args),
 			optionalFloat(args, "x"),
 			optionalFloat(args, "y"),
 			intValue(optionalFloat(args, "click_count"), 1),
@@ -185,14 +186,14 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "perform_secondary_action":
 		return s.performSecondaryAction(
 			requiredString(args, "app"),
-			requiredString(args, "element_index"),
+			requiredElementIndex(args),
 			requiredString(args, "action"),
 		)
 	case "scroll":
 		return s.scroll(
 			requiredString(args, "app"),
 			requiredString(args, "direction"),
-			requiredString(args, "element_index"),
+			requiredElementIndex(args),
 			floatValue(optionalFloat(args, "pages"), 1),
 		)
 	case "drag":
@@ -208,7 +209,7 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "press_key":
 		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"))
 	case "set_value":
-		return s.setValue(requiredString(args, "app"), requiredString(args, "element_index"), requiredString(args, "value"))
+		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), requiredString(args, "value"))
 	default:
 		return textResult(fmt.Sprintf("unsupportedTool(%q)", name), true)
 	}
@@ -902,6 +903,42 @@ func requiredString(args map[string]any, key string) string {
 func optionalString(args map[string]any, key string) string {
 	value, _ := args[key].(string)
 	return value
+}
+
+func requiredElementIndex(args map[string]any) string {
+	return strings.TrimSpace(optionalElementIndex(args))
+}
+
+func optionalElementIndex(args map[string]any) string {
+	return elementIndexString(args["element_index"])
+}
+
+func elementIndexString(value any) string {
+	switch value := value.(type) {
+	case string:
+		return value
+	case json.Number:
+		if integer, err := value.Int64(); err == nil {
+			return strconv.FormatInt(integer, 10)
+		}
+		if float, err := value.Float64(); err == nil {
+			return integerElementIndexFloat(float)
+		}
+	case float64:
+		return integerElementIndexFloat(value)
+	case int:
+		return strconv.Itoa(value)
+	case int64:
+		return strconv.FormatInt(value, 10)
+	}
+	return ""
+}
+
+func integerElementIndexFloat(value float64) string {
+	if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value {
+		return ""
+	}
+	return strconv.FormatInt(int64(value), 10)
 }
 
 func requiredFloat(args map[string]any, key string) *float64 {
