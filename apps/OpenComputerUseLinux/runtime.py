@@ -26,6 +26,7 @@ from gi.repository import Atspi
 
 MAX_ELEMENTS = 500
 MAX_DEPTH = 64
+TEXT_CHARACTER_LIMIT = 500
 
 
 def frame(x, y, width, height):
@@ -76,6 +77,15 @@ def child_at(node, index):
 
 def node_name(node):
     return str(safe(node.get_name, "") or "")
+
+
+def limit_text(value, show_full_text=False):
+    text = str(value or "")
+    if show_full_text:
+        return text
+    if len(text) > TEXT_CHARACTER_LIMIT:
+        return text[:TEXT_CHARACTER_LIMIT] + "..."
+    return text
 
 
 def node_role(node):
@@ -206,7 +216,7 @@ def accessible_id(node):
     return str(safe(node.get_accessible_id, "") or "")
 
 
-def text_value(node):
+def text_value(node, show_full_text=False):
     if not bool(safe(node.is_text, False)):
         return ""
     text_iface = safe(node.get_text_iface)
@@ -215,10 +225,9 @@ def text_value(node):
     count = int(safe(lambda: Atspi.Text.get_character_count(text_iface), 0) or 0)
     if count <= 0:
         return ""
-    value = str(safe(lambda: Atspi.Text.get_text(text_iface, 0, min(count, 500)), "") or "")
-    if count > 500:
-        return value + "..."
-    return value
+    end_offset = count if show_full_text else min(count, TEXT_CHARACTER_LIMIT + 1)
+    value = str(safe(lambda: Atspi.Text.get_text(text_iface, 0, end_offset), "") or "")
+    return limit_text(value, show_full_text=show_full_text)
 
 
 def numeric_value(node):
@@ -231,29 +240,29 @@ def numeric_value(node):
     return str(current)
 
 
-def element_value(node):
-    return text_value(node) or numeric_value(node)
+def element_value(node, show_full_text=False):
+    return text_value(node, show_full_text=show_full_text) or numeric_value(node)
 
 
-def record_for(node, index, path, window_bounds):
+def record_for(node, index, path, window_bounds, show_full_text=False):
     bounds = relative_frame(node, window_bounds)
     role = node_role(node)
     return {
         "index": index,
         "runtimeId": path[:],
         "automationId": accessible_id(node),
-        "name": node_name(node),
+        "name": limit_text(node_name(node), show_full_text=show_full_text),
         "controlType": role,
         "localizedControlType": role,
         "className": str(safe(node.get_toolkit_name, "") or ""),
-        "value": element_value(node),
+        "value": element_value(node, show_full_text=show_full_text),
         "nativeWindowHandle": 0,
         "frame": bounds,
         "actions": action_names(node),
     }
 
 
-def render_tree(root, window_bounds, root_path):
+def render_tree(root, window_bounds, root_path, show_full_text=False):
     records = []
     lines = []
 
@@ -261,7 +270,7 @@ def render_tree(root, window_bounds, root_path):
         if len(records) >= MAX_ELEMENTS or depth > MAX_DEPTH or node is None:
             return
         index = len(records)
-        record = record_for(node, index, path, window_bounds)
+        record = record_for(node, index, path, window_bounds, show_full_text=show_full_text)
         records.append(record)
 
         role = record["localizedControlType"] or record["controlType"] or "element"
@@ -352,7 +361,7 @@ def pixbuf_looks_black(pixbuf):
         return False
 
 
-def focused_summary(app_pid):
+def focused_summary(app_pid, show_full_text=False):
     try:
         root = desktop()
         for app in iter_apps():
@@ -365,13 +374,13 @@ def focused_summary(app_pid):
             if focused is None:
                 return None
             role = node_role(focused)
-            name = node_name(focused)
+            name = limit_text(node_name(focused), show_full_text=show_full_text)
             return (role + " " + name).strip()
     except Exception:
         return None
 
 
-def selected_text(app_pid):
+def selected_text(app_pid, show_full_text=False):
     try:
         for app in iter_apps():
             if node_pid(app) != app_pid:
@@ -386,19 +395,23 @@ def selected_text(app_pid):
             selections = safe(lambda: Atspi.Text.get_text_selections(text_iface), [])
             if selections:
                 selection = selections[0]
-                return Atspi.Text.get_text(
-                    text_iface, selection.start_offset, selection.end_offset
+                end_offset = selection.end_offset
+                if not show_full_text:
+                    end_offset = min(end_offset, selection.start_offset + TEXT_CHARACTER_LIMIT + 1)
+                value = Atspi.Text.get_text(
+                    text_iface, selection.start_offset, end_offset
                 )
+                return limit_text(value, show_full_text=show_full_text)
     except Exception:
         return None
     return None
 
 
-def build_snapshot(query):
+def build_snapshot(query, show_full_text=False):
     app = resolve_app(query)
     window_index, window = main_window(app)
     bounds = extents(window)
-    records, lines = render_tree(window, bounds, [window_index])
+    records, lines = render_tree(window, bounds, [window_index], show_full_text=show_full_text)
     pid = node_pid(app)
     return {
         "app": {
@@ -406,12 +419,12 @@ def build_snapshot(query):
             "bundleIdentifier": node_name(app),
             "pid": pid,
         },
-        "windowTitle": node_name(window),
+        "windowTitle": limit_text(node_name(window), show_full_text=show_full_text),
         "windowBounds": bounds,
         "screenshotPngBase64": capture_window_png(bounds),
         "treeLines": lines,
-        "focusedSummary": focused_summary(pid),
-        "selectedText": selected_text(pid),
+        "focusedSummary": focused_summary(pid, show_full_text=show_full_text),
+        "selectedText": selected_text(pid, show_full_text=show_full_text),
         "elements": records,
     }
 
@@ -731,7 +744,13 @@ def perform_operation(operation):
     if tool == "list_apps":
         return {"ok": True, "text": list_apps_text()}
     if tool == "get_app_state":
-        return {"ok": True, "snapshot": build_snapshot(operation.get("app", ""))}
+        return {
+            "ok": True,
+            "snapshot": build_snapshot(
+                operation.get("app", ""),
+                show_full_text=bool(operation.get("show_full_text", False)),
+            ),
+        }
 
     app = resolve_app(operation.get("app", ""))
     _, window = main_window(app)

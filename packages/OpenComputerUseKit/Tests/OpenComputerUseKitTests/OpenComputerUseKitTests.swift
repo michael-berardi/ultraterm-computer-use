@@ -75,6 +75,21 @@ final class OpenComputerUseKitTests: XCTestCase {
         }
     }
 
+    func testCLIRecognizesSnapshotFullTextFlag() throws {
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit"]),
+            .snapshot(app: "TextEdit", showFullText: false)
+        )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "--show-full-text", "TextEdit"]),
+            .snapshot(app: "TextEdit", showFullText: true)
+        )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit", "--show-full-text"]),
+            .snapshot(app: "TextEdit", showFullText: true)
+        )
+    }
+
     func testCLIRejectsMixedCallSequenceInputs() {
         XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["call", "list_apps", "--calls", "[]"])) { error in
             XCTAssertEqual(
@@ -552,6 +567,10 @@ final class OpenComputerUseKitTests: XCTestCase {
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["mouse_button"]?["enum"] as? [String]) ?? [],
             ["left", "right", "middle"]
         )
+        let getAppStateSchema = tools["get_app_state"]?.inputSchema
+        let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
+        XCTAssertEqual(getAppStateProperties?["show_full_text"]?["type"] as? String, "boolean")
+        XCTAssertEqual(getAppStateSchema?["required"] as? [String], ["app"])
         let scrollPages = (tools["scroll"]?.inputSchema["properties"] as? [String: [String: Any]])?["pages"]
         XCTAssertEqual(scrollPages?["type"] as? String, "number")
         XCTAssertEqual(
@@ -1041,6 +1060,16 @@ final class OpenComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testSnapshotTextLimitDefaultsTo500AndSupportsFullText() {
+        let longText = String(repeating: "候", count: snapshotTextDefaultCharacterLimit + 20)
+
+        XCTAssertEqual(
+            sanitizeText(longText),
+            String(longText.prefix(snapshotTextDefaultCharacterLimit)) + "..."
+        )
+        XCTAssertEqual(sanitizeText(longText, characterLimit: nil), longText)
+    }
+
     func testAccessibilityRendererSuppressesDuplicateDescriptionForSameTextMarkdownLinks() {
         XCTAssertEqual(
             formattedLabelSegment(
@@ -1050,8 +1079,8 @@ final class OpenComputerUseKitTests: XCTestCase {
             ),
             ""
         )
-        let longURL = "https://example.com/docs?" + String(repeating: "query=value&", count: 20)
-        let truncatedURL = String(longURL.prefix(160)) + "..."
+        let longURL = "https://example.com/docs?" + String(repeating: "query=value&", count: 60)
+        let truncatedURL = String(longURL.prefix(snapshotTextDefaultCharacterLimit)) + "..."
         XCTAssertEqual(
             formattedLabelSegment(
                 longURL,

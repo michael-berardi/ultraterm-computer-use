@@ -5,7 +5,7 @@ public enum OpenComputerUseCLICommand: Equatable {
     case mcp
     case doctor
     case listApps
-    case snapshot(app: String)
+    case snapshot(app: String, showFullText: Bool = false)
     case call(OpenComputerUseCallInvocation)
     case turnEnded(payload: String?)
     case help(command: String?)
@@ -148,10 +148,13 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
     case "snapshot":
         return """
         Usage:
-          open-computer-use snapshot <app>
+          open-computer-use snapshot [--show-full-text] <app>
 
         Arguments:
           <app>                App name or bundle identifier to inspect.
+
+        Options:
+          --show-full-text     Do not truncate accessibility text to 500 characters.
 
         Print the current accessibility snapshot for the target app.
         """
@@ -261,20 +264,41 @@ private func parseTurnEnded(arguments: [String]) throws -> OpenComputerUseCLICom
 }
 
 private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLICommand {
-    if arguments.count == 1 {
-        let value = arguments[0]
-        if value == "-h" || value == "--help" {
-            return .help(command: "snapshot")
-        }
-
-        return .snapshot(app: value)
-    }
-
     if arguments.isEmpty {
         throw OpenComputerUseCLIError(message: "snapshot requires an app name or bundle identifier", helpCommand: "snapshot")
     }
 
-    throw OpenComputerUseCLIError(message: "snapshot accepts exactly one <app> argument", helpCommand: "snapshot")
+    if arguments.count == 1, let value = arguments.first, value == "-h" || value == "--help" {
+        return .help(command: "snapshot")
+    }
+
+    var app: String?
+    var showFullText = false
+
+    for argument in arguments {
+        switch argument {
+        case "--show-full-text":
+            showFullText = true
+        case "-h", "--help":
+            throw OpenComputerUseCLIError(message: "snapshot help must be requested as `open-computer-use snapshot --help`", helpCommand: "snapshot")
+        default:
+            if argument.hasPrefix("-") {
+                throw OpenComputerUseCLIError(message: "Unknown snapshot option: \(argument)", helpCommand: "snapshot")
+            }
+
+            guard app == nil else {
+                throw OpenComputerUseCLIError(message: "snapshot accepts exactly one <app> argument", helpCommand: "snapshot")
+            }
+
+            app = argument
+        }
+    }
+
+    guard let app else {
+        throw OpenComputerUseCLIError(message: "snapshot requires an app name or bundle identifier", helpCommand: "snapshot")
+    }
+
+    return .snapshot(app: app, showFullText: showFullText)
 }
 
 private func parseCall(arguments: [String]) throws -> OpenComputerUseCLICommand {

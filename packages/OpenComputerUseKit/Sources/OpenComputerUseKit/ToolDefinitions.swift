@@ -71,6 +71,7 @@ public enum ToolDefinitions {
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "show_full_text": booleanProperty(description: "Return full accessibility text without the default 500 character truncation. Defaults to false."),
                 ],
                 required: ["app"]
             )
@@ -189,6 +190,13 @@ private func stringProperty(description: String, enumValues: [String]? = nil) ->
     }
 
     return property
+}
+
+private func booleanProperty(description: String) -> [String: Any] {
+    [
+        "type": "boolean",
+        "description": description,
+    ]
 }
 
 private func integerProperty(description: String) -> [String: Any] {

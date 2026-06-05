@@ -13,6 +13,37 @@ func TestToolDefinitionCount(t *testing.T) {
 	}
 }
 
+func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
+	tool := findToolDefinition(t, "get_app_state")
+	properties := tool.InputSchema["properties"].(map[string]any)
+	showFullText := properties["show_full_text"].(map[string]any)
+	if got := showFullText["type"]; got != "boolean" {
+		t.Fatalf("show_full_text type = %v, want boolean", got)
+	}
+	required := tool.InputSchema["required"].([]string)
+	if len(required) != 1 || required[0] != "app" {
+		t.Fatalf("required = %#v, want [app]", required)
+	}
+}
+
+func TestParseSnapshotArgsSupportsShowFullText(t *testing.T) {
+	app, showFullText, err := parseSnapshotArgs([]string{"--show-full-text", "Notepad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app != "Notepad" || !showFullText {
+		t.Fatalf("parseSnapshotArgs = (%q, %v), want (Notepad, true)", app, showFullText)
+	}
+
+	app, showFullText, err = parseSnapshotArgs([]string{"Notepad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app != "Notepad" || showFullText {
+		t.Fatalf("parseSnapshotArgs default = (%q, %v), want (Notepad, false)", app, showFullText)
+	}
+}
+
 func TestCallSequenceStopsAfterFirstToolError(t *testing.T) {
 	output, hasError, err := runCallCommand([]string{
 		"--calls",
@@ -113,4 +144,27 @@ func TestUTF8EncodingInPowerShellScript(t *testing.T) {
 	if !strings.Contains(windowsRuntimeScript, "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8") {
 		t.Fatal("PowerShell script must set [Console]::OutputEncoding to UTF-8 for proper non-ASCII character handling")
 	}
+}
+
+func TestWindowsRuntimeTextLimitSupportsFullTextMode(t *testing.T) {
+	if !strings.Contains(windowsRuntimeScript, "$TextCharacterLimit = 500") {
+		t.Fatal("Windows runtime should define the shared 500 character text limit")
+	}
+	if !strings.Contains(windowsRuntimeScript, "Build-Snapshot $operation.app ([bool]$operation.show_full_text)") {
+		t.Fatal("Windows get_app_state should pass show_full_text into snapshot rendering")
+	}
+	if !strings.Contains(windowsRuntimeScript, "$maxLength = if ($ShowFullText) { -1 } else { $script:TextCharacterLimit + 1 }") {
+		t.Fatal("Windows selected text should use full UIA text only in full-text mode")
+	}
+}
+
+func findToolDefinition(t *testing.T, name string) toolDefinition {
+	t.Helper()
+	for _, tool := range toolDefinitions() {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("missing tool definition %q", name)
+	return toolDefinition{}
 }

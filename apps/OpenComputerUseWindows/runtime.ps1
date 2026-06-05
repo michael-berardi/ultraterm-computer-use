@@ -4,6 +4,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$TextCharacterLimit = 500
 
 # Set output encoding to UTF-8 to properly handle non-ASCII characters
 $OutputEncoding = [System.Text.Encoding]::UTF8
@@ -415,7 +416,20 @@ function Get-ElementControlTypeName($element) {
     }
 }
 
-function Get-ElementValue($element) {
+function Limit-Text([string]$Text, [bool]$ShowFullText = $false) {
+    if ($null -eq $Text) {
+        return ""
+    }
+    if ($ShowFullText) {
+        return $Text
+    }
+    if ($Text.Length -gt $script:TextCharacterLimit) {
+        return $Text.Substring(0, $script:TextCharacterLimit) + "..."
+    }
+    return $Text
+}
+
+function Get-ElementValue($element, [bool]$ShowFullText = $false) {
     try {
         $valuePattern = $element.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
         $value = $valuePattern.Current.Value
@@ -423,16 +437,13 @@ function Get-ElementValue($element) {
             return ""
         }
         $text = [string]$value
-        if ($text.Length -gt 500) {
-            return $text.Substring(0, 500)
-        }
-        return $text
+        return Limit-Text $text $ShowFullText
     } catch {
         return ""
     }
 }
 
-function Get-ElementRecord($element, [int]$index, $windowBounds) {
+function Get-ElementRecord($element, [int]$index, $windowBounds, [bool]$ShowFullText = $false) {
     $frame = Get-ElementFrame $element $windowBounds
     $runtimeId = @()
     try { $runtimeId = @($element.GetRuntimeId()) } catch {}
@@ -440,11 +451,11 @@ function Get-ElementRecord($element, [int]$index, $windowBounds) {
         index = $index
         runtimeId = $runtimeId
         automationId = Get-ElementString $element "AutomationId"
-        name = Get-ElementString $element "Name"
+        name = Limit-Text (Get-ElementString $element "Name") $ShowFullText
         controlType = Get-ElementControlTypeName $element
         localizedControlType = Get-ElementString $element "LocalizedControlType"
         className = Get-ElementString $element "ClassName"
-        value = Get-ElementValue $element
+        value = Get-ElementValue $element $ShowFullText
         nativeWindowHandle = Get-ElementInt64 $element "NativeWindowHandle"
         frame = $frame
         actions = @(Get-PatternNames $element)
@@ -461,7 +472,7 @@ function Get-ElementTitle($record) {
     return ""
 }
 
-function Render-Tree($element, $windowBounds) {
+function Render-Tree($element, $windowBounds, [bool]$ShowFullText = $false) {
     $records = New-Object System.Collections.Generic.List[object]
     $lines = New-Object System.Collections.Generic.List[string]
     $visited = New-Object System.Collections.Generic.HashSet[string]
@@ -479,7 +490,7 @@ function Render-Tree($element, $windowBounds) {
 
         $index = $script:nextIndex
         $script:nextIndex++
-        $record = Get-ElementRecord $node $index $script:windowBounds
+        $record = Get-ElementRecord $node $index $script:windowBounds $ShowFullText
         $script:records.Add($record)
 
         $role = $record.localizedControlType
@@ -544,12 +555,12 @@ function Capture-WindowPngBase64($bounds) {
     }
 }
 
-function Get-FocusedSummary($processId) {
+function Get-FocusedSummary($processId, [bool]$ShowFullText = $false) {
     try {
         $focused = [Windows.Automation.AutomationElement]::FocusedElement
         if ($null -ne $focused -and $focused.Current.ProcessId -eq $processId) {
             $role = $focused.Current.LocalizedControlType
-            $name = $focused.Current.Name
+            $name = Limit-Text $focused.Current.Name $ShowFullText
             if ([string]::IsNullOrWhiteSpace($name)) {
                 return $role
             }
@@ -560,7 +571,7 @@ function Get-FocusedSummary($processId) {
     return $null
 }
 
-function Get-SelectedText($processId) {
+function Get-SelectedText($processId, [bool]$ShowFullText = $false) {
     try {
         $focused = [Windows.Automation.AutomationElement]::FocusedElement
         if ($null -eq $focused -or $focused.Current.ProcessId -ne $processId) {
@@ -569,30 +580,31 @@ function Get-SelectedText($processId) {
         $textPattern = $focused.GetCurrentPattern([Windows.Automation.TextPattern]::Pattern)
         $selection = $textPattern.GetSelection()
         if ($selection.Count -gt 0) {
-            return $selection.Item(0).GetText(2048)
+            $maxLength = if ($ShowFullText) { -1 } else { $script:TextCharacterLimit + 1 }
+            return Limit-Text ($selection.Item(0).GetText($maxLength)) $ShowFullText
         }
     } catch {
     }
     return $null
 }
 
-function Build-Snapshot([string]$query) {
+function Build-Snapshot([string]$query, [bool]$ShowFullText = $false) {
     $process = Resolve-App $query
     $element = Get-MainElement $process
     $bounds = Get-WindowBounds $process $element
-    $rendered = Render-Tree $element $bounds
+    $rendered = Render-Tree $element $bounds $ShowFullText
     [pscustomobject]@{
         app = [pscustomobject]@{
             name = $process.ProcessName
             bundleIdentifier = $process.ProcessName
             pid = [int]$process.Id
         }
-        windowTitle = $process.MainWindowTitle
+        windowTitle = Limit-Text $process.MainWindowTitle $ShowFullText
         windowBounds = $bounds
         screenshotPngBase64 = Capture-WindowPngBase64 $bounds
         treeLines = @($rendered.lines)
-        focusedSummary = Get-FocusedSummary $process.Id
-        selectedText = Get-SelectedText $process.Id
+        focusedSummary = Get-FocusedSummary $process.Id $ShowFullText
+        selectedText = Get-SelectedText $process.Id $ShowFullText
         elements = @($rendered.records)
     }
 }
@@ -863,7 +875,7 @@ try {
     if ($operation.tool -eq "list_apps") {
         $response = [pscustomobject]@{ ok = $true; text = (List-Apps) }
     } elseif ($operation.tool -eq "get_app_state") {
-        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app) }
+        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app ([bool]$operation.show_full_text)) }
     } else {
         $process = Resolve-App $operation.app
         $hwnd = [IntPtr]$process.MainWindowHandle

@@ -151,6 +151,7 @@ type linuxRequest struct {
 	Key          string         `json:"key,omitempty"`
 	Value        string         `json:"value,omitempty"`
 	WindowBounds *frame         `json:"windowBounds,omitempty"`
+	ShowFullText bool           `json:"show_full_text,omitempty"`
 }
 
 type linuxResponse struct {
@@ -173,7 +174,7 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "list_apps":
 		return s.listApps()
 	case "get_app_state":
-		return s.getAppState(requiredString(args, "app"))
+		return s.getAppState(requiredString(args, "app"), optionalBool(args, "show_full_text"))
 	case "click":
 		return s.click(
 			requiredString(args, "app"),
@@ -229,11 +230,11 @@ func (s *service) listApps() toolCallResult {
 	return textResult(response.Text, false)
 }
 
-func (s *service) getAppState(app string) toolCallResult {
+func (s *service) getAppState(app string, showFullText bool) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
-	snapshot, result := s.refreshSnapshot(app, linuxRequest{Tool: "get_app_state", App: app})
+	snapshot, result := s.refreshSnapshot(app, linuxRequest{Tool: "get_app_state", App: app, ShowFullText: showFullText})
 	if result.IsError {
 		return result
 	}
@@ -961,6 +962,11 @@ func optionalFloat(args map[string]any, key string) *float64 {
 	return nil
 }
 
+func optionalBool(args map[string]any, key string) bool {
+	value, _ := args[key].(bool)
+	return value
+}
+
 func intValue(value *float64, fallback int) int {
 	if value == nil {
 		return fallback
@@ -1014,7 +1020,8 @@ func toolDefinitions() []toolDefinition {
 			Description: "Get the state of an already running app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
 			Annotations: readOnlyAnnotations(),
 			InputSchema: objectSchema(map[string]any{
-				"app": stringProperty("App name or bundle identifier"),
+				"app":            stringProperty("App name or bundle identifier"),
+				"show_full_text": booleanProperty("Return full accessibility text without the default 500 character truncation. Defaults to false."),
 			}, []string{"app"}),
 		},
 		{
@@ -1099,6 +1106,10 @@ func stringProperty(description string) map[string]any {
 	return map[string]any{"type": "string", "description": description}
 }
 
+func booleanProperty(description string) map[string]any {
+	return map[string]any{"type": "boolean", "description": description}
+}
+
 func enumStringProperty(description string, values []string) map[string]any {
 	property := stringProperty(description)
 	property["enum"] = values
@@ -1150,10 +1161,14 @@ func runCLI(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, result.Content[0].Text)
 		return nil
 	case "snapshot":
-		if len(args) != 2 {
-			return errors.New("snapshot requires an app name, process name, window title, or pid")
+		app, showFullText, err := parseSnapshotArgs(args[1:])
+		if err != nil {
+			return err
 		}
-		result := newService().callTool("get_app_state", map[string]any{"app": args[1]})
+		result := newService().callTool("get_app_state", map[string]any{
+			"app":            app,
+			"show_full_text": showFullText,
+		})
 		if result.IsError {
 			return errors.New(result.Content[0].Text)
 		}
@@ -1176,6 +1191,29 @@ func runCLI(args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command: %s\n\n%s", args[0], helpText(""))
 	}
+}
+
+func parseSnapshotArgs(args []string) (string, bool, error) {
+	var app string
+	showFullText := false
+	for _, arg := range args {
+		switch arg {
+		case "--show-full-text":
+			showFullText = true
+		default:
+			if strings.HasPrefix(arg, "-") {
+				return "", false, fmt.Errorf("unknown snapshot option: %s", arg)
+			}
+			if app != "" {
+				return "", false, errors.New("snapshot accepts exactly one app name, process name, window title, or pid")
+			}
+			app = arg
+		}
+	}
+	if app == "" {
+		return "", false, errors.New("snapshot requires an app name, process name, window title, or pid")
+	}
+	return app, showFullText, nil
 }
 
 func runCallCommand(args []string, svc *service) (any, bool, error) {
@@ -1408,7 +1446,7 @@ func helpText(command string) string {
 	case "call":
 		return "Usage:\n  open-computer-use call <tool> [--args '<json-object>']\n  open-computer-use call --calls '<json-array>'\n\nThe JSON array form keeps all calls in one process so element_index state can be reused.\n"
 	case "snapshot":
-		return "Usage:\n  open-computer-use snapshot <app>\n\nPrint the current Linux AT-SPI snapshot for the target app.\n"
+		return "Usage:\n  open-computer-use snapshot [--show-full-text] <app>\n\nPrint the current Linux AT-SPI snapshot for the target app.\n"
 	default:
 		return `Open Computer Use for Linux
 

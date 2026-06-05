@@ -16,6 +16,37 @@ func TestToolDefinitionCount(t *testing.T) {
 	}
 }
 
+func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
+	tool := findToolDefinition(t, "get_app_state")
+	properties := tool.InputSchema["properties"].(map[string]any)
+	showFullText := properties["show_full_text"].(map[string]any)
+	if got := showFullText["type"]; got != "boolean" {
+		t.Fatalf("show_full_text type = %v, want boolean", got)
+	}
+	required := tool.InputSchema["required"].([]string)
+	if len(required) != 1 || required[0] != "app" {
+		t.Fatalf("required = %#v, want [app]", required)
+	}
+}
+
+func TestParseSnapshotArgsSupportsShowFullText(t *testing.T) {
+	app, showFullText, err := parseSnapshotArgs([]string{"--show-full-text", "Text Editor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app != "Text Editor" || !showFullText {
+		t.Fatalf("parseSnapshotArgs = (%q, %v), want (Text Editor, true)", app, showFullText)
+	}
+
+	app, showFullText, err = parseSnapshotArgs([]string{"Text Editor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app != "Text Editor" || showFullText {
+		t.Fatalf("parseSnapshotArgs default = (%q, %v), want (Text Editor, false)", app, showFullText)
+	}
+}
+
 func TestCallSequenceStopsAfterFirstToolError(t *testing.T) {
 	output, hasError, err := runCallCommand([]string{
 		"--calls",
@@ -105,6 +136,18 @@ func TestLinuxRuntimeDocumentsATSPIAndFallbackBoundary(t *testing.T) {
 	}
 }
 
+func TestLinuxRuntimeTextLimitSupportsFullTextMode(t *testing.T) {
+	if !strings.Contains(linuxRuntimeScript, "TEXT_CHARACTER_LIMIT = 500") {
+		t.Fatal("Linux runtime should define the shared 500 character text limit")
+	}
+	if !strings.Contains(linuxRuntimeScript, "show_full_text=bool(operation.get(\"show_full_text\", False))") {
+		t.Fatal("Linux get_app_state should pass show_full_text into snapshot rendering")
+	}
+	if !strings.Contains(linuxRuntimeScript, "TEXT_CHARACTER_LIMIT + 1") {
+		t.Fatal("Linux default truncation should read one extra character so it can append ellipsis")
+	}
+}
+
 func TestLinuxRuntimeEnvironmentDiscoversDesktopSession(t *testing.T) {
 	runtimeDir := shortTempDir(t)
 	listenUnixSocket(t, filepath.Join(runtimeDir, "bus"))
@@ -167,6 +210,17 @@ func listenUnixSocket(t *testing.T, path string) {
 		_ = listener.Close()
 		_ = os.Remove(path)
 	})
+}
+
+func findToolDefinition(t *testing.T, name string) toolDefinition {
+	t.Helper()
+	for _, tool := range toolDefinitions() {
+		if tool.Name == name {
+			return tool
+		}
+	}
+	t.Fatalf("missing tool definition %q", name)
+	return toolDefinition{}
 }
 
 func shortTempDir(t *testing.T) string {

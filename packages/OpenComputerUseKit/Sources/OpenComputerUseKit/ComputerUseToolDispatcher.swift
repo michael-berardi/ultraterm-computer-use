@@ -48,7 +48,10 @@ public final class ComputerUseToolDispatcher {
         case "list_apps":
             return service.listApps()
         case "get_app_state":
-            return try service.getAppState(app: requireString("app", in: arguments))
+            return try service.getAppState(
+                app: requireString("app", in: arguments),
+                showFullText: optionalBool("show_full_text", in: arguments) ?? false
+            )
         case "click":
             return try service.click(
                 app: requireString("app", in: arguments),
@@ -124,6 +127,20 @@ public final class ComputerUseToolDispatcher {
 
     private func optionalString(_ key: String, in arguments: [String: Any]) -> String? {
         arguments[key] as? String
+    }
+
+    private func optionalBool(_ key: String, in arguments: [String: Any]) -> Bool? {
+        if let bool = arguments[key] as? Bool {
+            return bool
+        }
+
+        if let number = arguments[key] as? NSNumber,
+           CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID()
+        {
+            return number.boolValue
+        }
+
+        return nil
     }
 
     private func requireElementIndex(in arguments: [String: Any]) throws -> String {
