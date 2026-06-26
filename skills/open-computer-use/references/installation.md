@@ -14,8 +14,11 @@ Verify:
 
 ```sh
 open-computer-use -h
+ocu -h
 open-computer-use call list_apps
 ```
+
+Supported npm packages expose `ocu` as the short alias. If it is unavailable, use `open-computer-use`.
 
 If the package is already installed and the user asks to update it:
 
@@ -43,6 +46,7 @@ Use the built-in installers when they match the user's agent:
 
 ```sh
 open-computer-use install-codex-mcp
+ocu install-codex-mcp
 open-computer-use install-claude-mcp
 open-computer-use install-gemini-mcp
 open-computer-use install-gemini-mcp --scope user
@@ -96,6 +100,7 @@ After CLI and MCP setup:
 
 ```sh
 open-computer-use call list_apps
+ocu call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 ```
 

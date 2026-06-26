@@ -20,7 +20,7 @@ import (
 	"time"
 )
 
-var version = "0.1.53"
+var version = "0.1.54"
 
 //go:embed runtime.py
 var linuxRuntimeScript string

@@ -12,6 +12,8 @@ command = "open-computer-use"
 args = ["mcp"]
 ```
 
+Supported npm packages also expose `ocu` as a short alias, so `ocu mcp` is equivalent when available.
+
 Equivalent JSON shape:
 
 ```json
@@ -45,6 +47,7 @@ Use `call` for one-off checks:
 
 ```sh
 open-computer-use call list_apps
+ocu call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 open-computer-use call set_value --args '{"app":"TextEdit","element_index":"1","value":"Draft"}'
 ```

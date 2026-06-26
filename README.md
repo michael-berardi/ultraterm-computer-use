@@ -43,10 +43,14 @@ https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
 npm i -g open-computer-use
 ```
 
+The npm package also exposes `ocu` as the short CLI alias.
+
 **On macOS, run it once and grant `Accessibility` and `Screen Recording`. Windows and Linux do not need this step.**
 
 ```bash
 open-computer-use
+# or
+ocu
 ```
 
 Before using it, install it into your agent:
@@ -101,6 +105,7 @@ Besides the MCP JSON config above, you can also use the built-in commands:
 ```bash
 # Install into Codex by writing to ~/.codex/config.toml
 open-computer-use install-codex-mcp
+ocu install-codex-mcp
 
 # Install as a Codex plugin, mainly for Codex App
 open-computer-use install-codex-plugin
@@ -119,6 +124,7 @@ open-computer-use install-opencode-mcp
 
 # Call a single Computer Use tool and print the MCP-style JSON result
 open-computer-use call list_apps
+ocu call list_apps
 open-computer-use call get_app_state --args '{"app":"TextEdit"}'
 
 # Run a sequence in one process so element_index state can be reused
@@ -144,6 +150,7 @@ node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture-full --agents=hermes
 
 # Show help
 open-computer-use -h
+ocu -h
 ```
 
 ## Cursor Motion
