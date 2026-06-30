@@ -88,6 +88,43 @@ final class OpenComputerUseKitTests: XCTestCase {
             try parseOpenComputerUseCLI(arguments: ["snapshot", "TextEdit", "--show-full-text"]),
             .snapshot(app: "TextEdit", showFullText: true)
         )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "3000", "--max-tree-depth", "96", "TextEdit"]),
+            .snapshot(
+                app: "TextEdit",
+                showFullText: false,
+                treeLimits: AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: 96)
+            )
+        )
+        XCTAssertEqual(
+            try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "3000", "TextEdit"]),
+            .snapshot(
+                app: "TextEdit",
+                showFullText: false,
+                treeLimits: AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: accessibilityTreeMaxDepth)
+            )
+        )
+    }
+
+    func testCLIRejectsInvalidSnapshotTreeBudget() {
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes", "0", "TextEdit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--max-tree-nodes must be a positive integer", helpCommand: "snapshot")
+            )
+        }
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-depth", "1.5", "TextEdit"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--max-tree-depth must be a positive integer", helpCommand: "snapshot")
+            )
+        }
+        XCTAssertThrowsError(try parseOpenComputerUseCLI(arguments: ["snapshot", "--max-tree-nodes"])) { error in
+            XCTAssertEqual(
+                error as? OpenComputerUseCLIError,
+                OpenComputerUseCLIError(message: "--max-tree-nodes requires a positive integer value", helpCommand: "snapshot")
+            )
+        }
     }
 
     func testCLIRejectsMixedCallSequenceInputs() {
@@ -570,6 +607,10 @@ final class OpenComputerUseKitTests: XCTestCase {
         let getAppStateSchema = tools["get_app_state"]?.inputSchema
         let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
         XCTAssertEqual(getAppStateProperties?["show_full_text"]?["type"] as? String, "boolean")
+        XCTAssertEqual(getAppStateProperties?["max_tree_nodes"]?["type"] as? String, "integer")
+        XCTAssertEqual(getAppStateProperties?["max_tree_nodes"]?["minimum"] as? Int, 1)
+        XCTAssertEqual(getAppStateProperties?["max_tree_depth"]?["type"] as? String, "integer")
+        XCTAssertEqual(getAppStateProperties?["max_tree_depth"]?["minimum"] as? Int, 1)
         XCTAssertEqual(getAppStateSchema?["required"] as? [String], ["app"])
         let scrollPages = (tools["scroll"]?.inputSchema["properties"] as? [String: [String: Any]])?["pages"]
         XCTAssertEqual(scrollPages?["type"] as? String, "number")
@@ -861,6 +902,10 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertTrue(shouldContinueRendering(nextIndex: 1199, depth: 63))
         XCTAssertFalse(shouldContinueRendering(nextIndex: 1200, depth: 20))
         XCTAssertFalse(shouldContinueRendering(nextIndex: 120, depth: 64))
+        let customLimits = AccessibilityTreeLimits(maxNodeCount: 3000, maxDepth: 96)
+        XCTAssertTrue(shouldContinueRendering(nextIndex: 1200, depth: 64, limits: customLimits))
+        XCTAssertFalse(shouldContinueRendering(nextIndex: 3000, depth: 20, limits: customLimits))
+        XCTAssertFalse(shouldContinueRendering(nextIndex: 20, depth: 96, limits: customLimits))
     }
 
     func testAccessibilityRendererElidesEmptyGenericElectronWrappers() {

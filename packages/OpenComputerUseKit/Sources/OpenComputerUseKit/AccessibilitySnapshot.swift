@@ -37,8 +37,32 @@ enum SnapshotMode {
     case fixture
 }
 
-let accessibilityTreeMaxNodeCount = 1200
-let accessibilityTreeMaxDepth = 64
+public struct AccessibilityTreeLimits: Equatable, Sendable {
+    public static let defaultMaxNodeCount = 1200
+    public static let defaultMaxDepth = 64
+    public static let defaults = AccessibilityTreeLimits(
+        maxNodeCount: defaultMaxNodeCount,
+        maxDepth: defaultMaxDepth
+    )
+
+    public let maxNodeCount: Int
+    public let maxDepth: Int
+
+    public init(maxNodeCount: Int = defaultMaxNodeCount, maxDepth: Int = defaultMaxDepth) {
+        self.maxNodeCount = maxNodeCount
+        self.maxDepth = maxDepth
+    }
+
+    public func replacing(maxNodeCount: Int? = nil, maxDepth: Int? = nil) -> AccessibilityTreeLimits {
+        AccessibilityTreeLimits(
+            maxNodeCount: maxNodeCount ?? self.maxNodeCount,
+            maxDepth: maxDepth ?? self.maxDepth
+        )
+    }
+}
+
+let accessibilityTreeMaxNodeCount = AccessibilityTreeLimits.defaultMaxNodeCount
+let accessibilityTreeMaxDepth = AccessibilityTreeLimits.defaultMaxDepth
 let screenshotCaptureTimeout: TimeInterval = 5
 let screenshotResultMaxPNGBytes = 900_000
 let screenshotResultMaxDimension: CGFloat = 1280
@@ -95,7 +119,11 @@ public enum SnapshotTextStyle {
 }
 
 enum SnapshotBuilder {
-    static func build(for app: RunningAppDescriptor, showFullText: Bool = false) throws -> AppSnapshot {
+    static func build(
+        for app: RunningAppDescriptor,
+        showFullText: Bool = false,
+        treeLimits: AccessibilityTreeLimits = .defaults
+    ) throws -> AppSnapshot {
         if app.name == FixtureBridge.appName, let fixtureState = try FixtureBridge.readState() {
             return buildFixtureSnapshot(app: app, state: fixtureState)
         }
@@ -144,7 +172,8 @@ enum SnapshotBuilder {
             windowCapture: windowCapture,
             focusedApplication: focusedApplication,
             systemWide: systemWide,
-            showFullText: showFullText
+            showFullText: showFullText,
+            treeLimits: treeLimits
         )
     }
 
@@ -156,7 +185,8 @@ enum SnapshotBuilder {
         windowCapture: WindowCapture,
         focusedApplication: AXUIElement?,
         systemWide: AXUIElement,
-        showFullText: Bool
+        showFullText: Bool,
+        treeLimits: AccessibilityTreeLimits
     ) -> AppSnapshot {
         let windowBounds = windowCapture.bounds
         let screenshotPNGData = windowCapture.pngDataIfAvailable()
@@ -166,7 +196,8 @@ enum SnapshotBuilder {
         let context = RenderContext(
             windowBounds: windowBounds,
             focusedElement: focusedElement,
-            textCharacterLimit: textCharacterLimit
+            textCharacterLimit: textCharacterLimit,
+            treeLimits: treeLimits
         )
 
         var renderer = TreeRenderer(context: context)
@@ -599,6 +630,7 @@ private struct RenderContext {
     let windowBounds: CGRect?
     let focusedElement: AXUIElement?
     let textCharacterLimit: Int?
+    let treeLimits: AccessibilityTreeLimits
 }
 
 private struct TreeRenderer {
@@ -614,7 +646,7 @@ private struct TreeRenderer {
     }
 
     mutating func render(_ root: AXUIElement, depth: Int = 0, ancestors: [AXUIElement] = []) {
-        guard shouldContinueRendering(nextIndex: nextIndex, depth: depth) else {
+        guard shouldContinueRendering(nextIndex: nextIndex, depth: depth, limits: context.treeLimits) else {
             return
         }
 
@@ -788,7 +820,7 @@ private struct TreeRenderer {
     }
 
     private mutating func renderSyntheticText(_ text: String, representedBy element: AXUIElement, depth: Int) {
-        guard shouldContinueRendering(nextIndex: nextIndex, depth: depth) else {
+        guard shouldContinueRendering(nextIndex: nextIndex, depth: depth, limits: context.treeLimits) else {
             return
         }
 
@@ -896,8 +928,12 @@ private func shouldSkipChild(_ child: AXUIElement, of parent: AXUIElement) -> Bo
     return stringValue(of: child, attribute: kAXTitleAttribute) == "Apple"
 }
 
-func shouldContinueRendering(nextIndex: Int, depth: Int) -> Bool {
-    nextIndex < accessibilityTreeMaxNodeCount && depth < accessibilityTreeMaxDepth
+func shouldContinueRendering(
+    nextIndex: Int,
+    depth: Int,
+    limits: AccessibilityTreeLimits = .defaults
+) -> Bool {
+    nextIndex < limits.maxNodeCount && depth < limits.maxDepth
 }
 
 private func summarizeTraits(of element: AXUIElement) -> [String] {

@@ -72,6 +72,8 @@ public enum ToolDefinitions {
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
                     "show_full_text": booleanProperty(description: "Return full accessibility text without the default 500 character truncation. Defaults to false."),
+                    "max_tree_nodes": positiveIntegerProperty(description: "Maximum accessibility tree nodes to render. Defaults to 1200."),
+                    "max_tree_depth": positiveIntegerProperty(description: "Maximum accessibility tree depth to render. Defaults to 64."),
                 ],
                 required: ["app"]
             )
@@ -202,6 +204,14 @@ private func booleanProperty(description: String) -> [String: Any] {
 private func integerProperty(description: String) -> [String: Any] {
     [
         "type": "integer",
+        "description": description,
+    ]
+}
+
+private func positiveIntegerProperty(description: String) -> [String: Any] {
+    [
+        "type": "integer",
+        "minimum": 1,
         "description": description,
     ]
 }

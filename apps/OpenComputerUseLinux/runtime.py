@@ -244,6 +244,18 @@ def element_value(node, show_full_text=False):
     return text_value(node, show_full_text=show_full_text) or numeric_value(node)
 
 
+def positive_int(value, fallback):
+    if isinstance(value, bool):
+        return fallback
+    if isinstance(value, float) and not value.is_integer():
+        return fallback
+    try:
+        integer = int(value)
+    except (TypeError, ValueError):
+        return fallback
+    return integer if integer > 0 else fallback
+
+
 def record_for(node, index, path, window_bounds, show_full_text=False):
     bounds = relative_frame(node, window_bounds)
     role = node_role(node)
@@ -262,12 +274,12 @@ def record_for(node, index, path, window_bounds, show_full_text=False):
     }
 
 
-def render_tree(root, window_bounds, root_path, show_full_text=False):
+def render_tree(root, window_bounds, root_path, show_full_text=False, max_tree_nodes=MAX_ELEMENTS, max_tree_depth=MAX_DEPTH):
     records = []
     lines = []
 
     def visit(node, depth, path):
-        if len(records) >= MAX_ELEMENTS or depth > MAX_DEPTH or node is None:
+        if len(records) >= max_tree_nodes or depth > max_tree_depth or node is None:
             return
         index = len(records)
         record = record_for(node, index, path, window_bounds, show_full_text=show_full_text)
@@ -407,11 +419,18 @@ def selected_text(app_pid, show_full_text=False):
     return None
 
 
-def build_snapshot(query, show_full_text=False):
+def build_snapshot(query, show_full_text=False, max_tree_nodes=MAX_ELEMENTS, max_tree_depth=MAX_DEPTH):
     app = resolve_app(query)
     window_index, window = main_window(app)
     bounds = extents(window)
-    records, lines = render_tree(window, bounds, [window_index], show_full_text=show_full_text)
+    records, lines = render_tree(
+        window,
+        bounds,
+        [window_index],
+        show_full_text=show_full_text,
+        max_tree_nodes=max_tree_nodes,
+        max_tree_depth=max_tree_depth,
+    )
     pid = node_pid(app)
     return {
         "app": {
@@ -749,6 +768,8 @@ def perform_operation(operation):
             "snapshot": build_snapshot(
                 operation.get("app", ""),
                 show_full_text=bool(operation.get("show_full_text", False)),
+                max_tree_nodes=positive_int(operation.get("max_tree_nodes"), MAX_ELEMENTS),
+                max_tree_depth=positive_int(operation.get("max_tree_depth"), MAX_DEPTH),
             ),
         }
 

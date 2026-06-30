@@ -5,7 +5,7 @@ public enum OpenComputerUseCLICommand: Equatable {
     case mcp
     case doctor
     case listApps
-    case snapshot(app: String, showFullText: Bool = false)
+    case snapshot(app: String, showFullText: Bool = false, treeLimits: AccessibilityTreeLimits = .defaults)
     case call(OpenComputerUseCallInvocation)
     case turnEnded(payload: String?)
     case help(command: String?)
@@ -148,13 +148,15 @@ public func openComputerUseHelpText(command: String? = nil) -> String {
     case "snapshot":
         return """
         Usage:
-          open-computer-use snapshot [--show-full-text] <app>
+          open-computer-use snapshot [--show-full-text] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>
 
         Arguments:
           <app>                App name or bundle identifier to inspect.
 
         Options:
           --show-full-text     Do not truncate accessibility text to 500 characters.
+          --max-tree-nodes     Override the default 1200 node accessibility tree budget.
+          --max-tree-depth     Override the default 64 level accessibility tree depth.
 
         Print the current accessibility snapshot for the target app.
         """
@@ -274,11 +276,27 @@ private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLIComm
 
     var app: String?
     var showFullText = false
+    var maxTreeNodes: Int?
+    var maxTreeDepth: Int?
 
-    for argument in arguments {
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
         switch argument {
         case "--show-full-text":
             showFullText = true
+        case "--max-tree-nodes":
+            index += 1
+            guard index < arguments.count else {
+                throw OpenComputerUseCLIError(message: "--max-tree-nodes requires a positive integer value", helpCommand: "snapshot")
+            }
+            maxTreeNodes = try parsePositiveIntegerOption(arguments[index], option: "--max-tree-nodes")
+        case "--max-tree-depth":
+            index += 1
+            guard index < arguments.count else {
+                throw OpenComputerUseCLIError(message: "--max-tree-depth requires a positive integer value", helpCommand: "snapshot")
+            }
+            maxTreeDepth = try parsePositiveIntegerOption(arguments[index], option: "--max-tree-depth")
         case "-h", "--help":
             throw OpenComputerUseCLIError(message: "snapshot help must be requested as `open-computer-use snapshot --help`", helpCommand: "snapshot")
         default:
@@ -292,13 +310,28 @@ private func parseSnapshot(arguments: [String]) throws -> OpenComputerUseCLIComm
 
             app = argument
         }
+        index += 1
     }
 
     guard let app else {
         throw OpenComputerUseCLIError(message: "snapshot requires an app name or bundle identifier", helpCommand: "snapshot")
     }
 
-    return .snapshot(app: app, showFullText: showFullText)
+    return .snapshot(
+        app: app,
+        showFullText: showFullText,
+        treeLimits: AccessibilityTreeLimits.defaults.replacing(
+            maxNodeCount: maxTreeNodes,
+            maxDepth: maxTreeDepth
+        )
+    )
+}
+
+private func parsePositiveIntegerOption(_ value: String, option: String) throws -> Int {
+    guard let integer = Int(value), integer > 0 else {
+        throw OpenComputerUseCLIError(message: "\(option) must be a positive integer", helpCommand: "snapshot")
+    }
+    return integer
 }
 
 private func parseCall(arguments: [String]) throws -> OpenComputerUseCLICommand {

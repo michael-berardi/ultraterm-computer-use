@@ -50,6 +50,19 @@ open-computer-use snapshot --show-full-text TextEdit
 
 `show_full_text` only disables the text character limit. It does not remove the default 1200 node count limit, 64 level tree depth limit, screenshot size, permission, or desktop-session protections.
 
+## Incomplete Long Pages Or Lists
+
+If the screenshot clearly shows more visible content than the accessibility tree returns, the snapshot may have hit its default 1200 node or 64 level tree budget. Do not treat that as proof that the page failed to load.
+
+Request a larger tree budget explicitly:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"Google Chrome","max_tree_nodes":3000,"max_tree_depth":96}'
+open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chrome"
+```
+
+Increasing the tree budget does not change text truncation, screenshot limits, permissions, or desktop-session requirements.
+
 ## Element Action Fails
 
 If an element-targeted action fails:

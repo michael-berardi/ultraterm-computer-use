@@ -20,6 +20,20 @@ func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
 	if got := showFullText["type"]; got != "boolean" {
 		t.Fatalf("show_full_text type = %v, want boolean", got)
 	}
+	maxTreeNodes := properties["max_tree_nodes"].(map[string]any)
+	if got := maxTreeNodes["type"]; got != "integer" {
+		t.Fatalf("max_tree_nodes type = %v, want integer", got)
+	}
+	if got := maxTreeNodes["minimum"]; got != 1 {
+		t.Fatalf("max_tree_nodes minimum = %v, want 1", got)
+	}
+	maxTreeDepth := properties["max_tree_depth"].(map[string]any)
+	if got := maxTreeDepth["type"]; got != "integer" {
+		t.Fatalf("max_tree_depth type = %v, want integer", got)
+	}
+	if got := maxTreeDepth["minimum"]; got != 1 {
+		t.Fatalf("max_tree_depth minimum = %v, want 1", got)
+	}
 	required := tool.InputSchema["required"].([]string)
 	if len(required) != 1 || required[0] != "app" {
 		t.Fatalf("required = %#v, want [app]", required)
@@ -27,20 +41,40 @@ func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
 }
 
 func TestParseSnapshotArgsSupportsShowFullText(t *testing.T) {
-	app, showFullText, err := parseSnapshotArgs([]string{"--show-full-text", "Notepad"})
+	app, showFullText, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs([]string{"--show-full-text", "Notepad"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app != "Notepad" || !showFullText {
-		t.Fatalf("parseSnapshotArgs = (%q, %v), want (Notepad, true)", app, showFullText)
+	if app != "Notepad" || !showFullText || maxTreeNodes != nil || maxTreeDepth != nil {
+		t.Fatalf("parseSnapshotArgs = (%q, %v, %v, %v), want (Notepad, true, nil, nil)", app, showFullText, maxTreeNodes, maxTreeDepth)
 	}
 
-	app, showFullText, err = parseSnapshotArgs([]string{"Notepad"})
+	app, showFullText, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"Notepad"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app != "Notepad" || showFullText {
-		t.Fatalf("parseSnapshotArgs default = (%q, %v), want (Notepad, false)", app, showFullText)
+	if app != "Notepad" || showFullText || maxTreeNodes != nil || maxTreeDepth != nil {
+		t.Fatalf("parseSnapshotArgs default = (%q, %v, %v, %v), want (Notepad, false, nil, nil)", app, showFullText, maxTreeNodes, maxTreeDepth)
+	}
+
+	app, showFullText, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"--max-tree-nodes", "3000", "--max-tree-depth", "96", "Notepad"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app != "Notepad" || showFullText || maxTreeNodes == nil || *maxTreeNodes != 3000 || maxTreeDepth == nil || *maxTreeDepth != 96 {
+		t.Fatalf("parseSnapshotArgs custom tree budget = (%q, %v, %v, %v), want (Notepad, false, 3000, 96)", app, showFullText, maxTreeNodes, maxTreeDepth)
+	}
+}
+
+func TestParseSnapshotArgsRejectsInvalidTreeBudget(t *testing.T) {
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--max-tree-nodes", "0", "Notepad"}); err == nil || err.Error() != "--max-tree-nodes must be a positive integer" {
+		t.Fatalf("invalid max_tree_nodes error = %v", err)
+	}
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--max-tree-depth", "1.5", "Notepad"}); err == nil || err.Error() != "--max-tree-depth must be a positive integer" {
+		t.Fatalf("invalid max_tree_depth error = %v", err)
+	}
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--max-tree-nodes"}); err == nil || err.Error() != "--max-tree-nodes requires a positive integer value" {
+		t.Fatalf("missing max_tree_nodes error = %v", err)
 	}
 }
 
@@ -153,6 +187,9 @@ func TestWindowsRuntimeTextLimitSupportsFullTextMode(t *testing.T) {
 	if !strings.Contains(windowsRuntimeScript, "Build-Snapshot $operation.app ([bool]$operation.show_full_text)") {
 		t.Fatal("Windows get_app_state should pass show_full_text into snapshot rendering")
 	}
+	if !strings.Contains(windowsRuntimeScript, "([int]$operation.max_tree_nodes) ([int]$operation.max_tree_depth)") {
+		t.Fatal("Windows get_app_state should pass tree budget into snapshot rendering")
+	}
 	if !strings.Contains(windowsRuntimeScript, "$maxLength = if ($ShowFullText) { -1 } else { $script:TextCharacterLimit + 1 }") {
 		t.Fatal("Windows selected text should use full UIA text only in full-text mode")
 	}
@@ -165,7 +202,7 @@ func TestWindowsRuntimeTreeBudgetDefaultsMatchMacOS(t *testing.T) {
 	if !strings.Contains(windowsRuntimeScript, "$AccessibilityTreeMaxDepth = 64") {
 		t.Fatal("Windows runtime should default to the shared 64 level tree depth")
 	}
-	if !strings.Contains(windowsRuntimeScript, "$script:nextIndex -ge $script:AccessibilityTreeMaxNodeCount -or $depth -gt $script:AccessibilityTreeMaxDepth") {
+	if !strings.Contains(windowsRuntimeScript, "$script:nextIndex -ge $script:MaxTreeNodes -or $depth -gt $script:MaxTreeDepth") {
 		t.Fatal("Windows runtime should use shared tree budget constants while rendering")
 	}
 }

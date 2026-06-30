@@ -149,6 +149,8 @@ type psRequest struct {
 	Value        string         `json:"value,omitempty"`
 	WindowBounds *frame         `json:"windowBounds,omitempty"`
 	ShowFullText bool           `json:"show_full_text,omitempty"`
+	MaxTreeNodes int            `json:"max_tree_nodes,omitempty"`
+	MaxTreeDepth int            `json:"max_tree_depth,omitempty"`
 }
 
 type psResponse struct {
@@ -171,7 +173,15 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "list_apps":
 		return s.listApps()
 	case "get_app_state":
-		return s.getAppState(requiredString(args, "app"), optionalBool(args, "show_full_text"))
+		maxTreeNodes, err := optionalPositiveInt(args, "max_tree_nodes")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		maxTreeDepth, err := optionalPositiveInt(args, "max_tree_depth")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		return s.getAppState(requiredString(args, "app"), optionalBool(args, "show_full_text"), maxTreeNodes, maxTreeDepth)
 	case "click":
 		return s.click(
 			requiredString(args, "app"),
@@ -227,11 +237,18 @@ func (s *service) listApps() toolCallResult {
 	return textResult(response.Text, false)
 }
 
-func (s *service) getAppState(app string, showFullText bool) toolCallResult {
+func (s *service) getAppState(app string, showFullText bool, maxTreeNodes, maxTreeDepth *int) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
-	snapshot, result := s.refreshSnapshot(app, psRequest{Tool: "get_app_state", App: app, ShowFullText: showFullText})
+	request := psRequest{Tool: "get_app_state", App: app, ShowFullText: showFullText}
+	if maxTreeNodes != nil {
+		request.MaxTreeNodes = *maxTreeNodes
+	}
+	if maxTreeDepth != nil {
+		request.MaxTreeDepth = *maxTreeDepth
+	}
+	snapshot, result := s.refreshSnapshot(app, request)
 	if result.IsError {
 		return result
 	}
@@ -550,6 +567,58 @@ func optionalBool(args map[string]any, key string) bool {
 	return value
 }
 
+func optionalPositiveInt(args map[string]any, key string) (*int, error) {
+	value, ok := args[key]
+	if !ok {
+		return nil, nil
+	}
+	return positiveIntFromValue(value, key)
+}
+
+func positiveIntFromValue(value any, key string) (*int, error) {
+	switch typed := value.(type) {
+	case int:
+		return positiveIntFromInt64(int64(typed), key)
+	case float64:
+		if !isWholeNumber(typed) {
+			return nil, fmt.Errorf("%s must be a positive integer", key)
+		}
+		return positiveIntFromFloat64(typed, key)
+	case json.Number:
+		integer, err := typed.Int64()
+		if err != nil {
+			return nil, fmt.Errorf("%s must be a positive integer", key)
+		}
+		return positiveIntFromInt64(integer, key)
+	default:
+		return nil, fmt.Errorf("%s must be a positive integer", key)
+	}
+}
+
+func positiveIntFromFloat64(value float64, key string) (*int, error) {
+	if !isWholeNumber(value) || value <= 0 || value > float64(maxInt()) {
+		return nil, fmt.Errorf("%s must be a positive integer", key)
+	}
+	integer := int(value)
+	return &integer, nil
+}
+
+func positiveIntFromInt64(value int64, key string) (*int, error) {
+	if value <= 0 || value > int64(maxInt()) {
+		return nil, fmt.Errorf("%s must be a positive integer", key)
+	}
+	integer := int(value)
+	return &integer, nil
+}
+
+func isWholeNumber(value float64) bool {
+	return !math.IsNaN(value) && !math.IsInf(value, 0) && math.Trunc(value) == value
+}
+
+func maxInt() int {
+	return int(^uint(0) >> 1)
+}
+
 func intValue(value *float64, fallback int) int {
 	if value == nil {
 		return fallback
@@ -605,6 +674,8 @@ func toolDefinitions() []toolDefinition {
 			InputSchema: objectSchema(map[string]any{
 				"app":            stringProperty("App name or bundle identifier"),
 				"show_full_text": booleanProperty("Return full accessibility text without the default 500 character truncation. Defaults to false."),
+				"max_tree_nodes": positiveIntegerProperty("Maximum accessibility tree nodes to render. Defaults to 1200."),
+				"max_tree_depth": positiveIntegerProperty("Maximum accessibility tree depth to render. Defaults to 64."),
 			}, []string{"app"}),
 		},
 		{
@@ -707,6 +778,10 @@ func integerProperty(description string) map[string]any {
 	return map[string]any{"type": "integer", "description": description}
 }
 
+func positiveIntegerProperty(description string) map[string]any {
+	return map[string]any{"type": "integer", "minimum": 1, "description": description}
+}
+
 func main() {
 	if err := runCLI(os.Args[1:], os.Stdout); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -744,14 +819,21 @@ func runCLI(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, result.Content[0].Text)
 		return nil
 	case "snapshot":
-		app, showFullText, err := parseSnapshotArgs(args[1:])
+		app, showFullText, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs(args[1:])
 		if err != nil {
 			return err
 		}
-		result := newService().callTool("get_app_state", map[string]any{
+		toolArgs := map[string]any{
 			"app":            app,
 			"show_full_text": showFullText,
-		})
+		}
+		if maxTreeNodes != nil {
+			toolArgs["max_tree_nodes"] = *maxTreeNodes
+		}
+		if maxTreeDepth != nil {
+			toolArgs["max_tree_depth"] = *maxTreeDepth
+		}
+		result := newService().callTool("get_app_state", toolArgs)
 		if result.IsError {
 			return errors.New(result.Content[0].Text)
 		}
@@ -776,27 +858,58 @@ func runCLI(args []string, stdout io.Writer) error {
 	}
 }
 
-func parseSnapshotArgs(args []string) (string, bool, error) {
+func parseSnapshotArgs(args []string) (string, bool, *int, *int, error) {
 	var app string
 	showFullText := false
-	for _, arg := range args {
+	var maxTreeNodes *int
+	var maxTreeDepth *int
+	for index := 0; index < len(args); index++ {
+		arg := args[index]
 		switch arg {
 		case "--show-full-text":
 			showFullText = true
+		case "--max-tree-nodes":
+			index++
+			if index >= len(args) {
+				return "", false, nil, nil, errors.New("--max-tree-nodes requires a positive integer value")
+			}
+			value, err := parsePositiveIntegerOption(args[index], "--max-tree-nodes")
+			if err != nil {
+				return "", false, nil, nil, err
+			}
+			maxTreeNodes = &value
+		case "--max-tree-depth":
+			index++
+			if index >= len(args) {
+				return "", false, nil, nil, errors.New("--max-tree-depth requires a positive integer value")
+			}
+			value, err := parsePositiveIntegerOption(args[index], "--max-tree-depth")
+			if err != nil {
+				return "", false, nil, nil, err
+			}
+			maxTreeDepth = &value
 		default:
 			if strings.HasPrefix(arg, "-") {
-				return "", false, fmt.Errorf("unknown snapshot option: %s", arg)
+				return "", false, nil, nil, fmt.Errorf("unknown snapshot option: %s", arg)
 			}
 			if app != "" {
-				return "", false, errors.New("snapshot accepts exactly one app name, process name, window title, or pid")
+				return "", false, nil, nil, errors.New("snapshot accepts exactly one app name, process name, window title, or pid")
 			}
 			app = arg
 		}
 	}
 	if app == "" {
-		return "", false, errors.New("snapshot requires an app name, process name, window title, or pid")
+		return "", false, nil, nil, errors.New("snapshot requires an app name, process name, window title, or pid")
 	}
-	return app, showFullText, nil
+	return app, showFullText, maxTreeNodes, maxTreeDepth, nil
+}
+
+func parsePositiveIntegerOption(value, option string) (int, error) {
+	integer, err := strconv.Atoi(value)
+	if err != nil || integer <= 0 {
+		return 0, fmt.Errorf("%s must be a positive integer", option)
+	}
+	return integer, nil
 }
 
 func runCallCommand(args []string, svc *service) (any, bool, error) {
@@ -1029,7 +1142,7 @@ func helpText(command string) string {
 	case "call":
 		return "Usage:\n  open-computer-use.exe call <tool> [--args '<json-object>']\n  open-computer-use.exe call --calls '<json-array>'\n\nThe JSON array form keeps all calls in one process so element_index state can be reused.\n"
 	case "snapshot":
-		return "Usage:\n  open-computer-use.exe snapshot [--show-full-text] <app>\n\nPrint the current Windows UI Automation snapshot for the target app.\n"
+		return "Usage:\n  open-computer-use.exe snapshot [--show-full-text] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>\n\nPrint the current Windows UI Automation snapshot for the target app.\n"
 	default:
 		return `Open Computer Use for Windows
 

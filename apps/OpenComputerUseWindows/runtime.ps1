@@ -474,14 +474,16 @@ function Get-ElementTitle($record) {
     return ""
 }
 
-function Render-Tree($element, $windowBounds, [bool]$ShowFullText = $false) {
+function Render-Tree($element, $windowBounds, [bool]$ShowFullText = $false, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
     $records = New-Object System.Collections.Generic.List[object]
     $lines = New-Object System.Collections.Generic.List[string]
     $visited = New-Object System.Collections.Generic.HashSet[string]
     $nextIndex = 0
+    $effectiveMaxTreeNodes = if ($MaxTreeNodes -gt 0) { $MaxTreeNodes } else { $script:AccessibilityTreeMaxNodeCount }
+    $effectiveMaxTreeDepth = if ($MaxTreeDepth -gt 0) { $MaxTreeDepth } else { $script:AccessibilityTreeMaxDepth }
 
     function Visit($node, [int]$depth) {
-        if ($script:nextIndex -ge $script:AccessibilityTreeMaxNodeCount -or $depth -gt $script:AccessibilityTreeMaxDepth) {
+        if ($script:nextIndex -ge $script:MaxTreeNodes -or $depth -gt $script:MaxTreeDepth) {
             return
         }
         $runtime = ""
@@ -529,6 +531,8 @@ function Render-Tree($element, $windowBounds, [bool]$ShowFullText = $false) {
     $script:visited = $visited
     $script:nextIndex = $nextIndex
     $script:windowBounds = $windowBounds
+    $script:MaxTreeNodes = $effectiveMaxTreeNodes
+    $script:MaxTreeDepth = $effectiveMaxTreeDepth
     Visit $element 0
 
     [pscustomobject]@{
@@ -590,11 +594,11 @@ function Get-SelectedText($processId, [bool]$ShowFullText = $false) {
     return $null
 }
 
-function Build-Snapshot([string]$query, [bool]$ShowFullText = $false) {
+function Build-Snapshot([string]$query, [bool]$ShowFullText = $false, [int]$MaxTreeNodes = $script:AccessibilityTreeMaxNodeCount, [int]$MaxTreeDepth = $script:AccessibilityTreeMaxDepth) {
     $process = Resolve-App $query
     $element = Get-MainElement $process
     $bounds = Get-WindowBounds $process $element
-    $rendered = Render-Tree $element $bounds $ShowFullText
+    $rendered = Render-Tree $element $bounds $ShowFullText $MaxTreeNodes $MaxTreeDepth
     [pscustomobject]@{
         app = [pscustomobject]@{
             name = $process.ProcessName
@@ -877,7 +881,7 @@ try {
     if ($operation.tool -eq "list_apps") {
         $response = [pscustomobject]@{ ok = $true; text = (List-Apps) }
     } elseif ($operation.tool -eq "get_app_state") {
-        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app ([bool]$operation.show_full_text)) }
+        $response = [pscustomobject]@{ ok = $true; snapshot = (Build-Snapshot $operation.app ([bool]$operation.show_full_text) ([int]$operation.max_tree_nodes) ([int]$operation.max_tree_depth)) }
     } else {
         $process = Resolve-App $operation.app
         $hwnd = [IntPtr]$process.MainWindowHandle

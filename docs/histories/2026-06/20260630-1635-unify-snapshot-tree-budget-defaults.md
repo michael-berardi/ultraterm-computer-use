@@ -27,3 +27,9 @@ The previous platform defaults had drifted: macOS used `1200/64`, Linux used `50
 - `apps/OpenComputerUseWindows/main_test.go`
 - `docs/ARCHITECTURE.md`
 - `skills/open-computer-use/references/troubleshooting.md`
+
+### Follow-up: Configurable Tree Budgets
+
+**[2026-06-30]** Added explicit `max_tree_nodes` / `max_tree_depth` tool arguments and `--max-tree-nodes` / `--max-tree-depth` CLI flags for `get_app_state` and `snapshot`.
+
+The defaults remain `1200/64`, and action tools continue returning refreshed state with default budgets. The new parameters are for deliberate long page, long list, table, or web app inspection where the visible UI is larger than the default accessibility tree budget.

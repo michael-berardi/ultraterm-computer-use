@@ -23,6 +23,20 @@ func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
 	if got := showFullText["type"]; got != "boolean" {
 		t.Fatalf("show_full_text type = %v, want boolean", got)
 	}
+	maxTreeNodes := properties["max_tree_nodes"].(map[string]any)
+	if got := maxTreeNodes["type"]; got != "integer" {
+		t.Fatalf("max_tree_nodes type = %v, want integer", got)
+	}
+	if got := maxTreeNodes["minimum"]; got != 1 {
+		t.Fatalf("max_tree_nodes minimum = %v, want 1", got)
+	}
+	maxTreeDepth := properties["max_tree_depth"].(map[string]any)
+	if got := maxTreeDepth["type"]; got != "integer" {
+		t.Fatalf("max_tree_depth type = %v, want integer", got)
+	}
+	if got := maxTreeDepth["minimum"]; got != 1 {
+		t.Fatalf("max_tree_depth minimum = %v, want 1", got)
+	}
 	required := tool.InputSchema["required"].([]string)
 	if len(required) != 1 || required[0] != "app" {
 		t.Fatalf("required = %#v, want [app]", required)
@@ -30,20 +44,40 @@ func TestGetAppStateSchemaIncludesShowFullText(t *testing.T) {
 }
 
 func TestParseSnapshotArgsSupportsShowFullText(t *testing.T) {
-	app, showFullText, err := parseSnapshotArgs([]string{"--show-full-text", "Text Editor"})
+	app, showFullText, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs([]string{"--show-full-text", "Text Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app != "Text Editor" || !showFullText {
-		t.Fatalf("parseSnapshotArgs = (%q, %v), want (Text Editor, true)", app, showFullText)
+	if app != "Text Editor" || !showFullText || maxTreeNodes != nil || maxTreeDepth != nil {
+		t.Fatalf("parseSnapshotArgs = (%q, %v, %v, %v), want (Text Editor, true, nil, nil)", app, showFullText, maxTreeNodes, maxTreeDepth)
 	}
 
-	app, showFullText, err = parseSnapshotArgs([]string{"Text Editor"})
+	app, showFullText, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"Text Editor"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if app != "Text Editor" || showFullText {
-		t.Fatalf("parseSnapshotArgs default = (%q, %v), want (Text Editor, false)", app, showFullText)
+	if app != "Text Editor" || showFullText || maxTreeNodes != nil || maxTreeDepth != nil {
+		t.Fatalf("parseSnapshotArgs default = (%q, %v, %v, %v), want (Text Editor, false, nil, nil)", app, showFullText, maxTreeNodes, maxTreeDepth)
+	}
+
+	app, showFullText, maxTreeNodes, maxTreeDepth, err = parseSnapshotArgs([]string{"--max-tree-nodes", "3000", "--max-tree-depth", "96", "Text Editor"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if app != "Text Editor" || showFullText || maxTreeNodes == nil || *maxTreeNodes != 3000 || maxTreeDepth == nil || *maxTreeDepth != 96 {
+		t.Fatalf("parseSnapshotArgs custom tree budget = (%q, %v, %v, %v), want (Text Editor, false, 3000, 96)", app, showFullText, maxTreeNodes, maxTreeDepth)
+	}
+}
+
+func TestParseSnapshotArgsRejectsInvalidTreeBudget(t *testing.T) {
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--max-tree-nodes", "0", "Text Editor"}); err == nil || err.Error() != "--max-tree-nodes must be a positive integer" {
+		t.Fatalf("invalid max_tree_nodes error = %v", err)
+	}
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--max-tree-depth", "1.5", "Text Editor"}); err == nil || err.Error() != "--max-tree-depth must be a positive integer" {
+		t.Fatalf("invalid max_tree_depth error = %v", err)
+	}
+	if _, _, _, _, err := parseSnapshotArgs([]string{"--max-tree-nodes"}); err == nil || err.Error() != "--max-tree-nodes requires a positive integer value" {
+		t.Fatalf("missing max_tree_nodes error = %v", err)
 	}
 }
 
@@ -142,6 +176,12 @@ func TestLinuxRuntimeTextLimitSupportsFullTextMode(t *testing.T) {
 	}
 	if !strings.Contains(linuxRuntimeScript, "show_full_text=bool(operation.get(\"show_full_text\", False))") {
 		t.Fatal("Linux get_app_state should pass show_full_text into snapshot rendering")
+	}
+	if !strings.Contains(linuxRuntimeScript, "max_tree_nodes=positive_int(operation.get(\"max_tree_nodes\"), MAX_ELEMENTS)") {
+		t.Fatal("Linux get_app_state should pass max_tree_nodes into snapshot rendering")
+	}
+	if !strings.Contains(linuxRuntimeScript, "max_tree_depth=positive_int(operation.get(\"max_tree_depth\"), MAX_DEPTH)") {
+		t.Fatal("Linux get_app_state should pass max_tree_depth into snapshot rendering")
 	}
 	if !strings.Contains(linuxRuntimeScript, "TEXT_CHARACTER_LIMIT + 1") {
 		t.Fatal("Linux default truncation should read one extra character so it can append ellipsis")

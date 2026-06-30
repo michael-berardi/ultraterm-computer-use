@@ -83,6 +83,19 @@ The same `show_full_text` tool argument and `--show-full-text` snapshot flag app
 
 Action tools return refreshed app state with the default 500 character text limit. If full text is still needed after an action, run `get_app_state` again with `show_full_text: true`.
 
+## Larger Tree Budgets
+
+Accessibility tree rendering defaults to 1200 nodes and 64 levels on macOS, Linux, and Windows. This keeps normal snapshots bounded while preserving most interactive UI.
+
+Use a larger tree budget when a visible long page, list, table, or web app appears incomplete even after scrolling:
+
+```sh
+open-computer-use call get_app_state --args '{"app":"Google Chrome","max_tree_nodes":3000,"max_tree_depth":96}'
+open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chrome"
+```
+
+`max_tree_nodes` and `max_tree_depth` must be positive integers. They only affect explicit `get_app_state` and `snapshot` calls; action tools still return refreshed state with the default tree budget.
+
 ## Choosing Targets
 
 - Prefer app names or bundle identifiers returned by `list_apps`.
