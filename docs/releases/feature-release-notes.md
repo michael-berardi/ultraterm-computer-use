@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-07-20 | 匿名 Web 图标控件 | Chrome 等 Web 页面里的纯图标按钮即使没有可读名称，也能在 snapshot 中保留可点击的 `element_index`，Agent 可以更稳定地操作 icon-only 控件。 | 发布 `0.2.1`，保留具有 `AXPress` / `AXConfirm` / `AXOpen` 主动作且 frame 紧凑有效的匿名 `AXGroup` / `AXUnknown`，渲染为 `button`；同时继续过滤零尺寸节点和大面积通用点击容器。 |
 | 2026-07-08 | 快照预算与长文本控制 | 长网页、长列表和复杂表格可以显式提高 accessibility tree 预算，读取长消息或文档时也能按需选择更大的文本上限或全文模式。 | 发布 `0.2.0`，三端默认 tree budget 统一为 1200/64，并为 `get_app_state` / `snapshot` 增加 `max_tree_nodes`、`max_tree_depth` 与 `text_limit` / `--text-limit`；`show_full_text` / `--show-full-text` 已由 `text_limit: "max"` / `--text-limit max` 替代。 |
 
 ## 2026-06
