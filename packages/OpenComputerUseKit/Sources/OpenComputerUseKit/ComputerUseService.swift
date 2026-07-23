@@ -16,6 +16,10 @@ public enum ClickMethod: String, CaseIterable, Sendable {
     case global
 }
 
+func clickActionSnapshotRecoveryPolicy(for method: ClickMethod) -> SnapshotRecoveryPolicy {
+    method == .skyClick ? .readOnly : .allowActivation
+}
+
 func parseClickMethod(_ rawValue: String?) throws -> ClickMethod {
     let normalized = rawValue?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -607,7 +611,13 @@ public final class ComputerUseService {
             throw ComputerUseError.invalidArguments("click requires either element_index or x/y")
         }
 
-        return snapshotResult(for: try refreshSnapshot(for: query), style: .actionResult)
+        return snapshotResult(
+            for: try refreshSnapshot(
+                for: query,
+                recoveryPolicy: clickActionSnapshotRecoveryPolicy(for: clickMethod)
+            ),
+            style: .actionResult
+        )
     }
 
     public func performSecondaryAction(app query: String, elementIndex: String, action: String) throws -> ToolCallResult {
@@ -790,10 +800,16 @@ public final class ComputerUseService {
     private func refreshSnapshot(
         for query: String,
         textLimit: SnapshotTextLimit = .defaults,
-        treeLimits: AccessibilityTreeLimits = .defaults
+        treeLimits: AccessibilityTreeLimits = .defaults,
+        recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation
     ) throws -> AppSnapshot {
         let app = try AppDiscovery.resolve(query)
-        let snapshot = try SnapshotBuilder.build(for: app, textLimit: textLimit, treeLimits: treeLimits)
+        let snapshot = try SnapshotBuilder.build(
+            for: app,
+            textLimit: textLimit,
+            treeLimits: treeLimits,
+            recoveryPolicy: recoveryPolicy
+        )
 
         let keys = Set([
             query.lowercased(),

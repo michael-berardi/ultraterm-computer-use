@@ -1371,6 +1371,38 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertEqual(try parseClickMethod("GLOBAL"), .global)
     }
 
+    func testOnlySkyClickUsesReadOnlyActionSnapshotRefresh() {
+        XCTAssertEqual(clickActionSnapshotRecoveryPolicy(for: .skyClick), .readOnly)
+
+        for method in ClickMethod.allCases where method != .skyClick {
+            XCTAssertEqual(
+                clickActionSnapshotRecoveryPolicy(for: method),
+                .allowActivation
+            )
+        }
+    }
+
+    func testFixtureStateFocusProbeFieldsRemainBackwardCompatible() throws {
+        let legacyPayload = #"""
+        {
+          "windowTitle": "Legacy Fixture",
+          "windowBounds": {"x": 1, "y": 2, "width": 3, "height": 4},
+          "focusedIdentifier": null,
+          "elements": []
+        }
+        """#
+
+        let state = try JSONDecoder().decode(
+            FixtureAppState.self,
+            from: Data(legacyPayload.utf8)
+        )
+        XCTAssertNil(state.processIdentifier)
+        XCTAssertNil(state.isActive)
+        XCTAssertNil(state.isKeyWindow)
+        XCTAssertNil(state.activationLossCount)
+        XCTAssertNil(state.keyWindowLossCount)
+    }
+
     func testClickMethodRejectsUnknownValues() {
         for value in ["physical", "targeted"] {
             XCTAssertThrowsError(try parseClickMethod(value)) { error in
@@ -1515,6 +1547,30 @@ final class OpenComputerUseKitTests: XCTestCase {
 
         let defocused = skyLightActivationRecord(windowID: 42, focused: false)
         XCTAssertEqual(defocused[0x8A], 0x02)
+    }
+
+    func testSkyLightSyntheticFocusPlanOnlyAddressesTarget() {
+        let targetPSN = [UInt8](repeating: 7, count: 8)
+        let plan = skyLightSyntheticTargetFocusPlan(
+            targetPSN: targetPSN,
+            targetWindowID: 321
+        )
+
+        XCTAssertEqual(
+            plan,
+            SkyLightSyntheticFocusPlan(
+                activateTarget: SkyLightActivationCommand(
+                    psn: targetPSN,
+                    windowID: 321,
+                    focused: true
+                ),
+                deactivateTarget: SkyLightActivationCommand(
+                    psn: targetPSN,
+                    windowID: 321,
+                    focused: false
+                )
+            )
+        )
     }
 
     func testSkyLightRuntimeSPIProbeCanStampEventWithoutPosting() throws {

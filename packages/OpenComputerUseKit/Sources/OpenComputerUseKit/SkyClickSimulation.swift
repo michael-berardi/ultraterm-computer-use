@@ -143,14 +143,13 @@ enum SkyClickDispatcher {
         let clickGroupID = Int64(DispatchTime.now().uptimeNanoseconds % 1_000_000_000)
 
         let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let focusContext: SkyLightFocusContext?
+        let focusContext: SkyLightSyntheticFocusContext?
         if frontmostPID == target.pid {
             focusContext = nil
         } else {
-            focusContext = try spi.beginFocusWithoutRaise(
+            focusContext = try spi.beginSyntheticTargetFocus(
                 targetPID: target.pid,
-                targetWindowID: target.windowID,
-                previousWindowID: frontmostWindowID(for: frontmostPID) ?? 0
+                targetWindowID: target.windowID
             )
         }
 
@@ -192,17 +191,17 @@ enum SkyClickDispatcher {
             }
         } catch {
             if let focusContext {
-                try? restoreFocus(context: focusContext, spi: spi)
+                try? spi.endSyntheticTargetFocus(focusContext)
             }
             throw error
         }
 
         if let focusContext {
             // SkyLight delivery is asynchronous. Keep the target's AppKit
-            // active state long enough for Chromium's renderer hop to consume
-            // the final mouse-up before restoring the user's active app.
+            // synthetic active state long enough for Chromium's renderer hop
+            // to consume the final mouse-up before deactivating only the target.
             Thread.sleep(forTimeInterval: 0.100)
-            try restoreFocus(context: focusContext, spi: spi)
+            try spi.endSyntheticTargetFocus(focusContext)
         }
     }
 
@@ -260,42 +259,4 @@ enum SkyClickDispatcher {
         try spi.setWindowLocation(event, point: windowPoint)
     }
 
-    private static func frontmostWindowID(for pid: pid_t?) -> CGWindowID? {
-        guard let pid else {
-            return nil
-        }
-
-        let windowInfo = CGWindowListCopyWindowInfo(
-            [.optionOnScreenOnly, .excludeDesktopElements],
-            kCGNullWindowID
-        ) as? [[String: Any]] ?? []
-        return windowInfo.first { info in
-            guard
-                let ownerPID = info[kCGWindowOwnerPID as String] as? NSNumber,
-                ownerPID.int32Value == pid,
-                let layer = info[kCGWindowLayer as String] as? NSNumber
-            else {
-                return false
-            }
-            return layer.intValue == 0
-        }.flatMap { info in
-            (info[kCGWindowNumber as String] as? NSNumber)?.uint32Value
-        }
-    }
-
-    private static func restoreFocus(
-        context: SkyLightFocusContext,
-        spi: SkyLightSPI
-    ) throws {
-        let currentFrontPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let currentFrontWindowID: CGWindowID? = if currentFrontPID == nil {
-            nil
-        } else {
-            frontmostWindowID(for: currentFrontPID) ?? 0
-        }
-        try spi.restoreFocusWithoutRaise(
-            context,
-            currentFrontWindowID: currentFrontWindowID
-        )
-    }
 }

@@ -2,11 +2,37 @@ import CoreGraphics
 import Darwin
 import Foundation
 
-struct SkyLightFocusContext {
-    let previousPSN: [UInt8]
-    let targetPSN: [UInt8]
-    let previousWindowID: CGWindowID
-    let targetWindowID: CGWindowID
+struct SkyLightActivationCommand: Equatable {
+    let psn: [UInt8]
+    let windowID: CGWindowID
+    let focused: Bool
+}
+
+struct SkyLightSyntheticFocusContext {
+    let deactivateTarget: SkyLightActivationCommand
+}
+
+struct SkyLightSyntheticFocusPlan: Equatable {
+    let activateTarget: SkyLightActivationCommand
+    let deactivateTarget: SkyLightActivationCommand
+}
+
+func skyLightSyntheticTargetFocusPlan(
+    targetPSN: [UInt8],
+    targetWindowID: CGWindowID
+) -> SkyLightSyntheticFocusPlan {
+    SkyLightSyntheticFocusPlan(
+        activateTarget: SkyLightActivationCommand(
+            psn: targetPSN,
+            windowID: targetWindowID,
+            focused: true
+        ),
+        deactivateTarget: SkyLightActivationCommand(
+            psn: targetPSN,
+            windowID: targetWindowID,
+            focused: false
+        )
+    )
 }
 
 func skyLightActivationRecord(windowID: CGWindowID, focused: Bool) -> [UInt8] {
@@ -50,7 +76,6 @@ final class SkyLightSPI: @unchecked Sendable {
     private static let setIntegerFieldSymbol = "SLEventSetIntegerValueField"
     private static let setWindowLocationSymbol = "CGEventSetWindowLocation"
     private static let postEventRecordSymbol = "SLPSPostEventRecordTo"
-    private static let getFrontProcessSymbol = "_SLPSGetFrontProcess"
     private static let getProcessForPIDSymbol = "GetProcessForPID"
     private static let applicationServicesPath = "/System/Library/Frameworks/ApplicationServices.framework/ApplicationServices"
 
@@ -61,7 +86,6 @@ final class SkyLightSPI: @unchecked Sendable {
     // relying on Swift's aggregate CGPoint calling convention.
     private typealias SetWindowLocationFunction = @convention(c) (UnsafeMutableRawPointer?, Double, Double) -> Void
     private typealias PostEventRecordFunction = @convention(c) (UnsafeRawPointer?, UnsafePointer<UInt8>?) -> Int32
-    private typealias GetFrontProcessFunction = @convention(c) (UnsafeMutableRawPointer?) -> Int32
     private typealias GetProcessForPIDFunction = @convention(c) (pid_t, UnsafeMutableRawPointer?) -> Int32
 
     private let frameworkHandle: UnsafeMutableRawPointer?
@@ -70,7 +94,6 @@ final class SkyLightSPI: @unchecked Sendable {
     private let setIntegerFieldFunction: SetIntegerFieldFunction?
     private let setWindowLocationFunction: SetWindowLocationFunction?
     private let postEventRecordFunction: PostEventRecordFunction?
-    private let getFrontProcessFunction: GetFrontProcessFunction?
     private let getProcessForPIDFunction: GetProcessForPIDFunction?
 
     let capability: SkyLightSPICapability
@@ -84,7 +107,6 @@ final class SkyLightSPI: @unchecked Sendable {
         setIntegerFieldFunction = Self.resolve(handle: handle, symbol: Self.setIntegerFieldSymbol)
         setWindowLocationFunction = Self.resolve(handle: handle, symbol: Self.setWindowLocationSymbol)
         postEventRecordFunction = Self.resolve(handle: handle, symbol: Self.postEventRecordSymbol)
-        getFrontProcessFunction = Self.resolve(handle: handle, symbol: Self.getFrontProcessSymbol)
         getProcessForPIDFunction = Self.resolve(handle: appServicesHandle, symbol: Self.getProcessForPIDSymbol)
 
         var missingSymbols: [String] = []
@@ -99,9 +121,6 @@ final class SkyLightSPI: @unchecked Sendable {
         }
         if postEventRecordFunction == nil {
             missingSymbols.append(Self.postEventRecordSymbol)
-        }
-        if getFrontProcessFunction == nil {
-            missingSymbols.append(Self.getFrontProcessSymbol)
         }
         if getProcessForPIDFunction == nil {
             missingSymbols.append(Self.getProcessForPIDSymbol)
@@ -133,26 +152,12 @@ final class SkyLightSPI: @unchecked Sendable {
         setWindowLocationFunction(opaquePointer(for: event), point.x, point.y)
     }
 
-    func beginFocusWithoutRaise(
+    func beginSyntheticTargetFocus(
         targetPID: pid_t,
-        targetWindowID: CGWindowID,
-        previousWindowID: CGWindowID
-    ) throws -> SkyLightFocusContext {
-        guard
-            let getFrontProcessFunction,
-            let getProcessForPIDFunction
-        else {
+        targetWindowID: CGWindowID
+    ) throws -> SkyLightSyntheticFocusContext {
+        guard let getProcessForPIDFunction else {
             throw unavailableError()
-        }
-
-        var previousPSN = [UInt8](repeating: 0, count: 8)
-        let previousStatus = previousPSN.withUnsafeMutableBytes { bytes in
-            getFrontProcessFunction(bytes.baseAddress)
-        }
-        guard previousStatus == 0 else {
-            throw ComputerUseError.message(
-                "click_method 'sky_click' could not resolve the front process PSN (OSStatus \(previousStatus))"
-            )
         }
 
         var targetPSN = [UInt8](repeating: 0, count: 8)
@@ -165,67 +170,21 @@ final class SkyLightSPI: @unchecked Sendable {
             )
         }
 
-        try postActivationRecord(psn: previousPSN, windowID: previousWindowID, focused: false)
-        Thread.sleep(forTimeInterval: 0.040)
-        do {
-            try postActivationRecord(psn: targetPSN, windowID: targetWindowID, focused: true)
-            Thread.sleep(forTimeInterval: 0.040)
-        } catch {
-            try? postActivationRecord(psn: previousPSN, windowID: previousWindowID, focused: true)
-            throw error
-        }
-
-        return SkyLightFocusContext(
-            previousPSN: previousPSN,
+        let plan = skyLightSyntheticTargetFocusPlan(
             targetPSN: targetPSN,
-            previousWindowID: previousWindowID,
             targetWindowID: targetWindowID
+        )
+        try postActivationCommand(plan.activateTarget)
+        Thread.sleep(forTimeInterval: 0.040)
+
+        return SkyLightSyntheticFocusContext(
+            deactivateTarget: plan.deactivateTarget
         )
     }
 
-    func restoreFocusWithoutRaise(
-        _ context: SkyLightFocusContext,
-        currentFrontWindowID: CGWindowID?
-    ) throws {
-        let restorePSN: [UInt8]
-        let restoreWindowID: CGWindowID
-        if let getFrontProcessFunction {
-            var currentFrontPSN = [UInt8](repeating: 0, count: 8)
-            let status = currentFrontPSN.withUnsafeMutableBytes { bytes in
-                getFrontProcessFunction(bytes.baseAddress)
-            }
-            if status == 0 {
-                restorePSN = currentFrontPSN
-                restoreWindowID = currentFrontWindowID ?? context.previousWindowID
-            } else {
-                restorePSN = context.previousPSN
-                restoreWindowID = context.previousWindowID
-            }
-        } else {
-            restorePSN = context.previousPSN
-            restoreWindowID = context.previousWindowID
-        }
-
-        var defocusError: Error?
-        do {
-            try postActivationRecord(
-                psn: context.targetPSN,
-                windowID: context.targetWindowID,
-                focused: false
-            )
-        } catch {
-            defocusError = error
-        }
-
+    func endSyntheticTargetFocus(_ context: SkyLightSyntheticFocusContext) throws {
+        try postActivationCommand(context.deactivateTarget)
         Thread.sleep(forTimeInterval: 0.040)
-        try postActivationRecord(
-            psn: restorePSN,
-            windowID: restoreWindowID,
-            focused: true
-        )
-        if let defocusError {
-            throw defocusError
-        }
     }
 
     private func unavailableError() -> ComputerUseError {
@@ -238,24 +197,23 @@ final class SkyLightSPI: @unchecked Sendable {
         Unmanaged.passUnretained(event).toOpaque()
     }
 
-    private func postActivationRecord(
-        psn: [UInt8],
-        windowID: CGWindowID,
-        focused: Bool
-    ) throws {
+    private func postActivationCommand(_ command: SkyLightActivationCommand) throws {
         guard let postEventRecordFunction else {
             throw unavailableError()
         }
 
-        let record = skyLightActivationRecord(windowID: windowID, focused: focused)
-        let status = psn.withUnsafeBytes { psnBytes in
+        let record = skyLightActivationRecord(
+            windowID: command.windowID,
+            focused: command.focused
+        )
+        let status = command.psn.withUnsafeBytes { psnBytes in
             record.withUnsafeBufferPointer { recordBytes in
                 postEventRecordFunction(psnBytes.baseAddress, recordBytes.baseAddress)
             }
         }
         guard status == 0 else {
             throw ComputerUseError.message(
-                "click_method 'sky_click' focus-without-raise event failed (OSStatus \(status))"
+                "click_method 'sky_click' synthetic target-focus event failed (OSStatus \(status))"
             )
         }
     }

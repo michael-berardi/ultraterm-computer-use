@@ -20,18 +20,21 @@
 
 `sky_click` 使用当前 snapshot 的 PID、`CGWindowID`、窗口内坐标和屏幕坐标，按以下顺序投递：
 
-1. 保存当前前台 PSN/window id，向原前台发送 defocus record，再向目标发送 focus record；两次 `SLPSPostEventRecordTo` 只切 AppKit-active 状态，不调用会 raise / 切 Space 的 `SLPSSetFrontProcessWithOptions`。
+1. 用 `GetProcessForPID` 解析目标 PSN，只向目标发送 focus record，让目标短暂进入 synthetic-active 状态；不查询前台 PSN，也绝不向真实前台应用发送 defocus record。
 2. 目标点 `mouseMoved`，gesture phase `2`。
 3. `(-1, -1)` 的 off-window primer `mouseDown` / `mouseUp`，phase `1` / `2`。
 4. 等待 `100ms`，把真实目标 `mouseDown` / `mouseUp` 以 phase `3` 投递。
 5. 双击时等待 `80ms` 后发送第二对事件，并把 click state 从 `1` 递增到 `2`。
-6. 等待 renderer 消费异步 mouse-up，再向目标发送 defocus、向原前台发送 focus record，恢复 AppKit-active 状态。
+6. 等待 renderer 消费异步 mouse-up，再只向目标发送 defocus record，撤销本轮 synthetic-active 状态。
 
 每个事件带相同 click-group id，并设置 PID、窗口 id、window-under-pointer 和 window-local location。每一步同时走 `SLEventPostToPid` 与公开 `CGEvent.postToPid`：前者覆盖 Chromium/Catalyst，后者保留 AppKit 兼容性。这是一个固定 dispatch policy，不是失败后的 retry。
 
+旧实现曾按 Cua / yabai 的 focus-without-raise pattern，先向真实前台应用发送 defocus，再在结束时发送 focus 恢复。该序列虽然不改变 WindowServer frontmost PID 或 z-order，却会触发 AppKit `resignActive` / `resignKey` 并破坏 first responder。受控 Chrome 验证表明只合成目标 focus 已足够，因此当前实现把“前台应用从未失活”作为硬约束。
+
 ## OCU 明确没有采用的部分
 
-- 不调用 `SLPSSetFrontProcessWithOptions`，也不使用 `NSRunningApplication.activate` 操作目标 app。focus-without-raise 只切换并恢复 AppKit event routing state，WindowServer frontmost 与窗口 z-order 必须保持不变。
+- 不调用 `SLPSSetFrontProcessWithOptions`，也不使用 `NSRunningApplication.activate` 或 `AXRaise` 操作目标 app。只改变目标应用的 synthetic event-routing 状态，真实前台应用的 AppKit active、key window 和 first responder 必须保持不变。
+- `sky_click` 完成后的 action-result snapshot 使用 read-only recovery policy；目标 AX/window 瞬时不可读时返回错误，不允许 snapshot 恢复路径激活或抬升目标。
 - 不把 `sky_click` 放进 `auto`，也不从失败的 `sky_click` 回退到 `global`。
 - 不支持右键、中键、三击、跨 Space、隐藏或最小化窗口。
 - 不承诺 Canvas、Unity、Blender 或其他拒绝 PID 定向事件的 surface 可用。
@@ -44,10 +47,9 @@
 - `SLEventSetIntegerValueField`
 - `CGEventSetWindowLocation`
 - `SLPSPostEventRecordTo`
-- `_SLPSGetFrontProcess`
 - `GetProcessForPID`
 
-投递前还必须确认 snapshot 的 `CGWindowID` 仍由同一 PID 所有且仍为 on-screen。macOS 更新后应重新验证符号、事件字段、签名 app 制品和被完全遮挡的 Chromium 页面。
+投递前还必须确认 snapshot 的 `CGWindowID` 仍由同一 PID 所有且仍为 on-screen。macOS 更新后应重新验证符号、事件字段、签名 app 制品和被完全遮挡的 Chromium 页面；实机门槛同时包括前台 fixture 的 active/key/first-responder 状态和 transient resign/key-loss 计数。
 
 ## 许可
 

@@ -111,7 +111,7 @@ open-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Google Chr
 
 - `accessibility`: only invoke the element's accessibility action and require `element_index`.
 - `app_post`: bypass accessibility and post a mouse event directly to the target app/window without moving the system pointer. Supported on macOS and Windows.
-- `sky_click`: use the macOS private SkyLight background-window path with focus-without-raise and a Chromium primer click. It supports left single/double click on a current, on-screen window in the same Space and does not move the system pointer, change the frontmost app, or raise the target window. Supported on macOS only.
+- `sky_click`: use the macOS private SkyLight background-window path with target-only synthetic focus and a Chromium primer click. It supports left single/double click on a current, on-screen window in the same Space and does not move the system pointer, deactivate the foreground app, change its key/first-responder state, or raise the target window. Its action-result snapshot refresh is read-only. Supported on macOS only.
 - `global`: bypass accessibility and use the desktop's global pointer path. Supported on macOS and Linux, and requires `OPEN_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` because it may move the real pointer or change foreground focus.
 
 Use `app_post` for an exact blank-area or overlay click that must not be redirected to an accessibility descendant:

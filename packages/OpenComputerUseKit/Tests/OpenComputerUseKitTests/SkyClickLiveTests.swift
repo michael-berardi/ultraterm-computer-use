@@ -134,6 +134,17 @@ final class SkyClickLiveTests: XCTestCase {
             "The controlled Chrome window must be fully covered before sky_click"
         )
         XCTAssertLessThan(coverIndex, targetIndex, "The cover window must be above Chrome in z-order")
+        try FixtureBridge.post(
+            FixtureCommand(kind: "click", identifier: "fixture-input")
+        )
+        let foregroundStateBefore = try waitForFixtureState(
+            pid: cover.processIdentifier,
+            failure: "The foreground fixture did not keep its text field focused"
+        ) { state in
+            state.isActive == true
+                && state.isKeyWindow == true
+                && state.focusedIdentifier == "fixture-input"
+        }
         print(
             "sky_click live test: cover=\(freshCoverWindow.bounds) target=\(coveredWindow.bounds) "
                 + "z-order=\(coverIndex)<\(targetIndex) front-pid="
@@ -169,6 +180,27 @@ final class SkyClickLiveTests: XCTestCase {
             NSWorkspace.shared.frontmostApplication?.processIdentifier,
             frontPIDBefore,
             "sky_click must not change the frontmost app"
+        )
+        let foregroundStateAfter = try waitForFixtureState(
+            pid: cover.processIdentifier,
+            failure: "The foreground fixture state was unavailable after sky_click"
+        ) { _ in true }
+        XCTAssertEqual(foregroundStateAfter.isActive, true, "sky_click must keep the foreground app active")
+        XCTAssertEqual(foregroundStateAfter.isKeyWindow, true, "sky_click must keep the foreground window key")
+        XCTAssertEqual(
+            foregroundStateAfter.focusedIdentifier,
+            foregroundStateBefore.focusedIdentifier,
+            "sky_click must preserve the foreground first responder"
+        )
+        XCTAssertEqual(
+            foregroundStateAfter.activationLossCount,
+            foregroundStateBefore.activationLossCount,
+            "sky_click must not transiently resign the foreground app"
+        )
+        XCTAssertEqual(
+            foregroundStateAfter.keyWindowLossCount,
+            foregroundStateBefore.keyWindowLossCount,
+            "sky_click must not transiently resign the foreground key window"
         )
 
         if let cursorBefore, let cursorAfter = CGEvent(source: nil)?.location {
@@ -223,6 +255,26 @@ final class SkyClickLiveTests: XCTestCase {
             RunLoop.current.run(until: Date().addingTimeInterval(0.05))
         }
         throw ComputerUseError.message(failure)
+    }
+
+    private func waitForFixtureState(
+        pid: pid_t,
+        failure: String,
+        condition: (FixtureAppState) -> Bool
+    ) throws -> FixtureAppState {
+        var match: FixtureAppState?
+        try waitUntil(timeout: 5, failure: failure) {
+            guard
+                let state = try? FixtureBridge.readState(),
+                state.processIdentifier == pid,
+                condition(state)
+            else {
+                return false
+            }
+            match = state
+            return true
+        }
+        return try XCTUnwrap(match)
     }
 
     private func stop(_ process: Process) {
