@@ -971,7 +971,7 @@ final class OpenComputerUseKitTests: XCTestCase {
             traits: [],
             actions: [],
             childCount: 0,
-            preservesAnonymousActionTarget: true
+            preservesCompactGenericActionTarget: true
         ))
         XCTAssertFalse(shouldElideNode(
             role: kAXGroupRole as String,
@@ -1079,86 +1079,69 @@ final class OpenComputerUseKitTests: XCTestCase {
         XCTAssertFalse(hasPrimaryClickAction(["AXShowMenu", "AXScrollToVisible", "AXRaise"]))
     }
 
-    func testAccessibilityRendererMarksAnonymousGenericClickTargetsAsButtons() {
-        XCTAssertTrue(shouldRenderAnonymousActionTarget(
+    func testAccessibilityRendererTreatsGenericPrimaryActionsAsSummaryBoundaries() {
+        XCTAssertTrue(isGenericPrimaryActionSummaryBoundary(
             role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
+            actions: [kAXPressAction as String]
+        ))
+        XCTAssertTrue(isGenericPrimaryActionSummaryBoundary(
+            role: kAXUnknownRole as String,
+            actions: ["AXOpen"]
+        ))
+        XCTAssertFalse(isGenericPrimaryActionSummaryBoundary(
+            role: kAXGroupRole as String,
+            actions: ["AXShowMenu", "AXScrollToVisible"]
+        ))
+        XCTAssertFalse(isGenericPrimaryActionSummaryBoundary(
+            role: kAXButtonRole as String,
+            actions: [kAXPressAction as String]
+        ))
+        XCTAssertFalse(isGenericPrimaryActionSummaryBoundary(
+            role: "AXLink",
+            actions: [kAXPressAction as String]
+        ))
+    }
+
+    func testAccessibilityRendererMarksCompactGenericClickTargetsAsButtons() {
+        XCTAssertTrue(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 1455, y: 218, width: 15, height: 20)
         ))
-        XCTAssertTrue(shouldRenderAnonymousActionTarget(
+        XCTAssertTrue(shouldRenderCompactGenericActionTarget(
             role: kAXUnknownRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 1455, y: 245, width: 15, height: 20)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertTrue(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 10, y: 10, width: 240, height: 120)
+        ))
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXButtonRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXGroupRole as String,
-            title: "Forward",
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
-            hasPrimaryClickAction: true,
-            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
-        ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
-            role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: "Candidate details",
-            hasPrimaryClickAction: true,
-            localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
-        ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
-            role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: false,
             localFrame: CGRect(x: 10, y: 10, width: 32, height: 32)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 0, y: 0, width: 1920, height: 929)
         ))
-        XCTAssertFalse(shouldRenderAnonymousActionTarget(
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXGroupRole as String,
-            title: nil,
-            label: nil,
-            help: nil,
-            value: nil,
-            genericTextSummary: nil,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 0, y: 0, width: 15, height: 0)
+        ))
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
+            hasPrimaryClickAction: true,
+            localFrame: nil
         ))
     }
 
