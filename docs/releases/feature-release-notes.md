@@ -4,6 +4,7 @@
 
 | 日期 | 功能域 | 用户价值 | 变更摘要 |
 | --- | --- | --- | --- |
+| 2026-07-30 | Web 可点击选项边界 | Chrome 等 Web 页面中的多个文本选项即使位于同一个摘要容器内，也能分别保留可操作的 `element_index`；BOSS 直聘转发弹窗中的“站内同事”“转发至其他”和“邮件转发”可以被独立定位。 | 发布 `0.3.1`，让带 `AXPress`、`AXConfirm` 或 `AXOpen` 的紧凑通用节点成为文本摘要边界并渲染为 `button`；普通纯文本压缩以及零尺寸、大面积通用节点过滤保持不变。 |
 | 2026-07-27 | 可配置与后台点击 | 调用方可以显式选择点击实现，并在 macOS 上对被遮挡的同 Space 窗口执行后台点击，同时保持真实鼠标、前台应用、窗口焦点和层级不变。 | 发布 `0.3.0`，为 `click` 新增 `click_method`，提供 `auto`、`accessibility`、`app_post`、`global` 和 macOS-only `sky_click`；默认 `auto` 行为保持不变，显式模式失败时不静默切换实现，`global` 继续要求环境授权。 |
 | 2026-07-20 | 匿名 Web 图标控件 | Chrome 等 Web 页面里的纯图标按钮即使没有可读名称，也能在 snapshot 中保留可点击的 `element_index`，Agent 可以更稳定地操作 icon-only 控件。 | 发布 `0.2.1`，保留具有 `AXPress` / `AXConfirm` / `AXOpen` 主动作且 frame 紧凑有效的匿名 `AXGroup` / `AXUnknown`，渲染为 `button`；同时继续过滤零尺寸节点和大面积通用点击容器。 |
 | 2026-07-08 | 快照预算与长文本控制 | 长网页、长列表和复杂表格可以显式提高 accessibility tree 预算，读取长消息或文档时也能按需选择更大的文本上限或全文模式。 | 发布 `0.2.0`，三端默认 tree budget 统一为 1200/64，并为 `get_app_state` / `snapshot` 增加 `max_tree_nodes`、`max_tree_depth` 与 `text_limit` / `--text-limit`；`show_full_text` / `--show-full-text` 已由 `text_limit: "max"` / `--text-limit max` 替代。 |
