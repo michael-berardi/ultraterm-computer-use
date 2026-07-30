@@ -28,6 +28,7 @@ required_files=(
   "docs/exec-plans/tech-debt-tracker.md"
   "docs/histories/template.md"
   "docs/releases/feature-release-notes.md"
+  "docs/releases/github/TEMPLATE.md"
 )
 
 missing=0

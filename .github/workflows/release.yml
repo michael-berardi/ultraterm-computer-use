@@ -23,7 +23,26 @@ permissions:
   id-token: write
 
 jobs:
+  release-metadata:
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
+        with:
+          node-version: "24"
+
+      - name: Validate reviewed GitHub Release notes
+        if: ${{ github.event_name == 'push' }}
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: node ./scripts/validate-github-release-notes.mjs --tag "${RELEASE_TAG}"
+
   package-npm:
+    needs: release-metadata
     runs-on: macos-26
 
     steps:
@@ -127,6 +146,7 @@ jobs:
             --tag "${NPM_DIST_TAG}"
 
   release-cursor-motion-dmg:
+    needs: release-metadata
     if: ${{ github.event_name == 'push' }}
     runs-on: macos-26
 
@@ -230,11 +250,15 @@ jobs:
         run: |
           version="${RELEASE_TAG#v}"
           dmg_path="dist/release/cursor-motion/CursorMotion-${version}.dmg"
+          notes_path="docs/releases/github/${RELEASE_TAG}.md"
 
           if gh release view "${RELEASE_TAG}" >/dev/null 2>&1; then
             gh release upload "${RELEASE_TAG}" "${dmg_path}" --clobber
+            gh release edit "${RELEASE_TAG}" \
+              --title "${RELEASE_TAG}" \
+              --notes-file "${notes_path}"
           else
             gh release create "${RELEASE_TAG}" "${dmg_path}" \
               --title "${RELEASE_TAG}" \
-              --generate-notes
+              --notes-file "${notes_path}"
           fi

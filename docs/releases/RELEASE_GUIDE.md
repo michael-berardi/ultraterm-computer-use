@@ -25,13 +25,15 @@
 - 本地 publish：`node ./scripts/npm/publish-packages.mjs`
 - CI workflow：`.github/workflows/release.yml`
 - 用户可见发布记录：`docs/releases/feature-release-notes.md`
-- GitHub Release 页面：workflow 在 release 不存在时用 `gh release create --generate-notes` 创建，并交给 GitHub 自动生成 `What's Changed` / `New Contributors` / `Full Changelog`。
+- GitHub Release 正文：`docs/releases/github/vX.Y.Z.md`
+- GitHub Release 页面：workflow 使用审核过的英文 notes 文件创建或更新，不直接引用 PR 标题自动生成正文。
 
 ## 当前版本源
 
-这个仓库当前有两类 release 版本源：
+这个仓库当前有三类 release 版本源：
 
 - npm staging 包版本：以 `plugins/open-computer-use/.codex-plugin/plugin.json` 里的 `version` 为准。
+- GitHub Release 正文：以 `docs/releases/github/<tag>.md` 为准，文件名必须与实际 tag 完全一致。
 - `CursorMotion-<version>.dmg` 文件名与 GitHub Release asset 版本：以 release tag 为准；workflow 会把 `vX.Y.Z` 规范化成 `X.Y.Z` 写进 DMG 文件名，也可以在本地显式传 `--version`。
 
 也就是说：
@@ -39,6 +41,7 @@
 - 只改 git tag，不改这个 manifest，不会得到新 npm 版本。
 - `scripts/npm/build-packages.mjs` 会从这个 manifest 读取版本，再生成三个 root/alias staging 包；每个包内置 macOS、Linux 和 Windows runtime artifacts。
 - 所以 release 前必须先把这份 manifest bump 到目标版本。
+- 如果缺少目标 tag 对应的英文 notes，或者 notes 与 manifest/tag 不一致，`release-metadata` job 会在 npm 与 DMG job 启动前失败。
 - 如果要让 `CursorMotion` 的 DMG 文件名和 release 页面资产名正确落到目标版本，也必须使用目标 tag 推送，或本地显式传入同样的 `--version`。
 
 ## Release Checklist
@@ -56,15 +59,34 @@
 - `scripts/computer-use-cli/main.go`
 - `scripts/computer-use-cli/README.md`
 - `docs/releases/feature-release-notes.md`
+- `docs/releases/github/vX.Y.Z.md`
 - `docs/histories/` 中本轮 release 对应的 history
 
 如果这轮 release 还改了其他对外暴露版本字符串，也要一起对齐，不要只改一半。
 
-### 2. 本地验证版本源已经生效
+### 2. 准备并验证 GitHub Release notes
 
-至少跑这三步：
+从 `docs/releases/github/TEMPLATE.md` 创建目标 tag 对应文件，并运行：
 
 ```bash
+node ./scripts/validate-github-release-notes.mjs --tag v0.1.14
+```
+
+校验要求：
+
+- tag 必须是 `vX.Y.Z` 或 `X.Y.Z`，并与 plugin manifest 版本一致。
+- 正文以 `## What's Changed` 开头，包含 1-3 条用户可感知的英文变化。
+- 正文不能包含 CJK 字符。
+- 正文必须且只能包含一个指向当前 tag 的 `Full Changelog` 链接。
+
+任何一项不满足都不要打 tag。tag push 后，`release-metadata` job 会再次执行相同校验，并在失败时阻止 npm 与 DMG job 启动。
+
+### 3. 本地验证版本源已经生效
+
+至少跑这四步：
+
+```bash
+node ./scripts/validate-github-release-notes.mjs --tag v0.1.14
 swift test
 node ./scripts/npm/build-packages.mjs --out-dir dist/release/npm-staging-check
 ./scripts/build-cursor-motion-dmg.sh --configuration release --arch universal --version 0.1.14
@@ -86,12 +108,12 @@ ls dist/release/cursor-motion/CursorMotion-0.1.14.dmg
 
 如果当前 checkout 里已经有和目标版本一致的 `dist/Open Computer Use.app`，也可以临时加 `--skip-build` 跳过重复构建；但在干净 checkout 里不要默认加这个参数，否则 staging 脚本会因为缺少 `dist/Open Computer Use.app` 而失败。
 
-### 3. 提交版本 bump
+### 4. 提交版本 bump
 
 - 用单独 commit 提交 release version bump。
 - commit message 要能直接看出这是 release 收口，而不是普通功能提交。
 
-### 4. 打 tag 并推送
+### 5. 打 tag 并推送
 
 当前约定用 `vX.Y.Z`：
 
@@ -106,7 +128,7 @@ tag push 后，`.github/workflows/release.yml` 会自动做两件事：
 - 发布 npm 包。
 - 构建 `CursorMotion-0.1.14.dmg`，并创建或更新同名 tag 的 GitHub Release asset。
 
-### 5. 检查 GitHub Release notes
+### 6. 检查 GitHub Release notes
 
 每次 tag push 后都要检查 GitHub Release 页面，不要只确认 workflow 绿了：
 
@@ -114,14 +136,13 @@ tag push 后，`.github/workflows/release.yml` 会自动做两件事：
 gh release view v0.1.14 --json body,url
 ```
 
-当前 workflow 已经在新建 release 时使用 `--generate-notes`，所以如果两次 tag 之间有 merged PR，GitHub 会自动生成 `What's Changed` 和 `New Contributors`。如果这段区间只有 direct commits，自动 notes 可能只剩 `Full Changelog`，这时 release agent 必须根据 `docs/releases/feature-release-notes.md`、`git log <previous-tag>..vX.Y.Z --oneline` 和本轮 history 手动补一段简短的 `What's Changed`，再用 `gh release edit` 更新正文。
+workflow 会使用 `docs/releases/github/<tag>.md` 创建新 Release；如果 Release 已经存在，则在覆盖上传 DMG 后用同一文件更新正文。GitHub 自动生成 notes 不再是正文来源，因此 PR 标题使用中文也不会改变公开 Release 的语言。
 
 最低要求：
 
-- release body 不能只有 `Full Changelog`。
-- `What's Changed` 至少列出本次用户可感知的 1-3 个变化。
+- release body 必须与仓库里的目标 notes 文件一致。
+- `What's Changed` 必须列出本次用户可感知的 1-3 个英文变化。
 - 保留 `Full Changelog` 链接。
-- 如果 GitHub 自动生成了 `New Contributors`，保留它；不要为了统一格式删掉。
 
 ## Release 失败时怎么查
 
@@ -134,6 +155,9 @@ gh run view -R iFurySt/open-codex-computer-use <run-id> --log-failed
 
 ### 2. 重点看哪一类错误
 
+- `release-metadata` 失败
+  - 先本地运行 `node ./scripts/validate-github-release-notes.mjs --tag <tag>`。
+  - 检查 `docs/releases/github/<tag>.md` 是否存在、manifest 版本是否匹配、正文是否包含 CJK，以及 Full Changelog 是否指向当前 tag。
 - `npm error 403 ... You cannot publish over the previously published versions`
   - 通常不是 token 权限问题，而是 staging 包版本仍然是旧版本。
   - 先回头检查 `plugin.json` 的 `version`，再检查 staging 包实际产出的 `package.json`。
@@ -180,6 +204,7 @@ git push origin :refs/tags/v0.1.14
 每次 release 都至少同步这三类文档：
 
 - `docs/releases/feature-release-notes.md`
+- `docs/releases/github/vX.Y.Z.md`
 - `docs/histories/` 对应 release history
 - 如果 release 流程本身有变化，这份 `docs/releases/RELEASE_GUIDE.md`
 
