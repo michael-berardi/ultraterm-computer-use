@@ -1,0 +1,4 @@
+interface:
+  display_name: "UltraTerm Computer Use"
+  short_description: "Guide agents using UltraTerm Computer Use"
+  default_prompt: "Use $ultraterm-computer-use to operate desktop apps through UltraTerm Computer Use."

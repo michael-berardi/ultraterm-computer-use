@@ -1,0 +1,4 @@
+[[allowlists]]
+description = "Public signing key in the original upstream research commit"
+commits = ["69b7960573d6d4557a29ac6f907ef35c9d0484f1"]
+paths = ['''docs/references/codex-computer-use-reverse-engineering/packaging-and-lifecycle-integration\.md''']

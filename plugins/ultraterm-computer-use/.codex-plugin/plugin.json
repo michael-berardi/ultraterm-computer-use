@@ -1,0 +1,46 @@
+{
+  "name": "ultraterm-computer-use",
+  "version": "0.5.0",
+  "description": "Open-source cross-platform Computer Use MCP server packaged as a Codex plugin.",
+  "author": {
+    "name": "Implose Cybernetics",
+    "url": "https://implosecybernetics.com"
+  },
+  "homepage": "https://github.com/michael-berardi/ultraterm-computer-use",
+  "repository": "https://github.com/michael-berardi/ultraterm-computer-use",
+  "license": "MIT",
+  "keywords": [
+    "computer-use",
+    "macos",
+    "linux",
+    "windows",
+    "automation",
+    "mcp",
+    "codex"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "UltraTerm Computer Use",
+    "shortDescription": "Local desktop control for MCP-capable agents",
+    "longDescription": "UltraTerm Computer Use exposes nine desktop-control tools through a local macOS app or native Linux and Windows runtimes. It prefers accessibility actions before fallback input and keeps prompts and screenshots on the machine.",
+    "developerName": "Implose Cybernetics",
+    "category": "Productivity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://implosecybernetics.com/projects/ultraterm-computer-use/",
+    "privacyPolicyURL": "https://github.com/michael-berardi/ultraterm-computer-use/blob/main/SECURITY.md",
+    "termsOfServiceURL": "https://github.com/michael-berardi/ultraterm-computer-use/blob/main/LICENSE",
+    "defaultPrompt": [
+      "Inspect the current UI state without stealing focus when possible",
+      "Use semantic controls before moving my real pointer",
+      "Drive the fixture app and verify the nine computer-use tools"
+    ],
+    "brandColor": "#0E7490",
+    "composerIcon": "./assets/ultraterm-computer-use-small.svg",
+    "logo": "./assets/ultraterm-computer-use.svg",
+    "screenshots": []
+  }
+}

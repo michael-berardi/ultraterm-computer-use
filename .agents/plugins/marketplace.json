@@ -1,14 +1,14 @@
 {
-  "name": "open-computer-use-local",
+  "name": "ultraterm-computer-use",
   "interface": {
-    "displayName": "Open Computer Use Local"
+    "displayName": "UltraTerm Computer Use"
   },
   "plugins": [
     {
-      "name": "open-computer-use",
+      "name": "ultraterm-computer-use",
       "source": {
         "source": "local",
-        "path": "./plugins/open-computer-use"
+        "path": "./plugins/ultraterm-computer-use"
       },
       "policy": {
         "installation": "AVAILABLE",

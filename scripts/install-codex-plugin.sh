@@ -6,13 +6,13 @@ repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 config_helper="${repo_root}/scripts/install-config-helper.mjs"
 codex_home="${CODEX_HOME:-${HOME}/.codex}"
 config_path="${codex_home}/config.toml"
-marketplace_name="open-computer-use-local"
-plugin_name="open-computer-use"
+marketplace_name="ultraterm-computer-use-local"
+plugin_name="ultraterm-computer-use"
 plugin_source_root="${repo_root}/plugins/${plugin_name}"
 plugin_manifest="${plugin_source_root}/.codex-plugin/plugin.json"
-macos_build_script="${repo_root}/scripts/build-open-computer-use-app.sh"
-linux_build_script="${repo_root}/scripts/build-open-computer-use-linux.sh"
-windows_build_script="${repo_root}/scripts/build-open-computer-use-windows.sh"
+macos_build_script="${repo_root}/scripts/build-ultraterm-computer-use-app.sh"
+linux_build_script="${repo_root}/scripts/build-ultraterm-computer-use-linux.sh"
+windows_build_script="${repo_root}/scripts/build-ultraterm-computer-use-windows.sh"
 configuration="debug"
 rebuild="false"
 
@@ -32,9 +32,9 @@ resolve_app_bundle() {
   local -a candidates
 
   if [[ "${configuration}" == "release" ]]; then
-    candidates=("Open Computer Use.app")
+    candidates=("UltraTerm Computer Use.app")
   else
-    candidates=("Open Computer Use (Dev).app" "Open Computer Use.app")
+    candidates=("UltraTerm Computer Use (Dev).app" "UltraTerm Computer Use.app")
   fi
 
   for bundle_name in "${candidates[@]}"; do
@@ -59,12 +59,12 @@ resolve_native_binary() {
   case "${platform}" in
     linux)
       if [[ -n "${go_arch}" ]]; then
-        candidates+=("${repo_root}/dist/linux/${go_arch}/open-computer-use")
+        candidates+=("${repo_root}/dist/linux/${go_arch}/ultraterm-computer-use")
       fi
       ;;
     win32)
       if [[ -n "${go_arch}" ]]; then
-        candidates+=("${repo_root}/dist/windows/${go_arch}/open-computer-use.exe")
+        candidates+=("${repo_root}/dist/windows/${go_arch}/ultraterm-computer-use.exe")
       fi
       ;;
   esac
@@ -108,12 +108,12 @@ payload_path=""
 case "${platform}" in
   darwin)
     payload_path="$(resolve_app_bundle || true)"
-    app_binary="${payload_path:+${payload_path}/Contents/MacOS/OpenComputerUse}"
+    app_binary="${payload_path:+${payload_path}/Contents/MacOS/UltraTermComputerUse}"
     if [[ "${rebuild}" == "true" || -z "${app_binary}" || ! -x "${app_binary}" ]]; then
       if [[ -x "${macos_build_script}" ]]; then
         "${macos_build_script}" "${configuration}"
         payload_path="$(resolve_app_bundle || true)"
-        app_binary="${payload_path:+${payload_path}/Contents/MacOS/OpenComputerUse}"
+        app_binary="${payload_path:+${payload_path}/Contents/MacOS/UltraTermComputerUse}"
       else
         echo "Missing runnable app bundle at ${app_binary} and no local build script is available." >&2
         exit 1

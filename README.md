@@ -1,177 +1,119 @@
-# open-computer-use
+# UltraTerm Computer Use
 
-[![English](https://img.shields.io/badge/English-Click-yellow)](./README.md)
-[![简体中文](https://img.shields.io/badge/简体中文-点击查看-orange)](./README.zh-CN.md)
-[![Release](https://img.shields.io/github/v/release/iFurySt/open-codex-computer-use)](https://github.com/iFurySt/open-codex-computer-use/releases)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/iFurySt/open-codex-computer-use)
-<a href="https://llmapis.com?source=https%3A%2F%2Fgithub.com%2FiFurySt%2Fopen-codex-computer-use" target="_blank"><img src="https://llmapis.com/api/badge/iFurySt/open-codex-computer-use" alt="LLMAPIS" width="20" /></a>
+<p align="center">
+  <img src="plugins/ultraterm-computer-use/assets/ultraterm-computer-use.svg" alt="UltraTerm Computer Use" width="180" />
+</p>
 
-> [!TIP]
-> Interested in Browser Use? Check out [open-browser-use](https://github.com/iFurySt/open-codex-browser-use).
+<p align="center">
+  <strong>Local desktop automation for MCP-capable agents.</strong><br />
+  <a href="#install">Install</a> ·
+  <a href="#configure-an-mcp-client">MCP setup</a> ·
+  <a href="#commands">CLI</a> ·
+  <a href="SECURITY.md">Security</a>
+</p>
 
----
+UltraTerm Computer Use is an MIT-licensed Computer Use runtime for macOS, Linux, and Windows. Screenshots, accessibility trees, and input actions stay on the machine. The runtime works with Codex, Claude, Gemini, OpenCode, and other MCP-capable agents.
 
-`open-computer-use` is an open-source `Computer Use` service wrapped as `MCP`. Any AI agent or MCP client can use it to run Computer Use on macOS, Linux, and Windows.
+## Supported platforms
 
-This project was inspired by OpenAI's [Codex Computer Use](https://openai.com/index/codex-for-almost-everything/). It showed that non-intrusive CUA can be built on top of Accessibility, so I decided to build an open-source version.
+| Platform | Requirements |
+| --- | --- |
+| macOS 14+ | Logged-in desktop; Accessibility and Screen Recording permissions |
+| Linux | Logged-in graphical desktop; AT-SPI2 and D-Bus accessibility |
+| Windows | Logged-in desktop; UI Automation |
 
-I started this repo with my [harness template](https://github.com/iFurySt/harness-template), a template for quickly spinning up AI-first projects. It has been one of our most useful workflows lately, especially for nearly 100% AI-generated projects. I also wrote [a post](https://www.ifuryst.com/blog/2026/speedrunning-the-ai-era/) about the methodology behind it.
+All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, and `set_value`.
 
-## Demos
+## Install
 
-### Codex App and Codex CLI
-
-[![Open Computer Use custom demo cover](./docs/generated/readme-assets/open-computer-use-demo-cover.png)](https://youtu.be/2s6aVpGiwaQ)
-
-<sub><em>`open-computer-use` used as Computer Use in Codex App and Codex CLI, matching the official experience.</em></sub>
-
-### Gemini CLI
-
-https://github.com/user-attachments/assets/eacb3b15-f939-46c7-b3b3-6f876977a58d
-
-<sub><em>Gemini CLI connects to `open-computer-use` through MCP and runs full Computer Use actions.</em></sub>
-
-### Linux
-
-https://github.com/user-attachments/assets/e036b1c8-2200-4896-abd4-19225915cf66
-
-<sub><em>`open-computer-use` running on Linux.</em></sub>
-
-## Quick Start
+### npm — macOS, Linux, and Windows
 
 ```bash
-npm i -g open-computer-use
+npm install --global ultraterm-computer-use
+ultraterm-computer-use --version
 ```
 
-The npm package also exposes `ocu` as the short CLI alias.
+The package includes native arm64 and x86-64 runtimes and selects the current platform at launch.
 
-> [!IMPORTANT]
-> The macOS runtime requires macOS 14.0 or later.
-
-**On macOS, run it once and grant `Accessibility` and `Screen Recording`. Windows and Linux do not need this step.**
+### Signed macOS installer
 
 ```bash
-open-computer-use
-# or
-ocu
+curl -fsSLo /tmp/install-ultraterm-computer-use.sh \
+  https://raw.githubusercontent.com/michael-berardi/ultraterm-computer-use/main/scripts/install-ultraterm-computer-use.sh
+bash /tmp/install-ultraterm-computer-use.sh
+rm /tmp/install-ultraterm-computer-use.sh
 ```
 
-Before using it, install it into your agent:
+The installer verifies the SHA-256 checksum, Developer ID signature, notarization, bundle identifier, and designated requirement before installing `/Applications/UltraTerm Computer Use.app`.
+
+For a local package:
 
 ```bash
-# Install into Codex by writing to ~/.codex/config.toml
-open-computer-use install-codex-mcp
+./scripts/install-ultraterm-computer-use.sh --local path/to/UltraTerm-Computer-Use.pkg
 ```
 
-Or add it to your own client manually:
+## Configure an MCP client
 
 ```json
 {
   "mcpServers": {
-    "open-computer-use": {
-      "command": "open-computer-use",
+    "ultraterm-computer-use": {
+      "command": "ultraterm-computer-use",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-### Skill
-
-Install the skill directly:
+Installer helpers are included for common clients:
 
 ```bash
-# Install for Codex
-npx skills add iFurySt/open-codex-computer-use -g -a codex --skill open-computer-use -y
-npx skills ls -g -a codex | rg 'open-computer-use'
+ultraterm-computer-use install-codex-mcp
+ultraterm-computer-use install-claude-mcp
+ultraterm-computer-use install-gemini-mcp
+ultraterm-computer-use install-opencode-mcp
 ```
 
-Install for Claude Code:
+On macOS, run `ultraterm-computer-use doctor` once and approve the requested permissions. Opening System Settings does not count as a grant; the runtime reads the live OS permission state.
+
+## Commands
 
 ```bash
-npx skills add iFurySt/open-codex-computer-use -g -a claude-code --skill open-computer-use -y
+ultraterm-computer-use --help
+ultraterm-computer-use doctor
+ultraterm-computer-use list-apps
+ultraterm-computer-use tools
+ultraterm-computer-use snapshot TextEdit
+ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
+ultraterm-computer-use mcp
 ```
 
-Update an existing global install, including the Codex install created above:
+Capture fresh state before using an element index. Prefer semantic actions over coordinate input. Coordinate actions may move the system pointer or require the target app to be visible, depending on the platform.
+
+## UltraTerm Computer Use Pro
+
+The open-source edition includes the complete standard Computer Use tool surface. [UltraTerm Computer Use Pro](https://implosecybernetics.com/software/?product=ultraterm-computer-use) adds advanced visual capture and recording, multi-step automation sessions, native UltraTerm integration, and the authenticated Implose release channel. A Pro license is $15. UltraTerm + Computer Use Pro is $60; the complete UltraTerm, Computer Use Pro, and UltraVox Pro bundle is $80.
+
+The open-source edition is named **UltraTerm Computer Use**. It is not labeled “Light.”
+
+## Safety and privacy
+
+Computer Use acts in the user's real desktop session and does not bypass OS permissions. Ask before sending, deleting, purchasing, approving, uploading, or making another externally visible change. Do not inspect password managers or unrelated private content.
+
+Telemetry is opt-in. Before consent, the runtime creates no telemetry identifier and sends no telemetry request. When enabled, telemetry excludes prompts, screenshots, coordinates, application names, window names, arguments, paths, command text, user content, secrets, and hardware identifiers. See [`SECURITY.md`](./SECURITY.md).
+
+## Build from source
 
 ```bash
-npx skills update open-computer-use -g -y
+swift build
+swift test
+./scripts/build-ultraterm-computer-use-app.sh debug
+./scripts/build-ultraterm-computer-use-linux.sh --configuration release --arch arm64
+./scripts/build-ultraterm-computer-use-windows.sh --configuration release --arch amd64
 ```
 
-You can also manually download and install the
-[`open-computer-use` skill](./skills/open-computer-use).
+Swift 6.2 is required for the macOS app. Go 1.22+ builds the Linux and Windows runtimes.
 
-## More
+## License and attribution
 
-Besides the MCP JSON config above, you can also use the built-in commands:
-
-```bash
-# Install into Codex by writing to ~/.codex/config.toml
-open-computer-use install-codex-mcp
-ocu install-codex-mcp
-
-# Install as a Codex plugin, mainly for Codex App
-open-computer-use install-codex-plugin
-
-# Install into Claude Code by writing to ~/.claude.json
-open-computer-use install-claude-mcp
-
-# Install into Gemini CLI for the current project by writing to ./.gemini/settings.json
-open-computer-use install-gemini-mcp
-
-# Install into Gemini CLI user config instead
-open-computer-use install-gemini-mcp --scope user
-
-# Install into opencode by writing to ~/.config/opencode/opencode.json (or the active config file)
-open-computer-use install-opencode-mcp
-
-# Call a single Computer Use tool and print the MCP-style JSON result
-open-computer-use call list_apps
-ocu call list_apps
-open-computer-use call get_app_state --args '{"app":"TextEdit"}'
-
-# Run a sequence in one process so element_index state can be reused
-# Sequence runs sleep 1s between successful operations by default
-open-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
-open-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
-
-# Check permissions; onboarding only opens when something is missing
-open-computer-use doctor
-
-# Run local validation from a source checkout
-make smoke
-OPEN_COMPUTER_USE_STRESS_LOOPS=20 make stress
-make agent-smoke
-make agent-smoke SCENARIO=fixture-full
-node ./scripts/run-agent-smoke-tests.mjs --agents=claude,codex --command=open-computer-use
-node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture --agents=claude,codex --command=open-computer-use
-node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture-full --agents=claude,codex --command=open-computer-use
-OPEN_COMPUTER_USE_HERMES_PROVIDER=anthropic OPEN_COMPUTER_USE_HERMES_MODEL=claude-opus-4-20250514 make agent-smoke AGENTS=hermes SCENARIO=fixture-full
-node ./scripts/run-agent-smoke-tests.mjs --agents=hermes --hermes-provider=anthropic --hermes-model=claude-opus-4-20250514
-node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture --agents=hermes --hermes-provider=anthropic --hermes-model=claude-opus-4-20250514
-node ./scripts/run-agent-smoke-tests.mjs --scenario=fixture-full --agents=hermes --hermes-provider=anthropic --hermes-model=claude-opus-4-20250514 --hermes-max-turns=12
-
-# Show help
-open-computer-use -h
-ocu -h
-```
-
-## Cursor Motion
-
-Cursor Motion is an open-source cursor motion system for macOS, based on public information shared by members of the Software.Inc team. You can download the app from the [Releases page](https://github.com/iFurySt/open-codex-computer-use/releases).
-
-[![Cursor Motion custom demo cover](./docs/generated/readme-assets/cursor-motion-demo-cover.png)](https://youtu.be/KRUq5GUHv1Q)
-
-## Star History
-
-<a href="https://www.star-history.com/?repos=iFurySt%2Fopen-codex-computer-use&type=date&legend=top-left">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&theme=dark&legend=top-left" />
-    <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
-    <img alt="Star History Chart for open-computer-use" src="https://api.star-history.com/chart?repos=ifuryst/open-codex-computer-use&type=date&legend=top-left" />
-  </picture>
-</a>
-
-## License
-
-[MIT](./LICENSE). Third-party attribution is listed in [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).
+UltraTerm Computer Use is released under the [MIT License](./LICENSE). It began from [`iFurySt/open-codex-computer-use`](https://github.com/iFurySt/open-codex-computer-use); [`THIRD_PARTY_NOTICES.md`](./THIRD_PARTY_NOTICES.md) preserves upstream and third-party attribution.
