@@ -1,46 +1,52 @@
 #!/usr/bin/env bash
-
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-
 required_files=(
   ".gitignore"
-  ".editorconfig"
   ".gitattributes"
-  "CODEOWNERS"
+  "README.md"
   "CONTRIBUTING.md"
   "SECURITY.md"
-  ".github/PULL_REQUEST_TEMPLATE.md"
-  ".github/dependency-review-config.yml"
-  ".github/ISSUE_TEMPLATE/bug_report.yml"
-  ".github/ISSUE_TEMPLATE/feature_request.yml"
-  ".github/ISSUE_TEMPLATE/config.yml"
-  ".github/workflows/ci.yml"
-  ".github/workflows/docs-check.yml"
-  ".github/workflows/repo-hygiene.yml"
-  ".github/workflows/release.yml"
-  ".github/workflows/supply-chain-security.yml"
-  ".markdownlint.json"
-  "scripts/check-action-pinning.sh"
+  "LICENSE"
+  "plugins/ultraterm-computer-use/.codex-plugin/plugin.json"
+  "plugins/ultraterm-computer-use/.mcp.json"
 )
 
 failed=0
-
 for path in "${required_files[@]}"; do
   if [[ ! -f "${repo_root}/${path}" ]]; then
-    echo "缺少必要文件: ${path}"
+    echo "Missing required repository file: ${path}"
     failed=1
   fi
 done
 
-if grep -q $'\r' "${repo_root}/README.md"; then
-  echo "README.md 含有 CRLF 换行"
+if [[ -d "${repo_root}/.github/workflows" ]]; then
+  echo "Remove first-party GitHub Actions workflows"
   failed=1
 fi
 
-if ! grep -q "make check-docs" "${repo_root}/CONTRIBUTING.md"; then
-  echo "CONTRIBUTING.md 应明确提到 make check-docs"
+for path in \
+  "${repo_root}/docs/histories" \
+  "${repo_root}/docs/exec-plans" \
+  "${repo_root}/docs/references" \
+  "${repo_root}/docs/generated" \
+  "${repo_root}/artifacts"; do
+  if [[ -e "${path}" ]]; then
+    echo "Generated or internal directory remains: ${path#"${repo_root}/"}"
+    failed=1
+  fi
+done
+
+if find "${repo_root}" -type f \( -name '*.env' -o -name '*.env.*' \) -not -path '*/.git/*' | grep -q .; then
+  echo "Environment files must not be committed"
+  failed=1
+fi
+
+if grep -R -n -E '/Users/|/home/|/private/tmp/|~/.codex|T63VT9UAY2|analytics\.libertydesign' \
+  "${repo_root}/README.md" "${repo_root}/CONTRIBUTING.md" "${repo_root}/SECURITY.md" "${repo_root}/docs" \
+  >/dev/null 2>&1; then
+  echo "Public documentation contains a machine-specific path or private release detail"
   failed=1
 fi
 
@@ -48,4 +54,4 @@ if [[ "${failed}" -ne 0 ]]; then
   exit 1
 fi
 
-echo "仓库基础卫生检查通过"
+echo "Repository hygiene checks passed"

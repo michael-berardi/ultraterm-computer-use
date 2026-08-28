@@ -4,15 +4,15 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 config_helper="${script_dir}/install-config-helper.mjs"
-server_name="open-computer-use"
-command_name="open-computer-use"
+server_name="ultraterm-computer-use"
+command_name="ultraterm-computer-use"
 scope="project"
 
 usage() {
   cat <<'EOF'
 Usage: ./scripts/install-gemini-mcp.sh [--scope project|user]
 
-Install the open-computer-use stdio MCP entry into Gemini CLI config.
+Install the ultraterm-computer-use stdio MCP entry into Gemini CLI config.
 Defaults to project scope, which writes ./.gemini/settings.json for the current project.
 Set GEMINI_CONFIG_PATH to override the target file directly.
 EOF

@@ -1,12 +1,22 @@
 {
-  "name": "open-computer-use-repo-tools",
+  "name": "ultraterm-computer-use",
+  "version": "0.5.0",
+  "description": "Build and package the open-source UltraTerm Computer Use runtimes.",
   "private": true,
+  "license": "MIT",
+  "homepage": "https://github.com/michael-berardi/ultraterm-computer-use#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/michael-berardi/ultraterm-computer-use.git"
+  },
+  "bugs": {
+    "url": "https://github.com/michael-berardi/ultraterm-computer-use/issues"
+  },
   "type": "module",
   "scripts": {
     "npm:build": "node ./scripts/npm/build-packages.mjs",
     "npm:pack": "./scripts/release-package.sh",
     "npm:publish": "node ./scripts/npm/publish-packages.mjs",
-    "package:skill": "./scripts/package-skill.sh",
-    "release:notes:validate": "node ./scripts/validate-github-release-notes.mjs"
+    "package:skill": "./scripts/package-skill.sh"
   }
 }

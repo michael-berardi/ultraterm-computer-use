@@ -3,78 +3,52 @@
 import PackageDescription
 
 let package = Package(
-    name: "OpenComputerUse",
+    name: "UltraTermComputerUse",
     platforms: [
         .macOS(.v14),
     ],
     products: [
         .library(
-            name: "OpenComputerUseKit",
-            targets: ["OpenComputerUseKit"]
+            name: "UltraTermComputerUseKit",
+            targets: ["UltraTermComputerUseKit"]
         ),
         .executable(
-            name: "OpenComputerUse",
-            targets: ["OpenComputerUse"]
+            name: "UltraTermComputerUse",
+            targets: ["UltraTermComputerUse"]
         ),
         .executable(
-            name: "OpenComputerUseFixture",
-            targets: ["OpenComputerUseFixture"]
+            name: "UltraTermComputerUseFixture",
+            targets: ["UltraTermComputerUseFixture"]
         ),
         .executable(
-            name: "OpenComputerUseSmokeSuite",
-            targets: ["OpenComputerUseSmokeSuite"]
-        ),
-        .executable(
-            name: "CursorMotion",
-            targets: ["CursorMotion"]
-        ),
-        .executable(
-            name: "StandaloneCursor",
-            targets: ["StandaloneCursor"]
+            name: "UltraTermComputerUseSmokeSuite",
+            targets: ["UltraTermComputerUseSmokeSuite"]
         ),
     ],
     targets: [
         .target(
-            name: "OpenComputerUseKit",
-            path: "packages/OpenComputerUseKit/Sources/OpenComputerUseKit"
+            name: "UltraTermComputerUseKit",
+            path: "packages/UltraTermComputerUseKit/Sources/UltraTermComputerUseKit"
         ),
         .executableTarget(
-            name: "OpenComputerUse",
-            dependencies: ["OpenComputerUseKit"],
-            path: "apps/OpenComputerUse/Sources/OpenComputerUse"
+            name: "UltraTermComputerUse",
+            dependencies: ["UltraTermComputerUseKit"],
+            path: "apps/UltraTermComputerUse/Sources/UltraTermComputerUse"
         ),
         .executableTarget(
-            name: "OpenComputerUseFixture",
-            dependencies: ["OpenComputerUseKit"],
-            path: "apps/OpenComputerUseFixture/Sources/OpenComputerUseFixture"
+            name: "UltraTermComputerUseFixture",
+            dependencies: ["UltraTermComputerUseKit"],
+            path: "apps/UltraTermComputerUseFixture/Sources/UltraTermComputerUseFixture"
         ),
         .executableTarget(
-            name: "OpenComputerUseSmokeSuite",
-            dependencies: ["OpenComputerUseKit"],
-            path: "apps/OpenComputerUseSmokeSuite/Sources/OpenComputerUseSmokeSuite"
-        ),
-        .executableTarget(
-            name: "CursorMotion",
-            path: "experiments/CursorMotion/Sources/CursorMotion"
-        ),
-        .target(
-            name: "StandaloneCursorSupport",
-            path: "experiments/StandaloneCursor/Sources/StandaloneCursorSupport"
-        ),
-        .executableTarget(
-            name: "StandaloneCursor",
-            dependencies: ["StandaloneCursorSupport"],
-            path: "experiments/StandaloneCursor/Sources/StandaloneCursor"
+            name: "UltraTermComputerUseSmokeSuite",
+            dependencies: ["UltraTermComputerUseKit"],
+            path: "apps/UltraTermComputerUseSmokeSuite/Sources/UltraTermComputerUseSmokeSuite"
         ),
         .testTarget(
-            name: "OpenComputerUseKitTests",
-            dependencies: ["OpenComputerUseKit"],
-            path: "packages/OpenComputerUseKit/Tests/OpenComputerUseKitTests"
-        ),
-        .testTarget(
-            name: "StandaloneCursorSupportTests",
-            dependencies: ["StandaloneCursorSupport"],
-            path: "experiments/StandaloneCursor/Tests/StandaloneCursorSupportTests"
+            name: "UltraTermComputerUseKitTests",
+            dependencies: ["UltraTermComputerUseKit"],
+            path: "packages/UltraTermComputerUseKit/Tests/UltraTermComputerUseKitTests"
         ),
     ]
 )

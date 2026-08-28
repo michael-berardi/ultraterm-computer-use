@@ -437,7 +437,7 @@ function installCodexPluginConfig(configPath, repoRoot, marketplaceName, pluginN
     {
       removeHeaders: [
         'mcp_servers."open-codex-computer-use"',
-        'mcp_servers."open-computer-use"',
+        'mcp_servers."ultraterm-computer-use"',
       ],
       upserts: [
         {

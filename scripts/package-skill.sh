@@ -3,7 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-skill_name="open-computer-use"
+skill_name="ultraterm-computer-use"
 skill_dir="${repo_root}/skills/${skill_name}"
 dist_dir="${repo_root}/dist/skills"
 zip_path="${dist_dir}/${skill_name}-skill.zip"
@@ -40,8 +40,8 @@ const errors = [];
 if (!content.startsWith("---\n")) {
   errors.push("SKILL.md must start with YAML frontmatter");
 }
-if (!/^name:\s*open-computer-use\s*$/m.test(content)) {
-  errors.push("SKILL.md frontmatter must include name: open-computer-use");
+if (!/^name:\s*ultraterm-computer-use\s*$/m.test(content)) {
+  errors.push("SKILL.md frontmatter must include name: ultraterm-computer-use");
 }
 if (!/^description:\s*\S/m.test(content)) {
   errors.push("SKILL.md frontmatter must include a non-empty description");
@@ -75,8 +75,8 @@ const zip = fs.readFileSync(zipPath);
 const skill = fs.readFileSync(skillPath);
 
 const payload = {
-  name: "open-computer-use",
-  rootDirectory: "open-computer-use",
+  name: "ultraterm-computer-use",
+  rootDirectory: "ultraterm-computer-use",
   artifacts: {
     zip: zipPath,
     skill: skillPath
@@ -89,14 +89,14 @@ const payload = {
 };
 
 if (payload.sha256.zip !== payload.sha256.skill) {
-  throw new Error("open-computer-use-skill.zip and open-computer-use.skill must contain identical bytes");
+  throw new Error("ultraterm-computer-use-skill.zip and ultraterm-computer-use.skill must contain identical bytes");
 }
 
 fs.writeFileSync(manifestPath, `${JSON.stringify(payload, null, 2)}\n`);
 NODE
 
 if ! cmp -s "${zip_path}" "${skill_path}"; then
-  echo "open-computer-use-skill.zip and open-computer-use.skill differ" >&2
+  echo "ultraterm-computer-use-skill.zip and ultraterm-computer-use.skill differ" >&2
   exit 1
 fi
 
