@@ -12,6 +12,13 @@
   <a href="SECURITY.md">Security</a>
 </p>
 
+<p align="center">
+  <a href="https://github.com/michael-berardi/ultraterm-computer-use/releases/latest"><img src="https://img.shields.io/github/v/release/michael-berardi/ultraterm-computer-use?label=release" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/michael-berardi/ultraterm-computer-use" alt="MIT License" /></a>
+  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="macOS, Linux and Windows" />
+  <img src="https://img.shields.io/badge/MCP-9%20tools-8A2BE2" alt="Nine MCP tools" />
+</p>
+
 UltraTerm Computer Use is an MIT-licensed Computer Use runtime for macOS, Linux, and Windows. Screenshots, accessibility trees, and input actions stay on the machine. The runtime works with Codex, Claude, Gemini, OpenCode, and other MCP-capable agents.
 
 ## Supported platforms
@@ -95,8 +102,6 @@ Capture fresh state before using an element index. Prefer semantic actions over 
 ## UltraTerm Computer Use Pro
 
 The open-source edition includes the complete standard Computer Use tool surface. [UltraTerm Computer Use Pro](https://implosecybernetics.com/software/?product=ultraterm-computer-use) adds advanced visual capture and recording, multi-step automation sessions, native UltraTerm integration, and the authenticated Implose release channel. A Pro license is $15. UltraTerm + Computer Use Pro is $60; the complete UltraTerm, Computer Use Pro, and UltraVox Pro bundle is $80.
-
-The open-source edition is named **UltraTerm Computer Use**. It is not labeled “Light.”
 
 ## Safety and privacy
 
