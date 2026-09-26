@@ -28,12 +28,14 @@ All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`,
 
 ### npm — macOS, Linux, and Windows
 
+Install the release package with npm:
+
 ```bash
-npm install --global ultraterm-computer-use
+npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.5.0/ultraterm-computer-use-0.5.0.tgz
 ultraterm-computer-use --version
 ```
 
-The package includes native arm64 and x86-64 runtimes and selects the current platform at launch.
+The package includes native arm64 and x86-64 runtimes and selects the current platform at launch. Each release lists a `.sha256` checksum next to the package.
 
 ### Signed macOS installer
 
