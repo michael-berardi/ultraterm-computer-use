@@ -5,7 +5,11 @@ import UltraTermComputerUseKit
 
 private let appAgentCommand = "__ultraterm-computer-use-app-agent"
 private let appAgentDisableEnvironmentKey = "ULTRATERM_COMPUTER_USE_DISABLE_APP_AGENT_PROXY"
-private let appAgentProcessStartDate = Date()
+// The kernel's start time, not first-use time: Swift globals initialize lazily,
+// which made an agent launched before an update look newer than the update.
+private let appAgentProcessStartDate = Date(
+    timeIntervalSince1970: AppAgentProcess.startTime(getpid()) ?? Date().timeIntervalSince1970
+)
 
 enum MacOSAppAgentProxy {
     static func isAgentInvocation(arguments: [String]) -> Bool {
@@ -66,10 +70,11 @@ enum MacOSAppAgentProxy {
     }
 
     private static func defaultSocketPath() -> String {
-        FileManager.default.temporaryDirectory
-            .appendingPathComponent("ultraterm-computer-use-agent.sock")
-            .standardizedFileURL
-            .path
+        appAgentSocketPath(
+            temporaryDirectory: FileManager.default.temporaryDirectory,
+            bundleIdentifier: Bundle.main.bundleIdentifier,
+            environment: ProcessInfo.processInfo.environment
+        )
     }
 
     @MainActor
@@ -78,17 +83,56 @@ enum MacOSAppAgentProxy {
             throw UltraTermComputerUseCLIError(message: "Unable to locate UltraTerm Computer Use.app for app-scoped macOS permissions.")
         }
 
-        if let client = AppAgentSocketClient.connect(path: socketPath) {
-            if (try? client.isCurrentAgent(for: appURL)) == true {
-                return client
+        // Serialize probe/retire/unlink/launch/wait across every launcher, so two
+        // concurrent invocations cannot both start an agent.
+        return try withAgentStartupLock(socketPath: socketPath) {
+            let executablePath = Bundle.main.executableURL?.standardizedFileURL.path ?? ""
+            // A busy or slow agent is not a stale one: retry before replacing it.
+            let retryDeadline = Date().addingTimeInterval(10)
+            var outdated = false
+            repeat {
+                if let client = AppAgentSocketClient.connect(path: socketPath) {
+                    client.setControlTimeout(seconds: 5)
+                    switch try? client.isCurrentAgent(for: appURL) {
+                    case true?:
+                        client.setControlTimeout(seconds: 0)
+                        return client
+                    case false?:
+                        outdated = true
+                        _ = try? client.request(["kind": "terminate"])
+                    case nil:
+                        break
+                    }
+                }
+                if outdated { break }
+                // A missing socket file cannot come back: its owner is unreachable.
+                if AppAgentFileIdentity.of(path: socketPath) == nil { break }
+                if AppAgentProcess.liveOwner(socketPath: socketPath, executablePath: executablePath) == nil,
+                   !AppAgentSocketClient.probe(path: socketPath) {
+                    break
+                }
+                Thread.sleep(forTimeInterval: 0.25)
+            } while Date() < retryDeadline
+
+            // Never leave the previous agent running beside a new one.
+            if let owner = AppAgentProcess.liveOwner(socketPath: socketPath, executablePath: executablePath),
+               owner.pid != getpid() {
+                let reason = outdated ? "outdated" : "unreachable for 10 s"
+                let outcome = AppAgentProcess.retire(owner.pid)
+                appAgentLog("launcher retired agent \(owner.pid) (\(reason)): \(outcome)")
+                if AppAgentProcess.isAlive(owner.pid) {
+                    throw UltraTermComputerUseCLIError(message: "UltraTerm Computer Use.app agent \(owner.pid) is \(reason) and did not exit; not starting a second agent.")
+                }
+            } else if AppAgentSocketClient.probe(path: socketPath), !outdated {
+                throw UltraTermComputerUseCLIError(message: "An UltraTerm Computer Use.app agent owns \(socketPath) but is not answering; not starting a second agent.")
             }
-
-            _ = try? client.request(["kind": "terminate"])
             unlink(socketPath)
-        } else {
-            unlink(socketPath)
+            return try launchAgent(appURL: appURL, socketPath: socketPath)
         }
+    }
 
+    @MainActor
+    private static func launchAgent(appURL: URL, socketPath: String) throws -> AppAgentSocketClient {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.arguments = [appAgentCommand, socketPath]
         configuration.activates = false
@@ -105,6 +149,20 @@ enum MacOSAppAgentProxy {
         }
 
         throw UltraTermComputerUseCLIError(message: "Timed out waiting for UltraTerm Computer Use.app agent to start.")
+    }
+
+    private static func withAgentStartupLock<T>(socketPath: String, _ body: () throws -> T) throws -> T {
+        let lockPath = socketPath + ".startup.lock"
+        let lockFD = open(lockPath, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+        guard lockFD >= 0 else {
+            // The lock is a best-effort guard; never fail the command over it.
+            return try body()
+        }
+        defer { close(lockFD) }
+        // The agent never takes this lock, so waiting for it cannot deadlock.
+        flock(lockFD, LOCK_EX)
+        defer { flock(lockFD, LOCK_UN) }
+        return try body()
     }
 
     private static func proxyMCP(client: AppAgentSocketClient) throws {
@@ -171,7 +229,19 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         application.run()
     }
 
+    private var terminationSignal: DispatchSourceSignal?
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // SIGTERM (a launcher retiring this agent, or `kill`) cleans up like quit.
+        signal(SIGTERM, SIG_IGN)
+        let termination = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+        termination.setEventHandler {
+            appAgentLog("agent received SIGTERM")
+            NSApp.terminate(nil)
+        }
+        termination.resume()
+        terminationSignal = termination
+
         turnEndedObserver = DistributedNotificationCenter.default().addObserver(
             forName: ultraTermComputerUseTurnEndedNotificationName,
             object: nil,
@@ -183,11 +253,16 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
         }
 
         do {
-            let listener = try AppAgentSocketListener(path: socketPath)
+            let listener = try AppAgentSocketListener(path: socketPath) { _ in
+                DispatchQueue.main.async {
+                    NSApp.terminate(nil)
+                }
+            }
             self.listener = listener
             listener.start()
         } catch {
             writeAgentError(error)
+            appAgentLog("agent failed to start: \((error as? LocalizedError)?.errorDescription ?? String(describing: error))")
             NSApp.terminate(nil)
         }
     }
@@ -209,13 +284,38 @@ private final class MacOSAppAgentRuntime: NSObject, NSApplicationDelegate {
     }
 }
 
+private enum AppAgentConnections {
+    private static let lock = NSLock()
+    // Guarded by lock.
+    nonisolated(unsafe) private static var active = 0
+
+    static var count: Int {
+        lock.lock()
+        defer { lock.unlock() }
+        return active
+    }
+
+    static func started() { lock.lock(); active += 1; lock.unlock() }
+    static func finished() { lock.lock(); active -= 1; lock.unlock() }
+}
+
 private final class AppAgentSocketListener: @unchecked Sendable {
     private let path: String
+    private let pidPath: String
     private let socketFD: Int32
+    private var boundSocketIdentity: AppAgentFileIdentity?
     private var running = true
+    private var watchdog: DispatchSourceTimer?
+    private let onLostOwnership: @Sendable (String) -> Void
 
-    init(path: String) throws {
+    init(path: String, onLostOwnership: @escaping @Sendable (String) -> Void) throws {
         self.path = path
+        self.pidPath = AppAgentPidRecord.path(forSocket: path)
+        self.onLostOwnership = onLostOwnership
+        // Never replace a socket a live agent still owns: that orphaned it.
+        if AppAgentSocketClient.probe(path: path) {
+            throw UltraTermComputerUseCLIError(message: "Another UltraTerm Computer Use.app agent already owns the socket at \(path)")
+        }
         unlink(path)
 
         socketFD = socket(AF_UNIX, SOCK_STREAM, 0)
@@ -259,9 +359,65 @@ private final class AppAgentSocketListener: @unchecked Sendable {
             unlink(path)
             throw POSIXError(.init(rawValue: errno) ?? .EIO)
         }
+        boundSocketIdentity = AppAgentFileIdentity.of(path: path)
+        writePidRecord()
+    }
+
+    private var pidRecord: AppAgentPidRecord {
+        AppAgentPidRecord(pid: getpid(), startTime: appAgentProcessStartDate.timeIntervalSince1970)
+    }
+
+    private func writePidRecord() {
+        try? Data(pidRecord.encoded.utf8).write(to: URL(fileURLWithPath: pidPath), options: .atomic)
+        chmod(pidPath, mode_t(S_IRUSR | S_IWUSR))
+    }
+
+    private var ownsSocketPath: Bool {
+        appAgentLostOwnershipReason(
+            boundIdentity: boundSocketIdentity,
+            currentIdentity: AppAgentFileIdentity.of(path: path)
+        ) == nil
+    }
+
+    /// Every 5 s: exit once this agent no longer owns its socket path (after
+    /// its clients finish), restore a purged pid record, and refresh both files
+    /// hourly so the ~3-day `$TMPDIR` purge never removes them.
+    private func startWatchdog() {
+        let timer = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .utility))
+        var ticks = 0
+        var reportedWaiting = false
+        timer.schedule(deadline: .now() + 5, repeating: 5)
+        timer.setEventHandler { [weak self] in
+            guard let self, self.running else { return }
+            ticks += 1
+            if let reason = appAgentLostOwnershipReason(
+                boundIdentity: self.boundSocketIdentity,
+                currentIdentity: AppAgentFileIdentity.of(path: self.path)
+            ) {
+                let clients = AppAgentConnections.count
+                if clients == 0 {
+                    appAgentLog("agent exiting: \(reason)")
+                    self.onLostOwnership(reason)
+                } else if !reportedWaiting {
+                    reportedWaiting = true
+                    appAgentLog("agent lost its socket (\(reason)); exiting after \(clients) client(s) finish")
+                }
+                return
+            }
+            if AppAgentPidRecord.read(socketPath: self.path) != self.pidRecord {
+                self.writePidRecord()
+            }
+            if ticks % 720 == 0 {
+                touchAppAgentFiles([self.path, self.pidPath])
+            }
+        }
+        watchdog = timer
+        timer.resume()
     }
 
     func start() {
+        appAgentLog("agent listening on \(path)")
+        startWatchdog()
         Thread.detachNewThread {
             self.acceptLoop()
         }
@@ -269,8 +425,17 @@ private final class AppAgentSocketListener: @unchecked Sendable {
 
     func stop() {
         running = false
+        watchdog?.cancel()
+        // Remove only what is still ours: a replacement agent may already have
+        // bound the same path, and deleting it orphaned that agent.
+        let owned = ownsSocketPath
+        if AppAgentPidRecord.read(socketPath: path) == pidRecord {
+            unlink(pidPath)
+        }
         close(socketFD)
-        unlink(path)
+        if owned {
+            unlink(path)
+        }
     }
 
     private func acceptLoop() {
@@ -283,8 +448,10 @@ private final class AppAgentSocketListener: @unchecked Sendable {
                 continue
             }
 
+            AppAgentConnections.started()
             Thread.detachNewThread {
                 AppAgentConnection(fileDescriptor: clientFD).run()
+                AppAgentConnections.finished()
             }
         }
     }
@@ -457,6 +624,20 @@ private final class AppAgentSocketClient: @unchecked Sendable {
         fclose(file)
     }
 
+    /// Bound control requests (agentInfo, terminate) so a wedged agent cannot
+    /// hang the launcher; 0 restores blocking reads for MCP/CLI traffic.
+    func setControlTimeout(seconds: Int) {
+        var timeout = timeval(tv_sec: seconds, tv_usec: 0)
+        let size = socklen_t(MemoryLayout<timeval>.size)
+        setsockopt(fileno(file), SOL_SOCKET, SO_RCVTIMEO, &timeout, size)
+        setsockopt(fileno(file), SOL_SOCKET, SO_SNDTIMEO, &timeout, size)
+    }
+
+    /// True when a live agent accepts connections at `path`.
+    static func probe(path: String) -> Bool {
+        connect(path: path) != nil
+    }
+
     static func connect(path: String) -> AppAgentSocketClient? {
         let fd = socket(AF_UNIX, SOCK_STREAM, 0)
         guard fd >= 0 else {
@@ -527,7 +708,10 @@ private final class AppAgentSocketClient: @unchecked Sendable {
             return false
         }
 
-        guard let processStartTime = response["processStartTime"] as? TimeInterval else {
+        // Prefer the kernel's start time of the process actually on the other
+        // end of this socket over the agent's own report.
+        let peerStart = AppAgentProcess.peerPID(ofSocket: fileno(file)).flatMap(AppAgentProcess.startTime)
+        guard let processStartTime = peerStart ?? response["processStartTime"] as? TimeInterval else {
             return false
         }
 
@@ -537,7 +721,10 @@ private final class AppAgentSocketClient: @unchecked Sendable {
             return true
         }
 
-        return processStartTime + 0.5 >= modifiedAt.timeIntervalSince1970
+        return !AppAgentProcess.predatesExecutable(
+            startTime: processStartTime,
+            executableModified: modifiedAt.timeIntervalSince1970
+        )
     }
 
     private func executableURL(for appURL: URL) -> URL? {
