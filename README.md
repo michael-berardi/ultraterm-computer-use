@@ -101,7 +101,7 @@ Capture fresh state before using an element index. Prefer semantic actions over 
 
 ## UltraTerm Computer Use Pro
 
-The open-source edition includes the complete standard Computer Use tool surface. [UltraTerm Computer Use Pro](https://implosecybernetics.com/software/?product=ultraterm-computer-use) adds advanced visual capture and recording, multi-step automation sessions, native UltraTerm integration, and the authenticated Implose release channel. A Pro license is $15. UltraTerm + Computer Use Pro is $60; the complete UltraTerm, Computer Use Pro, and UltraVox Pro bundle is $80.
+The open-source edition includes the complete standard Computer Use tool surface. [UltraTerm Computer Use Pro](https://paretocybernetics.com/software/?product=ultraterm-computer-use) adds advanced visual capture and recording, multi-step automation sessions, native UltraTerm integration, and the authenticated Pareto release channel. A Pro license is $15. UltraTerm + Computer Use Pro is $60; the complete UltraTerm, Computer Use Pro, and UltraVox Pro bundle is $80.
 
 ## Safety and privacy
 
