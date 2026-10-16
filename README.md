@@ -38,7 +38,7 @@ All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`,
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.5.1/ultraterm-computer-use-0.5.1.tgz
+npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.5.2/ultraterm-computer-use-0.5.2.tgz
 ultraterm-computer-use --version
 ```
 

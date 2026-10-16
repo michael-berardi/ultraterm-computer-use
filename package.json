@@ -1,6 +1,6 @@
 {
   "name": "ultraterm-computer-use",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Build and package the open-source UltraTerm Computer Use runtimes.",
   "private": true,
   "license": "MIT",
