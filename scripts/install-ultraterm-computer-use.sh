@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-repo="michael-berardi/ultraterm-computer-use"
+repo="your-org/ultraterm-computer-use"
 install_root="${HOME}/.local/bin"
 local_pkg=""
 payload_root=""
@@ -69,8 +69,8 @@ fi
 
 signature="$(pkgutil --check-signature "$pkg" 2>&1)" || { echo "package signature verification failed" >&2; echo "$signature" >&2; exit 1; }
 case "$signature" in
-  *"Developer ID Installer"*"T63VT9UAY2"*) ;;
-  *) echo "package is not signed by Developer ID Installer team T63VT9UAY2" >&2; exit 1 ;;
+  *"Developer ID Installer"*"YOUR_TEAM_ID"*) ;;
+  *) echo "package is not signed by Developer ID Installer team YOUR_TEAM_ID" >&2; exit 1 ;;
 esac
 spctl -a -vv -t install "$pkg" >/dev/null
 payload_root="$(mktemp -d "${TMPDIR:-/tmp}/ultraterm-computer-use-pkg.XXXXXX")"
@@ -80,25 +80,25 @@ candidate_app="$(find "$payload_root" -type d -name 'UltraTerm Computer Use.app'
 [[ -n "$candidate_app" && -d "$candidate_app" ]] || { echo "package payload does not contain UltraTerm Computer Use.app" >&2; exit 1; }
 candidate_signature="$(codesign -dv --verbose=4 "$candidate_app" 2>&1)" || { echo "candidate app signature is invalid" >&2; exit 1; }
 case "$candidate_signature" in
-  *"Identifier=com.libertydesignstudio.ultraterm-computer-use"*"TeamIdentifier=T63VT9UAY2"*) ;;
+  *"Identifier=com.example.ultraterm-computer-use"*"TeamIdentifier=YOUR_TEAM_ID"*) ;;
   *) echo "candidate app has the wrong bundle identifier or Developer ID team" >&2; exit 1 ;;
 esac
 candidate_requirement="$(codesign -dr - "$candidate_app" 2>&1 || true)"
-[[ "$candidate_requirement" == *'identifier "com.libertydesignstudio.ultraterm-computer-use"'* &&
-   ( "$candidate_requirement" == *'certificate leaf[subject.OU] = T63VT9UAY2'* ||
-     "$candidate_requirement" == *'certificate leaf[subject.OU] = "T63VT9UAY2"'* ) ]] || { echo "candidate app has an unstable designated requirement" >&2; exit 1; }
+[[ "$candidate_requirement" == *'identifier "com.example.ultraterm-computer-use"'* &&
+   ( "$candidate_requirement" == *'certificate leaf[subject.OU] = YOUR_TEAM_ID'* ||
+     "$candidate_requirement" == *'certificate leaf[subject.OU] = "YOUR_TEAM_ID"'* ) ]] || { echo "candidate app has an unstable designated requirement" >&2; exit 1; }
 spctl -a -vv -t exec "$candidate_app" >/dev/null
 app="/Applications/UltraTerm Computer Use.app"
 sudo installer -pkg "$pkg" -target /
 app_signature="$(codesign -dv --verbose=4 "$app" 2>&1)" || { echo "installed app signature is invalid" >&2; exit 1; }
 case "$app_signature" in
-  *"Identifier=com.libertydesignstudio.ultraterm-computer-use"*"TeamIdentifier=T63VT9UAY2"*) ;;
+  *"Identifier=com.example.ultraterm-computer-use"*"TeamIdentifier=YOUR_TEAM_ID"*) ;;
   *) echo "installed app has the wrong bundle identifier or Developer ID team" >&2; exit 1 ;;
 esac
 app_requirement="$(codesign -dr - "$app" 2>&1 || true)"
-if [[ "$app_requirement" != *'identifier "com.libertydesignstudio.ultraterm-computer-use"'* ||
-      ( "$app_requirement" != *'certificate leaf[subject.OU] = T63VT9UAY2'* &&
-        "$app_requirement" != *'certificate leaf[subject.OU] = "T63VT9UAY2"'* ) ]]; then
+if [[ "$app_requirement" != *'identifier "com.example.ultraterm-computer-use"'* ||
+      ( "$app_requirement" != *'certificate leaf[subject.OU] = YOUR_TEAM_ID'* &&
+        "$app_requirement" != *'certificate leaf[subject.OU] = "YOUR_TEAM_ID"'* ) ]]; then
   echo "installed app has an unstable designated requirement" >&2
   exit 1
 fi

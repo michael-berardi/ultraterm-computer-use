@@ -132,7 +132,7 @@ public func visualCursorObservationFileURL(environment: [String: String]) -> URL
     return URL(fileURLWithPath: rawPath)
 }
 
-public let ultraTermComputerUseTurnEndedNotificationName = Notification.Name("com.libertydesignstudio.ultraterm-computer-use.turn-ended")
+public let ultraTermComputerUseTurnEndedNotificationName = Notification.Name("com.example.ultraterm-computer-use.turn-ended")
 
 public func postUltraTermComputerUseTurnEndedNotification() {
     DistributedNotificationCenter.default().postNotificationName(

@@ -1,16 +1,16 @@
 {
   "name": "ultraterm-computer-use",
-  "version": "0.5.2",
+  "version": "0.6.0",
   "description": "Build and package the open-source UltraTerm Computer Use runtimes.",
   "private": true,
   "license": "MIT",
-  "homepage": "https://github.com/michael-berardi/ultraterm-computer-use#readme",
+  "homepage": "https://github.com/your-org/ultraterm-computer-use#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/michael-berardi/ultraterm-computer-use.git"
+    "url": "git+https://github.com/your-org/ultraterm-computer-use.git"
   },
   "bugs": {
-    "url": "https://github.com/michael-berardi/ultraterm-computer-use/issues"
+    "url": "https://github.com/your-org/ultraterm-computer-use/issues"
   },
   "type": "module",
   "scripts": {

@@ -109,9 +109,9 @@ public struct PermissionDiagnostics: Sendable {
 
 public enum PermissionSupport {
     public static let bundleDisplayName = "UltraTerm Computer Use"
-    public static let bundleIdentifier = "com.libertydesignstudio.ultraterm-computer-use"
+    public static let bundleIdentifier = "com.example.ultraterm-computer-use"
     public static let developmentBundleDisplayName = "UltraTerm Computer Use (Dev)"
-    public static let developmentBundleIdentifier = "com.libertydesignstudio.ultraterm-computer-use.dev"
+    public static let developmentBundleIdentifier = "com.example.ultraterm-computer-use.dev"
     private static let releaseAppBundleName = "\(bundleDisplayName).app"
     private static let developmentAppBundleName = "\(developmentBundleDisplayName).app"
     private static let appVariantInfoKey = "UltraTermComputerUseAppVariant"

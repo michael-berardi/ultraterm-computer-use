@@ -31,4 +31,6 @@ if command -v go >/dev/null 2>&1; then
   )
 fi
 
+node --test "${repo_root}/test/neutrality.test.mjs"
+
 echo "Validation passed"

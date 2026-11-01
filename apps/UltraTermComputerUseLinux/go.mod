@@ -1,3 +1,3 @@
-module github.com/michael-berardi/ultraterm-computer-use/apps/ultratermcomputeruselinux
+module github.com/your-org/ultraterm-computer-use/apps/ultratermcomputeruselinux
 
 go 1.22

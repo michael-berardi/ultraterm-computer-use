@@ -2,7 +2,7 @@
 
 ## open-codex-computer-use
 
-UltraTerm Computer Use began from [`iFurySt/open-codex-computer-use`](https://github.com/iFurySt/open-codex-computer-use). The upstream MIT copyright and license remain in [`LICENSE`](./LICENSE). Pareto Cybernetics maintains this renamed distribution and its platform packaging.
+UltraTerm Computer Use began from [`iFurySt/open-codex-computer-use`](https://github.com/iFurySt/open-codex-computer-use). The upstream MIT copyright and license remain in [`LICENSE`](./LICENSE). This renamed distribution and its platform packaging are maintained by its contributors.
 
 ## Cua Driver
 

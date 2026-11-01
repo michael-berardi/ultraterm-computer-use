@@ -86,14 +86,14 @@ For any other MCP client, add a stdio server manually:
 Install the skill for Codex:
 
 ```sh
-npx skills add michael-berardi/ultraterm-computer-use -g -a codex --skill ultraterm-computer-use -y
+npx skills add your-org/ultraterm-computer-use -g -a codex --skill ultraterm-computer-use -y
 npx skills ls -g -a codex | rg 'ultraterm-computer-use'
 ```
 
 Install the skill for Claude Code:
 
 ```sh
-npx skills add michael-berardi/ultraterm-computer-use -g -a claude-code --skill ultraterm-computer-use -y
+npx skills add your-org/ultraterm-computer-use -g -a claude-code --skill ultraterm-computer-use -y
 ```
 
 Update an existing global skill install:

@@ -13,8 +13,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/michael-berardi/ultraterm-computer-use/releases/latest"><img src="https://img.shields.io/github/v/release/michael-berardi/ultraterm-computer-use?label=release" alt="Latest release" /></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/michael-berardi/ultraterm-computer-use" alt="MIT License" /></a>
+  <a href="https://github.com/your-org/ultraterm-computer-use/releases/latest"><img src="https://img.shields.io/github/v/release/your-org/ultraterm-computer-use?label=release" alt="Latest release" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/your-org/ultraterm-computer-use" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="macOS, Linux and Windows" />
   <img src="https://img.shields.io/badge/MCP-9%20tools-8A2BE2" alt="Nine MCP tools" />
 </p>
@@ -38,7 +38,7 @@ All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`,
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.5.2/ultraterm-computer-use-0.5.2.tgz
+npm install --global https://github.com/your-org/ultraterm-computer-use/releases/download/v0.6.0/ultraterm-computer-use-0.6.0.tgz
 ultraterm-computer-use --version
 ```
 
@@ -48,7 +48,7 @@ The package includes native arm64 and x86-64 runtimes and selects the current pl
 
 ```bash
 curl -fsSLo /tmp/install-ultraterm-computer-use.sh \
-  https://raw.githubusercontent.com/michael-berardi/ultraterm-computer-use/main/scripts/install-ultraterm-computer-use.sh
+  https://raw.githubusercontent.com/your-org/ultraterm-computer-use/main/scripts/install-ultraterm-computer-use.sh
 bash /tmp/install-ultraterm-computer-use.sh
 rm /tmp/install-ultraterm-computer-use.sh
 ```
@@ -101,7 +101,7 @@ Capture fresh state before using an element index. Prefer semantic actions over 
 
 ## UltraTerm Computer Use Pro
 
-The open-source edition includes the complete standard Computer Use tool surface. [UltraTerm Computer Use Pro](https://paretocybernetics.com/software/?product=ultraterm-computer-use) adds advanced visual capture and recording, multi-step automation sessions, native UltraTerm integration, and the authenticated Pareto release channel. A Pro license is $15. UltraTerm + Computer Use Pro is $60; the complete UltraTerm, Computer Use Pro, and UltraVox Pro bundle is $80.
+The open-source edition includes the complete standard Computer Use tool surface. A separate Pro edition adds advanced visual capture and recording, multi-step automation sessions, and native UltraTerm integration.
 
 ## Safety and privacy
 

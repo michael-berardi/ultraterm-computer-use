@@ -107,9 +107,9 @@ manifest = {
     "product": "UltraTerm Computer Use",
     "app": "ultraterm-computer-use",
     "version": version,
-    "bundleIdentifier": "com.libertydesignstudio.ultraterm-computer-use",
+    "bundleIdentifier": "com.example.ultraterm-computer-use",
     "teamIdentifier": team,
-    "designatedRequirement": f'identifier "com.libertydesignstudio.ultraterm-computer-use" and anchor apple generic and certificate leaf[subject.OU] = "{team}"',
+    "designatedRequirement": f'identifier "com.example.ultraterm-computer-use" and anchor apple generic and certificate leaf[subject.OU] = "{team}"',
     "artifacts": artifacts,
 }
 (root / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")

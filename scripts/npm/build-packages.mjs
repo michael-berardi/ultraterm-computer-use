@@ -465,7 +465,7 @@ ultraterm-computer-use install-codex-plugin
 - Linux requires a signed-in desktop session with AT-SPI2 / D-Bus accessibility available for real app control.
 - Windows requires a signed-in desktop session for UI Automation access.
 
-Source repository: https://github.com/michael-berardi/ultraterm-computer-use
+Source repository: https://github.com/your-org/ultraterm-computer-use
 `;
 }
 
@@ -488,13 +488,13 @@ function renderMetaPackageJson(packageName, version) {
     version,
     description: "Cross-platform Computer Use MCP server launcher. After install, configure ultraterm-computer-use mcp.",
     license: "MIT",
-    homepage: "https://github.com/michael-berardi/ultraterm-computer-use",
+    homepage: "https://github.com/your-org/ultraterm-computer-use",
     repository: {
       type: "git",
-      url: "git+https://github.com/michael-berardi/ultraterm-computer-use.git",
+      url: "git+https://github.com/your-org/ultraterm-computer-use.git",
     },
     bugs: {
-      url: "https://github.com/michael-berardi/ultraterm-computer-use/issues",
+      url: "https://github.com/your-org/ultraterm-computer-use/issues",
     },
     keywords: packageKeywords(),
     preferGlobal: true,

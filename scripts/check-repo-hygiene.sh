@@ -43,7 +43,7 @@ if find "${repo_root}" -type f \( -name '*.env' -o -name '*.env.*' \) -not -path
   failed=1
 fi
 
-if grep -R -n -E '/Users/|/home/|/private/tmp/|~/.codex|T63VT9UAY2|analytics\.libertydesign' \
+if grep -R -n -E '/Users/|/home/|/private/tmp/|~/.codex|YOUR_TEAM_ID|analytics\.example' \
   "${repo_root}/README.md" "${repo_root}/CONTRIBUTING.md" "${repo_root}/SECURITY.md" "${repo_root}/docs" \
   >/dev/null 2>&1; then
   echo "Public documentation contains a machine-specific path or private release detail"

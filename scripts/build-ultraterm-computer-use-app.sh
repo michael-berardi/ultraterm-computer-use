@@ -243,13 +243,13 @@ icon_master_png="${repo_root}/assets/app-icons/ultraterm-computer-use-1024.png"
 iconset_build_script="${repo_root}/scripts/build-apple-iconset.sh"
 
 bundle_display_name="UltraTerm Computer Use"
-bundle_identifier="com.libertydesignstudio.ultraterm-computer-use"
+bundle_identifier="com.example.ultraterm-computer-use"
 app_variant="release"
 app_bundle_name="${release_app_bundle_name}"
 
 if [[ "${configuration}" != "release" ]]; then
   bundle_display_name="UltraTerm Computer Use (Dev)"
-  bundle_identifier="com.libertydesignstudio.ultraterm-computer-use.dev"
+  bundle_identifier="com.example.ultraterm-computer-use.dev"
   app_variant="dev"
   app_bundle_name="${development_app_bundle_name}"
 fi
