@@ -18,6 +18,7 @@ Examples:
   ./scripts/build-ultraterm-computer-use-app.sh --configuration release --arch universal
 
 Environment:
+  ULTRATERM_COMPUTER_USE_BUNDLE_ID=<reverse-DNS bundle identifier>
   ULTRATERM_COMPUTER_USE_CODESIGN_MODE=auto|identity|adhoc|none
   ULTRATERM_COMPUTER_USE_CODESIGN_IDENTITY="Developer ID Application: Example, Inc. (TEAMID)"
   ULTRATERM_COMPUTER_USE_CODESIGN_KEYCHAIN=/path/to/signing.keychain-db
@@ -243,13 +244,14 @@ icon_master_png="${repo_root}/assets/app-icons/ultraterm-computer-use-1024.png"
 iconset_build_script="${repo_root}/scripts/build-apple-iconset.sh"
 
 bundle_display_name="UltraTerm Computer Use"
-bundle_identifier="com.example.ultraterm-computer-use"
+bundle_identifier="${ULTRATERM_COMPUTER_USE_BUNDLE_ID:-com.example.ultraterm-computer-use}"
+[[ "$bundle_identifier" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ ]] || { echo "Invalid ULTRATERM_COMPUTER_USE_BUNDLE_ID" >&2; exit 1; }
 app_variant="release"
 app_bundle_name="${release_app_bundle_name}"
 
 if [[ "${configuration}" != "release" ]]; then
   bundle_display_name="UltraTerm Computer Use (Dev)"
-  bundle_identifier="com.example.ultraterm-computer-use.dev"
+  bundle_identifier="${bundle_identifier}.dev"
   app_variant="dev"
   app_bundle_name="${development_app_bundle_name}"
 fi

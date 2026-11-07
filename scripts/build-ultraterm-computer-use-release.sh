@@ -3,13 +3,15 @@ set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 team="${ULTRATERM_COMPUTER_USE_TEAM_ID:-}"
+bundle_id="${ULTRATERM_COMPUTER_USE_BUNDLE_ID:-}"
 app_identity="${ULTRATERM_COMPUTER_USE_CODESIGN_IDENTITY:-}"
 installer_identity="${ULTRATERM_COMPUTER_USE_INSTALLER_IDENTITY:-}"
 notary_profile="${ULTRATERM_COMPUTER_USE_NOTARYTOOL_PROFILE:-}"
 version="${ULTRATERM_COMPUTER_USE_RELEASE_VERSION:-}"
 
 fail() { echo "release error: $*" >&2; exit 1; }
-[[ -n "$team" ]] || fail "ULTRATERM_COMPUTER_USE_TEAM_ID is required"
+[[ "$bundle_id" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ && "$bundle_id" != com.example.* ]] || fail "ULTRATERM_COMPUTER_USE_BUNDLE_ID must be set to a non-example bundle identifier"
+[[ "$team" =~ ^[A-Za-z0-9]{10}$ ]] || fail "ULTRATERM_COMPUTER_USE_TEAM_ID must be set to a non-placeholder team identifier"
 [[ -n "$app_identity" ]] || fail "ULTRATERM_COMPUTER_USE_CODESIGN_IDENTITY is required"
 [[ -n "$installer_identity" ]] || fail "ULTRATERM_COMPUTER_USE_INSTALLER_IDENTITY is required"
 [[ -n "$notary_profile" ]] || fail "ULTRATERM_COMPUTER_USE_NOTARYTOOL_PROFILE is required"
@@ -41,6 +43,7 @@ esac
 rm -rf "$output"
 mkdir -p "$output"
 
+ULTRATERM_COMPUTER_USE_BUNDLE_ID="$bundle_id" \
 ULTRATERM_COMPUTER_USE_CODESIGN_MODE=identity \
 ULTRATERM_COMPUTER_USE_CODESIGN_IDENTITY="$app_identity" \
 ULTRATERM_COMPUTER_USE_NOTARYTOOL_PROFILE="$notary_profile" \
@@ -92,13 +95,12 @@ xcrun stapler validate "$pkg"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 xcrun stapler validate "$app"
 
-(cd "$output" && shasum -a 256 "$(basename "$pkg")" "$(basename "$zip")" > SHA256SUMS)
 (cd "$output" && shasum -a 256 "$(basename "$pkg")" > "$(basename "$pkg").sha256")
 (cd "$output" && shasum -a 256 "$(basename "$zip")" > "$(basename "$zip").sha256")
-python3 - "$output" "$version" "$team" <<'PY'
+python3 - "$output" "$version" "$team" "$bundle_id" <<'PY'
 import hashlib, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-version, team = sys.argv[2:]
+version, team, bundle_id = sys.argv[2:]
 artifacts = {}
 for path in sorted(root.iterdir()):
     if path.name in {"release-manifest.json", "SHA256SUMS"} or not path.is_file(): continue
@@ -107,12 +109,14 @@ manifest = {
     "product": "UltraTerm Computer Use",
     "app": "ultraterm-computer-use",
     "version": version,
-    "bundleIdentifier": "com.example.ultraterm-computer-use",
+    "bundleIdentifier": bundle_id,
     "teamIdentifier": team,
-    "designatedRequirement": f'identifier "com.example.ultraterm-computer-use" and anchor apple generic and certificate leaf[subject.OU] = "{team}"',
+    "designatedRequirement": f'identifier "{bundle_id}" and anchor apple generic and certificate leaf[subject.OU] = "{team}"',
     "artifacts": artifacts,
 }
 (root / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 PY
+
+(cd "$output" && shasum -a 256 "$(basename "$pkg")" "$(basename "$zip")" release-manifest.json > SHA256SUMS)
 
 echo "Built signed and notarized UltraTerm Computer Use release at $output"

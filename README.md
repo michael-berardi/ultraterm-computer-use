@@ -38,7 +38,7 @@ All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`,
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/your-org/ultraterm-computer-use/releases/download/v0.6.0/ultraterm-computer-use-0.6.0.tgz
+npm install --global https://github.com/your-org/ultraterm-computer-use/releases/download/v0.6.1/ultraterm-computer-use-0.6.1.tgz
 ultraterm-computer-use --version
 ```
 
@@ -55,10 +55,14 @@ rm /tmp/install-ultraterm-computer-use.sh
 
 The installer verifies the SHA-256 checksum, Developer ID signature, notarization, bundle identifier, and designated requirement before installing `/Applications/UltraTerm Computer Use.app`.
 
-For a local package:
+For a remote install, the expected bundle identifier and team come from the release manifest, whose checksum and the package checksum are verified against `SHA256SUMS`. Checksums distributed alongside artifacts do not authenticate the publisher; set `ULTRATERM_COMPUTER_USE_BUNDLE_ID` and `ULTRATERM_COMPUTER_USE_TEAM_ID` to independently trusted values to pin the expected signing identity. The environment values take precedence over the manifest.
+
+For a local package, both identity variables are required:
 
 ```bash
-./scripts/install-ultraterm-computer-use.sh --local path/to/UltraTerm-Computer-Use.pkg
+ULTRATERM_COMPUTER_USE_BUNDLE_ID=<bundle-id> \
+ULTRATERM_COMPUTER_USE_TEAM_ID=<team-id> \
+  ./scripts/install-ultraterm-computer-use.sh --local path/to/UltraTerm-Computer-Use.pkg
 ```
 
 ## Configure an MCP client
@@ -117,6 +121,8 @@ swift test
 ./scripts/build-ultraterm-computer-use-linux.sh --configuration release --arch arm64
 ./scripts/build-ultraterm-computer-use-windows.sh --configuration release --arch amd64
 ```
+
+For signed macOS releases, set `ULTRATERM_COMPUTER_USE_BUNDLE_ID` to the existing shipped bundle identifier and `ULTRATERM_COMPUTER_USE_TEAM_ID` to its Apple Developer team. Also configure `ULTRATERM_COMPUTER_USE_CODESIGN_IDENTITY`, `ULTRATERM_COMPUTER_USE_INSTALLER_IDENTITY`, and `ULTRATERM_COMPUTER_USE_NOTARYTOOL_PROFILE` before running `scripts/build-ultraterm-computer-use-release.sh`. Release builds reject missing or example identity values. Ordinary app builds default to `com.example.ultraterm-computer-use`; debug builds append `.dev` to the configured identifier.
 
 Swift 6.2 is required for the macOS app. Go 1.22+ builds the Linux and Windows runtimes.
 

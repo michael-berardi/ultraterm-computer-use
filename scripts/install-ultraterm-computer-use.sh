@@ -52,57 +52,80 @@ else:
     raise SystemExit("stable release has no UltraTerm-Computer-Use.pkg")
 PY
 )"
-  sums_url="${pkg_url}.sha256"
-  curl --fail --silent --show-error --location --retry 3 "$pkg_url" -o "$pkg"
-  curl --fail --silent --show-error --location --retry 3 "$sums_url" -o "$work/UltraTerm-Computer-Use.pkg.sha256"
-  expected="$(python3 - "$work/UltraTerm-Computer-Use.pkg.sha256" <<'PY'
-import re, sys
-text = open(sys.argv[1], encoding="utf-8").read()
-match = re.search(r"\b[a-fA-F0-9]{64}\b", text)
-if not match: raise SystemExit("checksum manifest does not contain SHA-256")
-print(match.group(0).lower())
-PY
+  # Asset names come from the same release as the package, not a derived URL.
+  for asset in SHA256SUMS release-manifest.json; do
+    url="$(python3 - "$release_json" "$asset" <<'PYASSET'
+import json, sys
+release = json.load(open(sys.argv[1], encoding="utf-8"))
+urls = [a["browser_download_url"] for a in release.get("assets", []) if a.get("name") == sys.argv[2]]
+if len(urls) != 1: raise SystemExit("release identity error: missing or duplicate " + sys.argv[2])
+print(urls[0])
+PYASSET
 )"
-  actual="$(shasum -a 256 "$pkg" | cut -d ' ' -f 1)"
-  [[ "$actual" == "$expected" ]] || { echo "package checksum mismatch" >&2; exit 1; }
+    curl --fail --silent --show-error --location --retry 3 "$url" -o "$work/$asset"
+  done
+  curl --fail --silent --show-error --location --retry 3 "$pkg_url" -o "$pkg"
+  python3 - "$work" <<'PYCHECK'
+import hashlib, pathlib, re, sys
+root = pathlib.Path(sys.argv[1])
+lines = (root / "SHA256SUMS").read_text(encoding="utf-8").splitlines()
+for name in ("UltraTerm-Computer-Use.pkg", "release-manifest.json"):
+    entries = [m.group(1).lower() for line in lines if (m := re.fullmatch(r"([a-fA-F0-9]{64}) [ *](.+)", line)) and m.group(2) == name]
+    if len(entries) != 1 or hashlib.sha256((root / name).read_bytes()).hexdigest() != entries[0]:
+        raise SystemExit("release identity error: checksum missing or mismatched for " + name)
+PYCHECK
 fi
 
+bundle_id="${ULTRATERM_COMPUTER_USE_BUNDLE_ID:-}"
+team="${ULTRATERM_COMPUTER_USE_TEAM_ID:-}"
+if [[ -z "$local_pkg" ]]; then
+  # Environment values, when supplied, pin the expected identity independently.
+  manifest_identity="$(python3 - "$work/release-manifest.json" <<'PYIDENTITY'
+import json, sys
+try:
+    manifest = json.load(open(sys.argv[1], encoding="utf-8"))
+    bundle, team = manifest["bundleIdentifier"], manifest["teamIdentifier"]
+    if not isinstance(bundle, str) or not isinstance(team, str) or "\n" in bundle + team:
+        raise ValueError("invalid identity")
+    print(bundle)
+    print(team)
+except (OSError, ValueError, KeyError, TypeError):
+    raise SystemExit("release identity error: invalid manifest identity")
+PYIDENTITY
+)" || exit 1
+  manifest_bundle="${manifest_identity%%$'\n'*}"
+  manifest_team="${manifest_identity#*$'\n'}"
+  bundle_id="${bundle_id:-$manifest_bundle}"
+  team="${team:-$manifest_team}"
+fi
+[[ "$bundle_id" =~ ^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$ && "$bundle_id" != com.example.* ]] || { echo "release identity error: ULTRATERM_COMPUTER_USE_BUNDLE_ID or valid manifest bundleIdentifier required" >&2; exit 1; }
+[[ "$team" =~ ^[A-Za-z0-9]{10}$ ]] || { echo "release identity error: ULTRATERM_COMPUTER_USE_TEAM_ID or valid manifest teamIdentifier required" >&2; exit 1; }
+
 signature="$(pkgutil --check-signature "$pkg" 2>&1)" || { echo "package signature verification failed" >&2; echo "$signature" >&2; exit 1; }
-case "$signature" in
-  *"Developer ID Installer"*"YOUR_TEAM_ID"*) ;;
-  *) echo "package is not signed by Developer ID Installer team YOUR_TEAM_ID" >&2; exit 1 ;;
-esac
+[[ "$signature" == *"Developer ID Installer"* && "$signature" == *"($team)"* ]] || { echo "package is not signed by the expected Developer ID Installer team" >&2; exit 1; }
 spctl -a -vv -t install "$pkg" >/dev/null
 payload_root="$(mktemp -d "${TMPDIR:-/tmp}/ultraterm-computer-use-pkg.XXXXXX")"
 rmdir "$payload_root"
 pkgutil --expand-full "$pkg" "$payload_root" >/dev/null
 candidate_app="$(find "$payload_root" -type d -name 'UltraTerm Computer Use.app' -print -quit)"
 [[ -n "$candidate_app" && -d "$candidate_app" ]] || { echo "package payload does not contain UltraTerm Computer Use.app" >&2; exit 1; }
-candidate_signature="$(codesign -dv --verbose=4 "$candidate_app" 2>&1)" || { echo "candidate app signature is invalid" >&2; exit 1; }
-case "$candidate_signature" in
-  *"Identifier=com.example.ultraterm-computer-use"*"TeamIdentifier=YOUR_TEAM_ID"*) ;;
-  *) echo "candidate app has the wrong bundle identifier or Developer ID team" >&2; exit 1 ;;
-esac
-candidate_requirement="$(codesign -dr - "$candidate_app" 2>&1 || true)"
-[[ "$candidate_requirement" == *'identifier "com.example.ultraterm-computer-use"'* &&
-   ( "$candidate_requirement" == *'certificate leaf[subject.OU] = YOUR_TEAM_ID'* ||
-     "$candidate_requirement" == *'certificate leaf[subject.OU] = "YOUR_TEAM_ID"'* ) ]] || { echo "candidate app has an unstable designated requirement" >&2; exit 1; }
-spctl -a -vv -t exec "$candidate_app" >/dev/null
+
+verify_app_identity() {
+  local target="$1" signature requirement
+  signature="$(codesign -dv --verbose=4 "$target" 2>&1)" || { echo "app signature is invalid" >&2; return 1; }
+  printf '%s\n' "$signature" | grep -Fx "Identifier=$bundle_id" >/dev/null &&
+    printf '%s\n' "$signature" | grep -Fx "TeamIdentifier=$team" >/dev/null || { echo "app has the wrong bundle identifier or Developer ID team" >&2; return 1; }
+  requirement="$(codesign -dr - "$target" 2>&1)" || { echo "app designated requirement is unavailable" >&2; return 1; }
+  [[ "$requirement" == *"identifier \"$bundle_id\""* &&
+     ( "$requirement" == *"certificate leaf[subject.OU] = $team"* ||
+       "$requirement" == *"certificate leaf[subject.OU] = \"$team\""* ) ]] || { echo "app has an unstable designated requirement" >&2; return 1; }
+  spctl -a -vv -t exec "$target" >/dev/null
+}
+verify_app_identity "$candidate_app"
 app="/Applications/UltraTerm Computer Use.app"
 sudo installer -pkg "$pkg" -target /
-app_signature="$(codesign -dv --verbose=4 "$app" 2>&1)" || { echo "installed app signature is invalid" >&2; exit 1; }
-case "$app_signature" in
-  *"Identifier=com.example.ultraterm-computer-use"*"TeamIdentifier=YOUR_TEAM_ID"*) ;;
-  *) echo "installed app has the wrong bundle identifier or Developer ID team" >&2; exit 1 ;;
-esac
-app_requirement="$(codesign -dr - "$app" 2>&1 || true)"
-if [[ "$app_requirement" != *'identifier "com.example.ultraterm-computer-use"'* ||
-      ( "$app_requirement" != *'certificate leaf[subject.OU] = YOUR_TEAM_ID'* &&
-        "$app_requirement" != *'certificate leaf[subject.OU] = "YOUR_TEAM_ID"'* ) ]]; then
-  echo "installed app has an unstable designated requirement" >&2
-  exit 1
-fi
-spctl -a -vv -t exec "$app" >/dev/null
+verify_app_identity "$app"
+
 
 mkdir -p "$install_root"
 
