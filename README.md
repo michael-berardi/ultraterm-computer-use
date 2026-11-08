@@ -111,6 +111,7 @@ The open-source edition includes the complete standard Computer Use tool surface
 
 Computer Use acts in the user's real desktop session and does not bypass OS permissions. Ask before sending, deleting, purchasing, approving, uploading, or making another externally visible change. Do not inspect password managers or unrelated private content.
 
+Computer Use sends no telemetry or usage data. See [`SECURITY.md`](./SECURITY.md).
 
 ## Build from source
 
