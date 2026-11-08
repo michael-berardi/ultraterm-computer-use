@@ -13,10 +13,11 @@ import {
   writeFileSync,
 } from "node:fs";
 import { join, relative } from "node:path";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("..", import.meta.url));
+const selfStat = statSync(fileURLToPath(import.meta.url));
 
 // Shipped surfaces. scripts/ is included because the repo's install/release/CI helpers ship too.
 const SHIPPED_DIRS = ["apps", "packages", "plugins", "skills", "docs", "scripts"];
@@ -37,17 +38,13 @@ const SHIPPED_FILES = [
 // Legal/upstream attribution is intentionally excluded; it names upstream authors and licenses.
 const LEGAL_ATTRIBUTION = new Set(["LICENSE", "THIRD_PARTY_NOTICES.md"]);
 
-// Tests' fixtures are excluded; they may contain example paths and synthetic identities.
+// Generated directories are excluded.
 const SKIP_DIRS = new Set([
   ".git",
   "node_modules",
   "dist",
   "build",
   ".build",
-  "Tests",
-  "test",
-  "tests",
-  "Test",
 ]);
 
 const TEXT_EXT = /\.(md|json|py|ts|js|mjs|cjs|swift|sh|go|toml|yml|yaml|txt|html|css|xml|plist)$/i;
@@ -58,16 +55,31 @@ const MODEL_CHOICE =
 
 // Operator-specific organisation, person, client, project, account, and machine-path strings.
 const PERSONAL =
-  /\b(?:Pareto|Implose|paretocybernetics|implosecybernetics|Mike|Berardi|michael-berardi|Michael Berardi|Dana|Felix|acme|acme|Mouseia|libertydesign|Liberty Design|acme|T63VT9UAY2)\b|\/Users\/[a-z]/i;
+  /\b(?:Pareto|Implose|paretocybernetics|implosecybernetics|Mike|Berardi|michael-berardi|Michael Berardi|Felix|Mouseia|libertydesign|Liberty Design|T63VT9UAY2)\b|\/Users\/[a-z]/i;
 
-function walk(dir, out = []) {
+function privateTerms(file = process.env.OSS_PRIVATE_TERMS ?? join(homedir(), ".config/oss-audit/names.txt")) {
+  let text;
+  try {
+    text = readFileSync(file, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  }
+  return text.split(/\r?\n/).map((line) => line.trim()).filter((line) => line && !line.startsWith("#"))
+    .map((term) => {
+      const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      return new RegExp(`${/^\w/.test(term) ? "\\b" : ""}${escaped}${/\w$/.test(term) ? "\\b" : ""}`, "i");
+    });
+}
+
+function walk(dir, out = [], includeTests = false) {
   for (const name of readdirSync(dir)) {
-    if (LEGAL_ATTRIBUTION.has(name) || SKIP_DIRS.has(name)) continue;
+    if (LEGAL_ATTRIBUTION.has(name) || SKIP_DIRS.has(name) || (!includeTests && ["test", "tests", "Tests", "Test"].includes(name))) continue;
     const path = join(dir, name);
     const st = statSync(path);
     if (st.isDirectory()) {
-      walk(path, out);
-    } else if (TEXT_EXT.test(name)) {
+      walk(path, out, includeTests);
+    } else if (TEXT_EXT.test(name) && (st.dev !== selfStat.dev || st.ino !== selfStat.ino)) {
       out.push(path);
     }
   }
@@ -81,20 +93,27 @@ const shipped = [
   ).map((name) => join(root, name)),
 ];
 
-function scanFiles(files) {
+const personalFiles = [...new Set([...shipped, ...[...SHIPPED_DIRS, "test", "tests", "Tests", "Test"].flatMap((dir) =>
+  existsSync(join(root, dir)) ? walk(join(root, dir), [], true) : []),
+])];
+
+function scanFiles(files, patterns = [MODEL_CHOICE, PERSONAL]) {
   return files
     .flatMap((file) =>
       readFileSync(file, "utf8")
         .split("\n")
         .map((line, index) => [file, index + 1, line]),
     )
-    .filter(([, , line]) => MODEL_CHOICE.test(line) || PERSONAL.test(line))
+    // The README credits the publisher on one line; it is public branding, not an operator identity.
+    .filter(([file, , line]) => !(file.endsWith("README.md") && line.startsWith("Part of [Pareto Cybernetics](https://paretocybernetics.com/")))
+    .filter(([, , line]) => patterns.some((pattern) => pattern.test(line)))
     .map(([file, line, text]) => `${relative(root, file)}:${line}: ${text.trim().slice(0, 120)}`);
 }
 
 test("shipped files carry no built-in model id or operator-specific name", () => {
   assert.ok(shipped.length > 0, "shipped file list is empty");
   assert.deepEqual(scanFiles(shipped), []);
+  assert.deepEqual(scanFiles(personalFiles, [PERSONAL, ...privateTerms()]), []);
 });
 
 test("neutrality scanner detects a known-bad string", () => {
@@ -107,6 +126,22 @@ test("neutrality scanner detects a known-bad string", () => {
       hits.length >= 2,
       `scanner failed to detect known-bad strings: ${JSON.stringify(hits)}`,
     );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("private terms loader matches literal bounded terms", () => {
+  const dir = mkdtempSync(join(tmpdir(), "neutrality-"));
+  try {
+    const terms = join(dir, "terms.txt");
+    const probe = join(dir, "probe.txt");
+    writeFileSync(terms, "# comment\n\nzzqx-private.term\n");
+    const patterns = privateTerms(terms);
+    assert.equal(patterns.length, 1);
+    writeFileSync(probe, "ZZQX-private.term\nneutral text zzqx-privateXterm\nazzqx-private.term\n");
+    assert.deepEqual(privateTerms(join(dir, "missing")), []);
+    assert.equal(scanFiles([probe], patterns).length, 1);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

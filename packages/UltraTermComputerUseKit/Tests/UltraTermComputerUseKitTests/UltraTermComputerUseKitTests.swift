@@ -445,8 +445,8 @@ final class UltraTermComputerUseKitTests: XCTestCase {
 
     func testPreferredPermissionAppBundleURLPrefersInstalledCopyOverTransientRunningCopy() {
         let installed = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
-        let running = URL(fileURLWithPath: "/Users/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
-        let fallback = URL(fileURLWithPath: "/Users/example/projects/ultraterm-computer-use-debug/dist/UltraTerm Computer Use.app")
+        let running = URL(fileURLWithPath: "/tmp/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
+        let fallback = URL(fileURLWithPath: "/tmp/example/projects/ultraterm-computer-use-debug/dist/UltraTerm Computer Use.app")
 
         let resolved = PermissionSupport.preferredPermissionAppBundleURL(
             preferredInstalledBundleURL: installed,
@@ -459,8 +459,8 @@ final class UltraTermComputerUseKitTests: XCTestCase {
 
     func testPreferredPermissionAppBundleURLPrefersRunningDevelopmentCopy() {
         let installed = URL(fileURLWithPath: "/Applications/UltraTerm Computer Use.app")
-        let running = URL(fileURLWithPath: "/Users/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use (Dev).app")
-        let fallback = URL(fileURLWithPath: "/Users/example/projects/ultraterm-computer-use-debug/dist/UltraTerm Computer Use (Dev).app")
+        let running = URL(fileURLWithPath: "/tmp/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use (Dev).app")
+        let fallback = URL(fileURLWithPath: "/tmp/example/projects/ultraterm-computer-use-debug/dist/UltraTerm Computer Use (Dev).app")
 
         let resolved = PermissionSupport.preferredPermissionAppBundleURL(
             preferredInstalledBundleURL: installed,
@@ -473,7 +473,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
     }
 
     func testPreferredPermissionAppBundleURLCanPreferRunningReleaseCopyOverStaleInstalledCopy() {
-        let staleInstalled = URL(fileURLWithPath: "/Users/example/projects/ultraterm-computer-use/dist/npm/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
+        let staleInstalled = URL(fileURLWithPath: "/tmp/example/projects/ultraterm-computer-use/dist/npm/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
         let running = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
 
         let resolved = PermissionSupport.preferredPermissionAppBundleURL(
@@ -500,7 +500,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
 
     func testPermissionClientsKeepStableBundleIdentityAheadOfTransientAppPath() {
         let installed = URL(fileURLWithPath: "/opt/homebrew/lib/node_modules/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
-        let running = URL(fileURLWithPath: "/Users/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
+        let running = URL(fileURLWithPath: "/tmp/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use.app")
 
         let clients = PermissionSupport.permissionClients(
             primaryBundleURL: installed,
@@ -519,7 +519,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
     }
 
     func testPermissionClientsKeepDevelopmentBundleIdentitySeparateFromRelease() {
-        let running = URL(fileURLWithPath: "/Users/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use (Dev).app")
+        let running = URL(fileURLWithPath: "/tmp/example/projects/ultraterm-computer-use/dist/UltraTerm Computer Use (Dev).app")
 
         let clients = PermissionSupport.permissionClients(
             primaryBundleURL: running,
