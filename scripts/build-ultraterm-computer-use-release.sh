@@ -119,6 +119,12 @@ PY
 
 # One-step installers (stamped with the real owner/repo), the npm .tgz and ONE combined SHA256SUMS are added by
 # the shared final step; it does not change how the .pkg is built, signed, or notarized above.
-"$repo_root/scripts/finalize-release.sh" "$version"
+# With --require-all a partial SHA256SUMS (missing the .tgz) cannot be uploaded; when the .tgz is not built yet,
+# release-package.sh runs finalize afterwards.
+if [[ -f "$repo_root/dist/release/npm/ultraterm-computer-use-$version.tgz" || -f "$output/ultraterm-computer-use-$version.tgz" ]]; then
+  "$repo_root/scripts/finalize-release.sh" "$version" --require-all
+else
+  "$repo_root/scripts/finalize-release.sh" "$version"
+fi
 
 echo "Built signed and notarized UltraTerm Computer Use release at $output"

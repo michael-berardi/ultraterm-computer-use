@@ -35,6 +35,7 @@ pkg="$work/UltraTerm-Computer-Use.pkg"
 if [[ -n "$local_pkg" ]]; then
   cp "$local_pkg" "$pkg"
 else
+  case "$repo" in your-org/*) echo "this installer is a source template, not a release asset; use the install-ultraterm-computer-use.sh attached to a GitHub release (or pass --local)" >&2; exit 1 ;; esac
   command -v curl >/dev/null || { echo "curl is required for a remote install" >&2; exit 1; }
   api="https://api.github.com/repos/${repo}/releases/latest"
   release_json="$work/release.json"

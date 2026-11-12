@@ -75,6 +75,43 @@ test("the stamped installers still run (the stamp cannot break an in-script guar
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("an unstamped source copy refuses to download; the stamp cannot rewrite the guard", () => {
+  const env = cleanEnv();
+  let r = sh("sh", [join(root, "scripts/install.sh"), "--npm"], { env });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /source template, not a release asset/);
+  r = sh("bash", [join(root, "scripts/install-ultraterm-computer-use.sh")], { env });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stderr, /source template, not a release asset/);
+  for (const f of ["install.sh", "install.ps1", "install-ultraterm-computer-use.sh"]) {
+    assert.match(read(`scripts/${f}`), /your-org\/\*/, `${f} has the owner-wildcard guard`);
+  }
+  // A stamped copy keeps the guard text and works; the test base override is still honoured on the template.
+  const dir = scratchRepo("https://github.com/acme/tool.git");
+  const out = join(dir, "out");
+  assert.equal(sh("bash", [join(dir, "scripts/stamp-installers.sh"), out], { env }).status, 0);
+  for (const f of ["install.sh", "install.ps1", "install-ultraterm-computer-use.sh"]) {
+    assert.match(readFileSync(join(out, f), "utf8"), /your-org\/\*/, `${f}: stamp rewrote the guard`);
+  }
+  r = sh("sh", [join(out, "install.sh"), "--npm"], { env: { ...env, UTCU_RELEASE_BASE: "file:///nonexistent" } });
+  assert.doesNotMatch(r.stderr, /source template/);
+  r = sh("sh", [join(out, "install.sh"), "--npm"], { env: { ...env, HOME: dir, UTCU_RELEASE_BASE: "" } });
+  assert.doesNotMatch(r.stderr, /source template/, "stamped copy passes the guard");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("install.sh never nests a release inside an existing folder and prints the piped npm route", () => {
+  const text = read("scripts/install.sh");
+  assert.ok(!/release-\$VERSION-\$\$/.test(text), "no $$ release folder name");
+  assert.match(text, /mktemp -d "\$APP\/release-/);
+  assert.match(text, /sh -s -- --npm/);
+});
+
+test("the signed release build finalizes with --require-all once the tgz exists", () => {
+  const text = read("scripts/build-ultraterm-computer-use-release.sh");
+  assert.match(text, /finalize-release\.sh" "\$version" --require-all/);
+});
+
 test("finalize writes ONE combined SHA256SUMS in either build order", () => {
   for (const order of ["npm-first", "pkg-first"]) {
     const dir = scratchRepo("https://github.com/acme/tool.git");
@@ -173,7 +210,7 @@ test("install.sh: the macOS route names the versioned release asset and a mktemp
   assert.ok(!/raw\.githubusercontent/.test(text), "must not point at a main-branch script");
   assert.ok(!/\/tmp\/install-ultraterm/.test(text), "must not use a fixed /tmp path");
   const home = mkdtempSync(join(tmpdir(), "utcu-mac-"));
-  const r = sh("sh", [join(root, "scripts/install.sh")], { env: { ...cleanEnv(), HOME: home, UTCU_HOME: join(home, "h"), UTCU_VERSION: "1.2.3" } });
+  const r = sh("sh", [join(root, "scripts/install.sh")], { env: { ...cleanEnv(), HOME: home, UTCU_HOME: join(home, "h"), UTCU_VERSION: "1.2.3", UTCU_RELEASE_BASE: "https://github.com/acme/tool/releases/download/v1.2.3" } });
   if (process.platform === "darwin") {
     assert.match(r.stdout, /mktemp/);
     assert.match(r.stdout, /releases\/download\/v1\.2\.3\/install-ultraterm-computer-use\.sh/);
@@ -205,6 +242,7 @@ test("install.ps1 static guards: bad Windows patterns must not return", () => {
   assert.ok(!/Remove-Item[^\n]*\$rel\b(?!\w)/.test(code.replace(/-ne \$rel\)[^\n]*/, "")), "never delete the release just installed");
   assert.match(code, /UTCU_NPM_SHIM/);
   assert.match(code, /Assert-ShimOurs -Shim \$shim/);
+  assert.match(code, /-not \$env:UTCU_RELEASE_BASE -and \$repo -like 'your-org\/\*'/, "source-template guard");
   assert.ok(!/your-org/.test(ps.split("\n").filter((l) => /\$repo\s*=/.test(l)).join("").replace("your-org/ultraterm-computer-use", "")), "placeholder only as the whole owner/repo");
   assert.ok(code.trimEnd().endsWith("Install-UltraTermComputerUse"), "the file ends with the single call");
 });

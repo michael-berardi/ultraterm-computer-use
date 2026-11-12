@@ -6,7 +6,7 @@
 # unless you pass --npm to install the npm package into your home folder instead (never touches /Applications).
 # Uses the Node 18+ already on this machine, or fetches the official Node 22 LTS into the tool's own folder.
 # Environment: UTCU_HOME (default ~/.ultraterm-computer-use), UTCU_BIN_DIR (default ~/.local/bin),
-# UTCU_VERSION (pin a version, e.g. 0.7.0), UTCU_RELEASE_BASE (override the download base URL, used by tests).
+# UTCU_VERSION (pin a version, e.g. 0.7.1), UTCU_RELEASE_BASE (override the download base URL, used by tests).
 set -eu
 
 REPO="your-org/ultraterm-computer-use"
@@ -47,11 +47,15 @@ for arg in "$@"; do
   esac
 done
 
+# An unstamped source copy would download from an account anyone can register. The stamp replaces only the full
+# placeholder slug above, never this owner-wildcard pattern.
+case "$REPO" in your-org/*) [ -n "${UTCU_RELEASE_BASE:-}" ] || die "this install.sh is a source template, not a release asset; use the install.sh attached to a GitHub release" ;; esac
+
 if [ "$(uname -s)" = "Darwin" ] && [ "$NPM_ROUTE" -eq 0 ]; then
   say "On macOS, UltraTerm Computer Use ships as a signed and notarized installer package."
   say "Install it with the signed route (verifies checksum, signature, and notarization):"
   say "  f=\$(mktemp) && curl -fsSLo \"\$f\" $BASE/install-ultraterm-computer-use.sh && bash \"\$f\"; rm -f \"\$f\""
-  say "Or re-run this script with --npm to install the npm package under $HOME_DIR instead."
+  say "Or re-run this script with --npm (when piping: curl -fsSL $BASE/install.sh | sh -s -- --npm) to install the npm package under $HOME_DIR instead."
   say "Nothing was installed."
   exit 0
 fi
@@ -162,8 +166,8 @@ case "$got" in "$VERSION") ;; *) die "the new copy reports '$got', not $VERSION;
 
 mkdir -p "$APP" "$BIN_DIR"
 # Each install gets its own folder, so re-running the same version never removes the live release.
-REL="$APP/release-$VERSION-$$"
-mv "$STAGE" "$REL"
+REL=$(mktemp -d "$APP/release-$VERSION-XXXXXX") || die "cannot create a release folder under $APP"
+rmdir "$REL" && mv "$STAGE" "$REL" || die "cannot move the new release into $APP"
 LAUNCHER="$REL/node_modules/ultraterm-computer-use/bin/ultraterm-computer-use"
 
 # Always the absolute node: MCP hosts started from a GUI often have no node on PATH.

@@ -3,7 +3,7 @@
 # %LOCALAPPDATA%\UltraTermComputerUse, and puts an ultraterm-computer-use.cmd shim on your user Path.
 # Uses the Node 18+ already on this machine, or fetches the official Node 22 LTS into the tool's own folder.
 # Also runs under PowerShell 7 on Linux for testing, with UTCU_HOME / UTCU_BIN_DIR overrides.
-# Environment: UTCU_HOME, UTCU_BIN_DIR, UTCU_VERSION (pin a version, e.g. 0.7.0), UTCU_RELEASE_BASE (test override).
+# Environment: UTCU_HOME, UTCU_BIN_DIR, UTCU_VERSION (pin a version, e.g. 0.7.1), UTCU_RELEASE_BASE (test override).
 # Everything runs inside one function and ends with a single call: under `irm | iex` nothing is left behind in the
 # user's session, errors are thrown (never `exit`, which would close the user's shell), and the user's
 # $ErrorActionPreference / $ProgressPreference are restored.
@@ -103,6 +103,10 @@ function Install-UltraTermComputerUse {
   try {
     $repo = 'your-org/ultraterm-computer-use'
     $nodeMinMajor = 18
+    # An unstamped source copy would download from an account anyone can register (the stamp never rewrites this pattern).
+    if (-not $env:UTCU_RELEASE_BASE -and $repo -like 'your-org/*') {
+      throw 'this install.ps1 is a source template, not a release asset; use the install.ps1 attached to a GitHub release'
+    }
     $isWin = if ($PSVersionTable.PSEdition -eq 'Core') { $IsWindows } else { $true }
     if (-not $isWin -and $IsMacOS) {
       throw 'On macOS use install.sh (it points at the signed .pkg) or install.sh --npm; nothing was installed.'

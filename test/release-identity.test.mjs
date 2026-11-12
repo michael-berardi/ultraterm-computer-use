@@ -2,14 +2,18 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const release = join(root, 'scripts/build-ultraterm-computer-use-release.sh');
-const install = join(root, 'scripts/install-ultraterm-computer-use.sh');
+// The shipped script refuses to download until stamped with a real owner/repo, so tests run a stamped copy.
+const stampedDir = mkdtempSync(join(tmpdir(), 'identity-stamped-'));
+const install = join(stampedDir, 'install-ultraterm-computer-use.sh');
+writeFileSync(install, readFileSync(join(root, 'scripts/install-ultraterm-computer-use.sh'), 'utf8').replaceAll('your-org/ultraterm-computer-use', 'acme/tool'));
+process.on('exit', () => rmSync(stampedDir, { recursive: true, force: true }));
 const bundle = 'org.examplecompany.computer-use';
 const team = 'ABC1234567';
 const cleanEnv = () => {
