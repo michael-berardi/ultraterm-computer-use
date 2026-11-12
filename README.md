@@ -33,7 +33,31 @@ All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`,
 
 ## Install
 
-### npm — macOS, Linux, and Windows
+One step, every platform. Each installer downloads the latest release, verifies its SHA-256 before installing anything, and finishes by running the tool's own version check.
+
+macOS and Linux:
+
+```bash
+curl -fsSL https://github.com/your-org/ultraterm-computer-use/releases/latest/download/install.sh | sh
+```
+
+Windows (PowerShell 5.1 or PowerShell 7):
+
+```powershell
+irm https://github.com/your-org/ultraterm-computer-use/releases/latest/download/install.ps1 | iex
+```
+
+What the one-step installers do:
+
+- Linux: install the release npm package (with the bundled native Linux runtimes) under `~/.ultraterm-computer-use` and put `ultraterm-computer-use` in `~/.local/bin`. If Node 18 or newer is missing, the official Node 22 LTS is fetched into the tool's own folder, checksum verified. No sudo, no shell profile edits; the installer prints one line when the bin directory is not on PATH.
+- macOS: `install.sh` points at the signed `.pkg` route below and installs nothing, so the signed installer is never bypassed silently. To install the npm package under `~/.ultraterm-computer-use` instead, pass `--npm`: `curl -fsSL https://github.com/your-org/ultraterm-computer-use/releases/latest/download/install.sh | sh -s -- --npm`
+- Windows: install under `%LOCALAPPDATA%\UltraTermComputerUse`, write an `ultraterm-computer-use.cmd` shim into its `bin` folder, and add that folder to the user Path only when it is absent. Node is handled the same way as on Linux.
+
+Update by re-running the same one-liner; it upgrades in place. Remove by deleting the install folder and the shim (on Windows, also remove the `bin` folder from your user Path). Set `UTCU_VERSION` to pin a version, `UTCU_HOME` and `UTCU_BIN_DIR` to change locations.
+
+Real app control still needs a logged-in desktop session: Accessibility and Screen Recording on macOS, AT-SPI2 and D-Bus on Linux, UI Automation on Windows.
+
+### Manual: npm package (macOS, Linux, and Windows)
 
 Install the release package with npm:
 
@@ -44,7 +68,7 @@ ultraterm-computer-use --version
 
 The package includes native arm64 and x86-64 runtimes and selects the current platform at launch. Each release lists a `.sha256` checksum next to the package.
 
-### Signed macOS installer
+### Manual: signed macOS installer
 
 ```bash
 curl -fsSLo /tmp/install-ultraterm-computer-use.sh \

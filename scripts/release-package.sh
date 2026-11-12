@@ -56,4 +56,28 @@ manifest = {
 manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 PY
 
+# One-step installers ship as release assets too, covered by SHA256SUMS.
+cp "${repo_root}/scripts/install.sh" "${release_dir}/install.sh"
+cp "${repo_root}/scripts/install.ps1" "${release_dir}/install.ps1"
+chmod 755 "${release_dir}/install.sh"
+
+python3 - "${release_dir}" "${tarball_dir}" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+release_dir = pathlib.Path(sys.argv[1])
+tarball_dir = pathlib.Path(sys.argv[2])
+
+files = sorted(tarball_dir.glob("*.tgz")) + [
+    release_dir / name for name in ("release-manifest.json", "install.sh", "install.ps1")
+]
+lines = [f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}" for path in files]
+(release_dir / "SHA256SUMS").write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+print("Release assets:")
+for path in files + [release_dir / "SHA256SUMS"]:
+    print(f"  {path.name}")
+PY
+
 echo "${release_dir}"
