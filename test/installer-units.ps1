@@ -5,7 +5,7 @@ $ErrorActionPreference = 'Stop'
 $tokens = $null; $errs = $null
 $ast = [Management.Automation.Language.Parser]::ParseFile($Script, [ref]$tokens, [ref]$errs)
 if ($errs.Count -gt 0) { throw "install.ps1 does not parse: $($errs[0].Message)" }
-foreach ($name in 'Get-ShimRef', 'Get-CmdShimText', 'Assert-ShimOurs') {
+foreach ($name in 'Get-ShimRef', 'Get-CmdShimText', 'Assert-ShimOurs', 'Test-PathHasEntry') {
   $def = $ast.Find({ param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name }, $true)
   if (-not $def) { throw "install.ps1 has no function $name" }
   . ([scriptblock]::Create($def.Extent.Text))
@@ -49,5 +49,12 @@ try {
   $threw = $false; try { Assert-ShimOurs -Shim $f } catch { $threw = $true }
   Check $threw 'empty foreign file is refused'
 } finally { Remove-Item -Recurse -Force $d -ErrorAction SilentlyContinue }
+# Path entry comparison (the Windows Path write itself is Windows-only).
+$env:UTCU_TEST_ROOT = 'C:\Users\Jo'
+Check (Test-PathHasEntry -PathValue 'C:\a;C:\Users\Jo\bin' -Entry 'C:\Users\Jo\bin') 'path entry found literally'
+Check (Test-PathHasEntry -PathValue 'C:\a;c:\users\JO\BIN\' -Entry 'C:\Users\Jo\bin') 'path entry found ignoring case and trailing backslash'
+Check (Test-PathHasEntry -PathValue 'C:\a;%UTCU_TEST_ROOT%\bin' -Entry 'C:\Users\Jo\bin') 'path entry found after %VAR% expansion'
+Check (-not (Test-PathHasEntry -PathValue 'C:\a;C:\Users\Jo\bin2;;' -Entry 'C:\Users\Jo\bin')) 'similar entry is not a match'
+Check (-not (Test-PathHasEntry -PathValue '' -Entry 'C:\Users\Jo\bin')) 'empty Path has no entry'
 if ($fails -gt 0) { throw "$fails installer unit check(s) failed" }
 Write-Host 'installer units OK'

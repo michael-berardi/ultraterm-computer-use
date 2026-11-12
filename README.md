@@ -62,7 +62,7 @@ Real app control still needs a logged-in desktop session: Accessibility and Scre
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.7.2/ultraterm-computer-use-0.7.1.tgz
+npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.7.3/ultraterm-computer-use-0.7.3.tgz
 ultraterm-computer-use --version
 ```
 

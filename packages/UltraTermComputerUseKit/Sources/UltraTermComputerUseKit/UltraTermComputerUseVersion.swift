@@ -1,6 +1,6 @@
 import Foundation
 
-public let ultraTermComputerUseVersion = "0.7.2"
+public let ultraTermComputerUseVersion = "0.7.3"
 
 public func resolvedUltraTermComputerUseVersion(bundle: Bundle = .main) -> String {
     if let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,

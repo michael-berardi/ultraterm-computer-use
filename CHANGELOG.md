@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.3
+
+Fixed: the Windows installer (`install.ps1`) read the user Path with entries such as `%USERPROFILE%\AppData\Local\Microsoft\WindowsApps` already expanded and wrote it back as a plain string, so those entries were permanently hard-coded and the value lost its expandable type. It now reads the raw value from `HKCU\Environment`, treats the bin folder as present when an entry matches it literally or after expansion, and writes the Path back with its existing registry type (expandable when it did not exist). The Windows installer was tested under PowerShell 7 on Linux and not yet on a Windows machine.
+
 ## 0.7.2
 
 Fixed: README: real owner in install, badge and clone links; neutrality test allows the repo's own URL.

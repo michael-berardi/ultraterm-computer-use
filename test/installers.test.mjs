@@ -252,3 +252,12 @@ test("install.ps1 helpers under PowerShell 7", { skip: pwsh.status !== 0 && "pws
   const r = sh("pwsh", ["-NoProfile", "-File", join(root, "test/installer-units.ps1"), join(root, "scripts/install.ps1")]);
   assert.equal(r.status, 0, r.stdout + r.stderr);
 });
+
+test("install.ps1 writes the user Path through the registry, never the expanding .NET accessors", () => {
+  const ps = read("scripts/install.ps1");
+  assert.ok(!/SetEnvironmentVariable\(\s*'Path'/i.test(ps), "must not call SetEnvironmentVariable('Path'");
+  assert.ok(!/GetEnvironmentVariable\(\s*'Path'/i.test(ps), "must not call GetEnvironmentVariable('Path'");
+  assert.match(ps, /DoNotExpandEnvironmentNames/);
+  assert.match(ps, /OpenSubKey\('Environment', \$true\)/);
+  assert.match(ps, /GetValueKind\('Path'\)/);
+});

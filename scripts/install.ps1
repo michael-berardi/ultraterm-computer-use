@@ -3,7 +3,7 @@
 # %LOCALAPPDATA%\UltraTermComputerUse, and puts an ultraterm-computer-use.cmd shim on your user Path.
 # Uses the Node 18+ already on this machine, or fetches the official Node 22 LTS into the tool's own folder.
 # Also runs under PowerShell 7 on Linux for testing, with UTCU_HOME / UTCU_BIN_DIR overrides.
-# Environment: UTCU_HOME, UTCU_BIN_DIR, UTCU_VERSION (pin a version, e.g. 0.7.1), UTCU_RELEASE_BASE (test override).
+# Environment: UTCU_HOME, UTCU_BIN_DIR, UTCU_VERSION (pin a version, e.g. 0.7.3), UTCU_RELEASE_BASE (test override).
 # Everything runs inside one function and ends with a single call: under `irm | iex` nothing is left behind in the
 # user's session, errors are thrown (never `exit`, which would close the user's shell), and the user's
 # $ErrorActionPreference / $ProgressPreference are restored.
@@ -77,6 +77,19 @@ function Install-UltraTermComputerUse {
       return '%~dp0..\' + $rest
     }
     return $Path
+  }
+
+  # True when a raw (unexpanded) Path value already lists Entry, literally or after %VAR% expansion;
+  # case-insensitive, ignoring a trailing backslash.
+  function Test-PathHasEntry {
+    param([string]$PathValue, [string]$Entry)
+    $want = $Entry.TrimEnd('\')
+    foreach ($p in ($PathValue -split ';')) {
+      if (-not $p) { continue }
+      if ($p.TrimEnd('\') -ieq $want) { return $true }
+      if ([Environment]::ExpandEnvironmentVariables($p).TrimEnd('\') -ieq $want) { return $true }
+    }
+    return $false
   }
 
   function Get-CmdShimText {
@@ -296,13 +309,24 @@ function Install-UltraTermComputerUse {
     }
 
     if ($isWin) {
-      $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
-      if (-not $userPath) { $userPath = '' }
-      $parts = @($userPath -split ';' | Where-Object { $_ })
-      if ($parts -notcontains $binDir) {
-        [Environment]::SetEnvironmentVariable('Path', (($parts + $binDir) -join ';'), 'User')
-        Write-Host "Added $binDir to your user Path; open a new terminal to pick it up."
-      }
+      # The raw user Path is read without expanding %VAR% entries and written back with its own registry type.
+      $envKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey('Environment', $true)
+      try {
+        $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+        $userPath = ''
+        if ($envKey.GetValueNames() -contains 'Path') {
+          $kind = $envKey.GetValueKind('Path')
+          $userPath = [string]$envKey.GetValue('Path', '', [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
+        }
+        if (-not (Test-PathHasEntry -PathValue $userPath -Entry $binDir)) {
+          $newPath = if ($userPath) { $userPath.TrimEnd(';') + ';' + $binDir } else { $binDir }
+          $envKey.SetValue('Path', $newPath, $kind)
+          # Setting and clearing a user variable broadcasts the change so new terminals pick the Path up.
+          [Environment]::SetEnvironmentVariable('UTCU_PATH_REFRESH', '1', 'User')
+          [Environment]::SetEnvironmentVariable('UTCU_PATH_REFRESH', $null, 'User')
+          Write-Host "Added $binDir to your user Path; open a new terminal to pick it up."
+        }
+      } finally { if ($envKey) { $envKey.Close() } }
     } elseif (($env:PATH -split [IO.Path]::PathSeparator) -notcontains $binDir) {
       Write-Host "Add $binDir to your PATH:  export PATH=`"$binDir`:`$PATH`""
     }
