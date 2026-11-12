@@ -50,8 +50,7 @@ done
 if [ "$(uname -s)" = "Darwin" ] && [ "$NPM_ROUTE" -eq 0 ]; then
   say "On macOS, UltraTerm Computer Use ships as a signed and notarized installer package."
   say "Install it with the signed route (verifies checksum, signature, and notarization):"
-  say "  curl -fsSLo /tmp/install-ultraterm-computer-use.sh https://raw.githubusercontent.com/$REPO/main/scripts/install-ultraterm-computer-use.sh"
-  say "  bash /tmp/install-ultraterm-computer-use.sh"
+  say "  f=\$(mktemp) && curl -fsSLo \"\$f\" $BASE/install-ultraterm-computer-use.sh && bash \"\$f\"; rm -f \"\$f\""
   say "Or re-run this script with --npm to install the npm package under $HOME_DIR instead."
   say "Nothing was installed."
   exit 0
@@ -139,6 +138,17 @@ if ! npm_ok "$NPM"; then
   [ -n "$NPM" ] || die "no working npm found next to Node ($NODE_DIRNAME) or on PATH; install Node 18+ with npm"
 fi
 
+# Never overwrite a command this installer did not write (checked before anything is moved into place).
+SHIM="$BIN_DIR/ultraterm-computer-use"
+if [ -e "$SHIM" ] || [ -L "$SHIM" ]; then
+  if ! grep -q 'UTCU_NPM_SHIM' "$SHIM" 2>/dev/null; then
+    if grep -q 'ULTRATERM_COMPUTER_USE_MANAGED_SHIM' "$SHIM" 2>/dev/null; then
+      die "the signed macOS installer already manages $SHIM; remove that shim first or set UTCU_BIN_DIR to another folder"
+    fi
+    die "refusing to replace existing command at $SHIM (not written by this installer); remove it first or set UTCU_BIN_DIR to another folder"
+  fi
+fi
+
 say "Installing UltraTerm Computer Use $VERSION..."
 STAGE="$TMP/stage"
 mkdir -p "$STAGE"
@@ -151,24 +161,14 @@ got=$("$NODE_BIN" "$LAUNCHER" --version 2>&1 </dev/null) || die "the new copy do
 case "$got" in "$VERSION") ;; *) die "the new copy reports '$got', not $VERSION; nothing was changed" ;; esac
 
 mkdir -p "$APP" "$BIN_DIR"
-REL="$APP/release-$VERSION"
-rm -rf "$REL.tmp"
-mv "$STAGE" "$REL.tmp"
-rm -rf "$REL"
-mv "$REL.tmp" "$REL"
+# Each install gets its own folder, so re-running the same version never removes the live release.
+REL="$APP/release-$VERSION-$$"
+mv "$STAGE" "$REL"
 LAUNCHER="$REL/node_modules/ultraterm-computer-use/bin/ultraterm-computer-use"
 
-SHIM="$BIN_DIR/ultraterm-computer-use"
-if [ -f "$SHIM" ] && ! grep -q 'UTCU_NPM_SHIM' "$SHIM" 2>/dev/null; then
-  if grep -q 'ULTRATERM_COMPUTER_USE_MANAGED_SHIM' "$SHIM" 2>/dev/null; then
-    die "the signed macOS installer already manages $SHIM; remove that shim first or set UTCU_BIN_DIR to another folder"
-  fi
-  die "refusing to replace existing command at $SHIM; remove it first or set UTCU_BIN_DIR to another folder"
-fi
-case "$NODE_BIN" in
-  "$RUNTIME"/*) SHIM_NODE="\"$NODE_BIN\"" ;;
-  *) SHIM_NODE="node" ;;
-esac
+# Always the absolute node: MCP hosts started from a GUI often have no node on PATH.
+case "$NODE_BIN" in /*) ;; *) NODE_BIN="$(pwd)/$NODE_BIN" ;; esac
+SHIM_NODE="\"$NODE_BIN\""
 cat > "$SHIM.tmp.$$" <<SHIM
 #!/bin/sh
 # UTCU_NPM_SHIM
@@ -180,7 +180,7 @@ mv -f "$SHIM.tmp.$$" "$SHIM"
 # Keep only the release that the shim points at.
 for d in "$APP"/release-*; do
   [ -d "$d" ] || continue
-  [ "$d" = "$REL" ] || rm -rf "$d"
+  [ "$d" = "$REL" ] || rm -rf "$d" || true
 done
 
 got=$("$SHIM" --version 2>&1 </dev/null) || die "the installed command does not run: $got"

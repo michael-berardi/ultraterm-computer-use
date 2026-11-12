@@ -95,12 +95,6 @@ xcrun stapler validate "$pkg"
 ditto -c -k --sequesterRsrc --keepParent "$app" "$zip"
 xcrun stapler validate "$app"
 
-# One-step installers ship as release assets too, covered by SHA256SUMS.
-# This does not change how the .pkg is built, signed, or notarized above.
-cp "$repo_root/scripts/install.sh" "$output/install.sh"
-cp "$repo_root/scripts/install.ps1" "$output/install.ps1"
-chmod 755 "$output/install.sh"
-
 (cd "$output" && shasum -a 256 "$(basename "$pkg")" > "$(basename "$pkg").sha256")
 (cd "$output" && shasum -a 256 "$(basename "$zip")" > "$(basename "$zip").sha256")
 python3 - "$output" "$version" "$team" "$bundle_id" <<'PY'
@@ -123,6 +117,8 @@ manifest = {
 (root / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 PY
 
-(cd "$output" && shasum -a 256 "$(basename "$pkg")" "$(basename "$zip")" release-manifest.json install.sh install.ps1 > SHA256SUMS)
+# One-step installers (stamped with the real owner/repo), the npm .tgz and ONE combined SHA256SUMS are added by
+# the shared final step; it does not change how the .pkg is built, signed, or notarized above.
+"$repo_root/scripts/finalize-release.sh" "$version"
 
 echo "Built signed and notarized UltraTerm Computer Use release at $output"

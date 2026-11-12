@@ -149,6 +149,14 @@ if [[ "$run_linux" -eq 1 ]]; then
     apt-get install -y -qq --no-install-recommends nodejs npm >/dev/null
     UTCU_HOME=/root/.utcu-system UTCU_BIN_DIR=/root/bin2 UTCU_RELEASE_BASE="$UTCU_TEST_BASE" sh /rel/install.sh
     test "$(/root/bin2/ultraterm-computer-use --version)" = "'"$version"'"
+    grep -q "^exec \"/.*node\" " /root/bin2/ultraterm-computer-use || { echo "system-Node shim must embed the absolute node"; exit 1; }
+    test "$(ls /root/.utcu-system/app | grep -c "^release-")" = 1
+    echo "foreign command is refused and left alone"
+    printf "#!/bin/sh\necho mine\n" > /root/bin3file; mkdir -p /root/bin3; cp /root/bin3file /root/bin3/ultraterm-computer-use
+    if UTCU_HOME=/root/.utcu-foreign UTCU_BIN_DIR=/root/bin3 UTCU_RELEASE_BASE="$UTCU_TEST_BASE" sh /rel/install.sh; then echo "foreign command was replaced"; exit 1; fi
+    test "$(cat /root/bin3/ultraterm-computer-use)" = "#!/bin/sh
+echo mine"
+    test ! -e /root/.utcu-foreign/app || test -z "$(ls /root/.utcu-foreign/app)"
     echo "Linux container install, upgrade, and system-Node paths OK"
   '
   echo "== Linux container: corrupted archive refused =="
@@ -177,6 +185,35 @@ if [[ "$run_pwsh" -eq 1 ]]; then
       $v = (& "$HOME/.local/bin/ultraterm-computer-use" --version | Out-String).Trim()
       if ($v -ne "'"$version"'") { throw "version mismatch after upgrade: $v" }
       Write-Host "pwsh install and upgrade OK"
+    '
+  echo "== pwsh container: helper unit tests =="
+  docker run --rm --name ultraterm-computer-use-test-pwsh-units \
+    ${pwsh_platform_args[@]+"${pwsh_platform_args[@]}"} \
+    -v "$repo_root/test:/t:ro" -v "$fixture:/rel:ro" "$pwsh_image" \
+    pwsh -NoProfile -File /t/installer-units.ps1 /rel/install.ps1
+  echo "== pwsh container: relative HOME/BIN overrides, same-version re-run, foreign shim =="
+  docker run --rm --name ultraterm-computer-use-test-pwsh-rel \
+    ${pwsh_platform_args[@]+"${pwsh_platform_args[@]}"} \
+    -e UTCU_RELEASE_BASE="$container_base" -v "$fixture:/rel:ro" "$pwsh_image" \
+    pwsh -NoProfile -c '
+      $ErrorActionPreference = "Stop"
+      Set-Location /tmp
+      $env:UTCU_HOME = "./relhome/../relhome"; $env:UTCU_BIN_DIR = "relbin"
+      & /rel/install.ps1
+      & /rel/install.ps1
+      $rels = @(Get-ChildItem /tmp/relhome/app -Directory -Filter "release-*")
+      if ($rels.Count -ne 1) { throw "expected one release folder, found $($rels.Count)" }
+      $v = (& /tmp/relbin/ultraterm-computer-use --version | Out-String).Trim()
+      if ($v -ne "'"$version"'") { throw "relative-override install broken: $v" }
+      if ((Get-Content /tmp/relbin/ultraterm-computer-use -Raw) -notmatch "(?m)^exec .+/node") { throw "shim must embed the absolute node" }
+      $env:UTCU_HOME = "/tmp/foreignhome"; $env:UTCU_BIN_DIR = "/tmp/foreignbin"
+      New-Item -ItemType Directory /tmp/foreignbin | Out-Null
+      Set-Content /tmp/foreignbin/ultraterm-computer-use "#!/bin/sh`necho mine"
+      $threw = $false; try { & /rel/install.ps1 } catch { $threw = "$_" -match "refusing" }
+      if (-not $threw) { throw "foreign command was not refused" }
+      if (Test-Path /tmp/foreignhome/app) { throw "refused run left a release behind" }
+      if ($ErrorActionPreference -ne "Stop") { throw "installer must restore the preference" }
+      Write-Host "pwsh relative overrides, re-run and refusal OK"
     '
   echo "== pwsh container: corrupted archive refused =="
   corrupt_fixture
