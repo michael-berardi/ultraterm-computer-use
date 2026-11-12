@@ -97,6 +97,10 @@ const personalFiles = [...new Set([...shipped, ...[...SHIPPED_DIRS, "test", "tes
   existsSync(join(root, dir)) ? walk(join(root, dir), [], true) : []),
 ])];
 
+// Only this repository's own canonical GitHub URL forms may carry the owner name, in README and docs.
+const OWN_URL = /(?:https?:\/\/(?:raw\.githubusercontent\.com|github\.com)|https?:\/\/img\.shields\.io\/github\/[a-z-]+(?:\/[a-z-]+)*)\/michael-berardi\/ultraterm-computer-use(?![\w.-])/g;
+const isDoc = (file) => /\.md$/i.test(file) && (file.endsWith("README.md") || relative(root, file).startsWith("docs/"));
+
 function scanFiles(files, patterns = [MODEL_CHOICE, PERSONAL]) {
   return files
     .flatMap((file) =>
@@ -106,6 +110,7 @@ function scanFiles(files, patterns = [MODEL_CHOICE, PERSONAL]) {
     )
     // The README credits the publisher on one line; it is public branding, not an operator identity.
     .filter(([file, , line]) => !(file.endsWith("README.md") && line.startsWith("Part of [Pareto Cybernetics](https://paretocybernetics.com/")))
+    .map(([file, line, text]) => [file, line, isDoc(file) ? text.replace(OWN_URL, "") : text])
     .filter(([, , line]) => patterns.some((pattern) => pattern.test(line)))
     .map(([file, line, text]) => `${relative(root, file)}:${line}: ${text.trim().slice(0, 120)}`);
 }
@@ -145,4 +150,27 @@ test("private terms loader matches literal bounded terms", () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("own-URL allowance is narrow", () => {
+  const dir = mkdtempSync(join(tmpdir(), "neutrality-"));
+  try {
+    const ok = join(dir, "README.md");
+    writeFileSync(ok, "https://github.com/michael-berardi/ultraterm-computer-use/releases/latest\nhttps://img.shields.io/github/v/release/michael-berardi/ultraterm-computer-use?label=release\n");
+    assert.deepEqual(scanFiles([ok]), []);
+    writeFileSync(ok, "https://github.com/michael-berardi/other-repo\nby michael-berardi\n");
+    assert.equal(scanFiles([ok]).length, 2);
+    const src = join(dir, "x.sh");
+    writeFileSync(src, "https://github.com/michael-berardi/ultraterm-computer-use\n");
+    assert.equal(scanFiles([src]).length, 1);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("README has no placeholder owner in a URL", () => {
+  const readme = readFileSync(join(root, "README.md"), "utf8");
+  const bad = /(?:github\.com|githubusercontent\.com|img\.shields\.io\/github\/[\w\/-]+)\/(?:example-user|your-org|your-github-username|Alex\/|OWNER|<owner>)/;
+  const hits = readme.split("\n").filter((l) => bad.test(l));
+  assert.deepEqual(hits, []);
 });

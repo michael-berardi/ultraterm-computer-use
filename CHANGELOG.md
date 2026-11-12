@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2
+
+Fixed: README: real owner in install, badge and clone links; neutrality test allows the repo's own URL.
+
 ## 0.7.1
 
 Fixed: an `install.sh`, `install.ps1` or `install-ultraterm-computer-use.sh` fetched from the main branch (an unstamped source copy) downloaded its tarball and checksums from a placeholder GitHub account that anyone could register. These scripts now refuse to run unless they are the stamped copies attached to a GitHub release (`UTCU_RELEASE_BASE` still works for tests); the stamp cannot rewrite the guard. Also fixed: `install.sh` could nest a new release inside an existing release folder with the same name (it now creates a unique folder), and under `curl | sh` the macOS message now prints the correct `sh -s -- --npm` command. The signed release build now finishes with `finalize-release.sh --require-all` once the npm tarball exists, so a partial `SHA256SUMS` cannot be uploaded. The Windows installer was tested under PowerShell 7 on Linux and not yet on a Windows machine.
