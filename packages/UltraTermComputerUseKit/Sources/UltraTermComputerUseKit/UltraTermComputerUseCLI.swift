@@ -3,12 +3,17 @@ import Foundation
 public enum UltraTermComputerUseCLICommand: Equatable {
     case launchOnboarding
     case mcp
-    case doctor(json: Bool = false)
+    case doctor(statusOnly: Bool = false, json: Bool = false)
     case lockedUseStatus(json: Bool)
     case lockedUseManagement(action: String, validation: Bool)
     case listApps
+    case targets(runningOnly: Bool, json: Bool)
+    case tools(name: String?, json: Bool)
+    case inspect(app: String, windowTitle: String?, json: Bool, mediaDir: String?)
     case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults, observation: SnapshotObservationOptions = .defaults)
     case call(UltraTermComputerUseCallInvocation)
+    case preview(app: String, options: PreviewCaptureOptions)
+    case record(app: String, options: RecordingCaptureOptions)
     case turnEnded(payload: String?)
     case help(command: String?)
     case version
@@ -36,9 +41,18 @@ public func shouldUseMacOSAppAgentProxy(
     switch command {
     case .launchOnboarding:
         return !runningFromLaunchServicesAppInstance
-    case .mcp, .doctor, .lockedUseStatus, .listApps, .snapshot, .call:
+    case let .doctor(statusOnly, _):
+        // Status-only doctor only prints diagnostics; it must never touch
+        // the app agent (which may present onboarding UI).
+        return !statusOnly
+    case .tools:
+        // Local-only commands; never need the app agent.
+        return false
+    case .mcp, .lockedUseStatus, .listApps, .targets, .inspect, .snapshot, .call:
         return true
-    case .lockedUseManagement, .turnEnded, .help, .version:
+    // preview/record run long-lived ScreenCaptureKit sessions in the CLI
+    // process so signals cancel them cleanly and no viewer UI ever opens.
+    case .preview, .record, .lockedUseManagement, .turnEnded, .help, .version:
         return false
     }
 }
@@ -110,20 +124,27 @@ public func parseUltraTermComputerUseCLI(arguments: [String]) throws -> UltraTer
     case "mcp":
         return try parseSimpleCommand(name: "mcp", arguments: Array(arguments.dropFirst()), result: .mcp)
     case "doctor":
-        if Array(arguments.dropFirst()) == ["--json"] {
-            return .doctor(json: true)
-        }
-        return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor())
+        return try parseDoctor(arguments: Array(arguments.dropFirst()))
     case "locked-use":
         return try parseLockedUse(arguments: Array(arguments.dropFirst()))
     case "list-apps":
         return try parseSimpleCommand(name: "list-apps", arguments: Array(arguments.dropFirst()), result: .listApps)
+    case "targets":
+        return try parseTargets(arguments: Array(arguments.dropFirst()))
+    case "tools":
+        return try parseTools(arguments: Array(arguments.dropFirst()))
+    case "inspect":
+        return try parseInspect(arguments: Array(arguments.dropFirst()))
     case "call":
         return try parseCall(arguments: Array(arguments.dropFirst()))
     case "turn-ended":
         return try parseTurnEnded(arguments: Array(arguments.dropFirst()))
     case "snapshot":
         return try parseSnapshot(arguments: Array(arguments.dropFirst()))
+    case "preview":
+        return try parsePreview(arguments: Array(arguments.dropFirst()))
+    case "record":
+        return try parseRecord(arguments: Array(arguments.dropFirst()))
     default:
         if first.hasPrefix("-") {
             throw UltraTermComputerUseCLIError(message: "Unknown option: \(first)", helpCommand: nil)
@@ -147,8 +168,13 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
           mcp                  Start the stdio MCP server.
           doctor               Print permission status and launch onboarding if needed.
           list-apps            Print running or recently used apps.
+          targets              Print targetable apps (JSON-capable, running-only filter).
+          tools [name]         Print tool definitions or one tool's schema.
+          inspect <app>        Print a non-disruptive accessibility snapshot of a running app.
           snapshot <app>       Print the current accessibility snapshot for an app.
           call <tool>           Call one tool, or run a JSON array of tool calls.
+          preview <app>        Write a live JPEG preview (latest.jpg + manifest.json) of an app's window.
+          record <app>         Record an app's window to a bounded H.264 MP4.
           turn-ended           Notify the running MCP process that the host turn ended.
           help [command]       Show general or command-specific help.
           version              Print the CLI version.
@@ -171,12 +197,64 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
     case "doctor":
         return """
         Usage:
-          ultraterm-computer-use doctor [--json]
+          ultraterm-computer-use doctor [--status-only] [--json]
+
+        Options:
+          --status-only        Only print the permission state. Never launches the
+                               onboarding app and never prompts.
+          --json               Print the permission state as JSON (never launches onboarding).
 
         Print the current Accessibility and Screen Recording permission state.
-        If permissions are missing, this also launches the onboarding app.
+        Without --status-only, missing permissions also launch the onboarding app.
         --json prints a permission snapshot without launching onboarding (macOS only).
         Read allGranted to determine readiness; missing permissions still exit successfully.
+        """
+    case "targets":
+        return """
+        Usage:
+          ultraterm-computer-use targets [--running-only] [--json]
+
+        Options:
+          --running-only       Only include apps that are currently running.
+          --json               Print targets as a JSON array with name, bundle_id,
+                               pid, running, and frontmost fields.
+
+        Print targetable apps. Read-only: never launches, activates, or prompts.
+        """
+    case "tools":
+        return """
+        Usage:
+          ultraterm-computer-use tools [--json]
+          ultraterm-computer-use tools <name> [--json]
+
+        Arguments:
+          <name>               Optional tool name to inspect (for example click).
+
+        Options:
+          --json               Print the full tool definition JSON (name,
+                               description, inputSchema, annotations).
+
+        Print the Computer Use tool catalog. Read-only and offline.
+        """
+    case "inspect":
+        return """
+        Usage:
+          ultraterm-computer-use inspect [--json] [--window <title>] [--media-dir <path>] [--no-launch] [--no-activate] <app>
+
+        Arguments:
+          <app>                App name, bundle identifier, pid:<pid>, or a bare pid.
+
+        Options:
+          --window <title>     Target the window whose title contains <title>.
+          --media-dir <path>   Write the screenshot to <path> as a PNG file and
+                               reference it with an image_path content item instead
+                               of embedding base64.
+          --json               Print the full tool-result JSON.
+          --no-launch          Do not launch the app (always guaranteed).
+          --no-activate        Do not activate the app (always guaranteed).
+
+        Print the accessibility snapshot of a running app without launching,
+        activating, prompting, or mutating anything.
         """
     case "locked-use":
         return """
@@ -238,6 +316,50 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
         Sequence execution stops after the first tool result with isError=true.
         Sequence runs sleep \(formatUltraTermComputerUseDelay(ultraTermComputerUseDefaultInterCallDelay)) between successful operations by default.
         """
+    case "preview":
+        return """
+        Usage:
+          ultraterm-computer-use preview [--output-dir <path>] [--duration <seconds>] [--fps <1-60>] [--max-width <px>] [--quality <0.05-1>] [--include-cursor] <app>
+
+        Arguments:
+          <app>                App name or bundle identifier to capture. The app must already be
+                               running; preview never launches, activates, or unhides it.
+
+        Options:
+          --output-dir         Directory receiving latest.jpg and manifest.json (required).
+          --duration           Capture length in seconds, up to 3600. Default 30.
+          --fps                Maximum published frames per second. Default 8.
+          --max-width          Longest published frame width in pixels. Default 960.
+          --quality            JPEG quality between 0.05 and 1. Default 0.8.
+          --include-cursor     Composite the system cursor into frames (explicit opt-in).
+
+        Writes a real-time file-backed preview: latest.jpg is atomically replaced at
+        the requested fps and manifest.json tracks dimensions, timestamps, and
+        frame/drop counters. Prints a machine-readable JSON summary and never
+        opens a viewer.
+        """
+    case "record":
+        return """
+        Usage:
+          ultraterm-computer-use record [--output <path>] [--duration <seconds>] [--fps <1-60>] [--max-width <px>] [--bitrate <bps>] [--include-cursor] <app>
+
+        Arguments:
+          <app>                App name or bundle identifier to capture. The app must already be
+                               running; record never launches, activates, or unhides it.
+
+        Options:
+          --output             Destination .mp4 path (required).
+          --duration           Recording length in seconds, hard-capped at 600. Default 60.
+          --fps                Frames per second. Default 15.
+          --max-width          Longest encoded frame width in pixels. Default 1920.
+          --bitrate            H.264 average bitrate in bits per second. Default 4000000.
+          --include-cursor     Composite the system cursor into frames (explicit opt-in).
+
+        Records a bounded H.264 MP4 with monotonic timestamps and no audio. The
+        output is hard-capped at 600 seconds and 300 MB; partial outputs are
+        removed on failure. Prints a machine-readable JSON summary and never
+        opens a viewer.
+        """
     case "turn-ended":
         return """
         Usage:
@@ -285,6 +407,139 @@ private func parseSimpleCommand(
     }
 
     throw UltraTermComputerUseCLIError(message: "\(name) does not accept any arguments", helpCommand: name)
+}
+
+private func parseDoctor(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+    if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
+        return .help(command: "doctor")
+    }
+
+    var statusOnly = false
+    var json = false
+
+    for argument in arguments {
+        switch argument {
+        case "--status-only":
+            guard !statusOnly else { throw UltraTermComputerUseCLIError(message: "--status-only was given more than once", helpCommand: "doctor") }
+            statusOnly = true
+        case "--json":
+            guard !json else { throw UltraTermComputerUseCLIError(message: "--json was given more than once", helpCommand: "doctor") }
+            json = true
+        case "-h", "--help":
+            throw UltraTermComputerUseCLIError(message: "doctor help must be requested as `ultraterm-computer-use doctor --help`", helpCommand: "doctor")
+        default:
+            throw UltraTermComputerUseCLIError(message: "Unknown doctor option: \(argument)", helpCommand: "doctor")
+        }
+    }
+
+    return .doctor(statusOnly: statusOnly, json: json)
+}
+
+private func parseTargets(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+    if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
+        return .help(command: "targets")
+    }
+
+    var runningOnly = false
+    var json = false
+
+    for argument in arguments {
+        switch argument {
+        case "--running-only":
+            runningOnly = true
+        case "--json":
+            json = true
+        case "-h", "--help":
+            throw UltraTermComputerUseCLIError(message: "targets help must be requested as `ultraterm-computer-use targets --help`", helpCommand: "targets")
+        default:
+            throw UltraTermComputerUseCLIError(message: "Unknown targets option: \(argument)", helpCommand: "targets")
+        }
+    }
+
+    return .targets(runningOnly: runningOnly, json: json)
+}
+
+private func parseTools(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+    if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
+        return .help(command: "tools")
+    }
+
+    var name: String?
+    var json = false
+
+    for argument in arguments {
+        switch argument {
+        case "--json":
+            json = true
+        case "-h", "--help":
+            throw UltraTermComputerUseCLIError(message: "tools help must be requested as `ultraterm-computer-use tools --help`", helpCommand: "tools")
+        default:
+            if argument.hasPrefix("-") {
+                throw UltraTermComputerUseCLIError(message: "Unknown tools option: \(argument)", helpCommand: "tools")
+            }
+
+            guard name == nil else {
+                throw UltraTermComputerUseCLIError(message: "tools accepts at most one tool name", helpCommand: "tools")
+            }
+
+            name = argument
+        }
+    }
+
+    return .tools(name: name, json: json)
+}
+
+private func parseInspect(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+    if arguments.isEmpty {
+        throw UltraTermComputerUseCLIError(message: "inspect requires an app name, bundle identifier, or pid:<pid> target", helpCommand: "inspect")
+    }
+
+    if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
+        return .help(command: "inspect")
+    }
+
+    var app: String?
+    var windowTitle: String?
+    var mediaDir: String?
+    var json = false
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+        switch argument {
+        case "--no-launch", "--no-activate":
+            // Non-launching, non-activating is inspect's guaranteed behavior;
+            // the flags are accepted so scripts can state the requirement
+            // explicitly.
+            break
+        case "--json":
+            json = true
+        case "--media-dir":
+            mediaDir = try parseOptionValue("--media-dir", arguments: arguments, index: &index, helpCommand: "inspect")
+        case "--window":
+            windowTitle = try parseOptionValue("--window", arguments: arguments, index: &index, helpCommand: "inspect")
+        case "-h", "--help":
+            throw UltraTermComputerUseCLIError(message: "inspect help must be requested as `ultraterm-computer-use inspect --help`", helpCommand: "inspect")
+        default:
+            if argument.hasPrefix("-") {
+                throw UltraTermComputerUseCLIError(message: "Unknown inspect option: \(argument)", helpCommand: "inspect")
+            }
+
+            guard app == nil else {
+                throw UltraTermComputerUseCLIError(message: "inspect accepts exactly one <app> argument", helpCommand: "inspect")
+            }
+
+            app = argument
+        }
+
+        index += 1
+    }
+
+    guard let app else {
+        throw UltraTermComputerUseCLIError(message: "inspect requires an app name, bundle identifier, or pid:<pid> target", helpCommand: "inspect")
+    }
+
+    return .inspect(app: app, windowTitle: windowTitle, json: json, mediaDir: mediaDir)
 }
 
 private func parseTurnEnded(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
@@ -402,6 +657,177 @@ private func parseSnapshot(arguments: [String]) throws -> UltraTermComputerUseCL
     )
 }
 
+private func parsePreview(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+    if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
+        return .help(command: "preview")
+    }
+
+    var app: String?
+    var outputDirectory: String?
+    var duration = 30.0
+    var framesPerSecond = 8
+    var maxWidth = 960
+    var jpegQuality = 0.8
+    var includeCursor = false
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+        switch argument {
+        case "--output-dir":
+            outputDirectory = try parseCaptureOptionValue("--output-dir", arguments: arguments, index: &index, helpCommand: "preview")
+        case "--duration":
+            duration = try parseCapturePositiveDouble("--duration", arguments: arguments, index: &index, helpCommand: "preview")
+        case "--fps":
+            framesPerSecond = try parseCapturePositiveInteger("--fps", arguments: arguments, index: &index, helpCommand: "preview")
+        case "--max-width":
+            maxWidth = try parseCapturePositiveInteger("--max-width", arguments: arguments, index: &index, helpCommand: "preview")
+        case "--quality":
+            jpegQuality = try parseCapturePositiveDouble("--quality", arguments: arguments, index: &index, helpCommand: "preview")
+        case "--include-cursor":
+            includeCursor = true
+        case "-h", "--help":
+            throw UltraTermComputerUseCLIError(message: "preview help must be requested as `ultraterm-computer-use preview --help`", helpCommand: "preview")
+        default:
+            if argument.hasPrefix("-") {
+                throw UltraTermComputerUseCLIError(message: "Unknown preview option: \(argument)", helpCommand: "preview")
+            }
+
+            guard app == nil else {
+                throw UltraTermComputerUseCLIError(message: "preview accepts exactly one <app> argument", helpCommand: "preview")
+            }
+
+            app = argument
+        }
+        index += 1
+    }
+
+    guard let app else {
+        throw UltraTermComputerUseCLIError(message: "preview requires an app name or bundle identifier", helpCommand: "preview")
+    }
+    guard let outputDirectory else {
+        throw UltraTermComputerUseCLIError(message: "preview requires --output-dir <path>", helpCommand: "preview")
+    }
+
+    return .preview(
+        app: app,
+        options: PreviewCaptureOptions(
+            outputDirectory: outputDirectory,
+            duration: duration,
+            framesPerSecond: framesPerSecond,
+            maxWidth: maxWidth,
+            jpegQuality: jpegQuality,
+            includeCursor: includeCursor
+        )
+    )
+}
+
+private func parseRecord(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+    if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
+        return .help(command: "record")
+    }
+
+    var app: String?
+    var outputPath: String?
+    var duration = 60.0
+    var framesPerSecond = 15
+    var maxWidth = 1920
+    var bitrate = 4_000_000
+    var includeCursor = false
+
+    var index = 0
+    while index < arguments.count {
+        let argument = arguments[index]
+        switch argument {
+        case "--output":
+            outputPath = try parseCaptureOptionValue("--output", arguments: arguments, index: &index, helpCommand: "record")
+        case "--duration":
+            duration = try parseCapturePositiveDouble("--duration", arguments: arguments, index: &index, helpCommand: "record")
+        case "--fps":
+            framesPerSecond = try parseCapturePositiveInteger("--fps", arguments: arguments, index: &index, helpCommand: "record")
+        case "--max-width":
+            maxWidth = try parseCapturePositiveInteger("--max-width", arguments: arguments, index: &index, helpCommand: "record")
+        case "--bitrate":
+            bitrate = try parseCapturePositiveInteger("--bitrate", arguments: arguments, index: &index, helpCommand: "record")
+        case "--include-cursor":
+            includeCursor = true
+        case "-h", "--help":
+            throw UltraTermComputerUseCLIError(message: "record help must be requested as `ultraterm-computer-use record --help`", helpCommand: "record")
+        default:
+            if argument.hasPrefix("-") {
+                throw UltraTermComputerUseCLIError(message: "Unknown record option: \(argument)", helpCommand: "record")
+            }
+
+            guard app == nil else {
+                throw UltraTermComputerUseCLIError(message: "record accepts exactly one <app> argument", helpCommand: "record")
+            }
+
+            app = argument
+        }
+        index += 1
+    }
+
+    guard let app else {
+        throw UltraTermComputerUseCLIError(message: "record requires an app name or bundle identifier", helpCommand: "record")
+    }
+    guard let outputPath else {
+        throw UltraTermComputerUseCLIError(message: "record requires --output <path>", helpCommand: "record")
+    }
+
+    return .record(
+        app: app,
+        options: RecordingCaptureOptions(
+            outputPath: outputPath,
+            duration: duration,
+            framesPerSecond: framesPerSecond,
+            maxWidth: maxWidth,
+            bitrate: bitrate,
+            includeCursor: includeCursor
+        )
+    )
+}
+
+private func parseCaptureOptionValue(
+    _ option: String,
+    arguments: [String],
+    index: inout Int,
+    helpCommand: String
+) throws -> String {
+    let valueIndex = index + 1
+    guard valueIndex < arguments.count else {
+        throw UltraTermComputerUseCLIError(message: "\(option) requires a value", helpCommand: helpCommand)
+    }
+
+    index = valueIndex
+    return arguments[valueIndex]
+}
+
+private func parseCapturePositiveInteger(
+    _ option: String,
+    arguments: [String],
+    index: inout Int,
+    helpCommand: String
+) throws -> Int {
+    let rawValue = try parseCaptureOptionValue(option, arguments: arguments, index: &index, helpCommand: helpCommand)
+    guard let value = Int(rawValue), value > 0 else {
+        throw UltraTermComputerUseCLIError(message: "\(option) must be a positive integer", helpCommand: helpCommand)
+    }
+    return value
+}
+
+private func parseCapturePositiveDouble(
+    _ option: String,
+    arguments: [String],
+    index: inout Int,
+    helpCommand: String
+) throws -> Double {
+    let rawValue = try parseCaptureOptionValue(option, arguments: arguments, index: &index, helpCommand: helpCommand)
+    guard let value = Double(rawValue), value.isFinite, value > 0 else {
+        throw UltraTermComputerUseCLIError(message: "\(option) must be a positive number", helpCommand: helpCommand)
+    }
+    return value
+}
+
 private func parseTextLimitOption(_ value: String, option: String) throws -> SnapshotTextLimit {
     if value.lowercased() == SnapshotTextLimit.maxKeyword {
         return .max
@@ -505,11 +931,12 @@ private func parseCall(arguments: [String]) throws -> UltraTermComputerUseCLICom
 private func parseOptionValue(
     _ option: String,
     arguments: [String],
-    index: inout Int
+    index: inout Int,
+    helpCommand: String = "call"
 ) throws -> String {
     let valueIndex = index + 1
     guard valueIndex < arguments.count else {
-        throw UltraTermComputerUseCLIError(message: "\(option) requires a value", helpCommand: "call")
+        throw UltraTermComputerUseCLIError(message: "\(option) requires a value", helpCommand: helpCommand)
     }
 
     index = valueIndex
@@ -538,6 +965,18 @@ private func formatUltraTermComputerUseDelay(_ delay: TimeInterval) -> String {
     }
 
     return "\(delay)s"
+}
+
+/// Serialize a JSON-compatible object graph for CLI stdout.
+public func ultraTermComputerUseJSONText(_ object: Any) throws -> String {
+    let data = try JSONSerialization.data(
+        withJSONObject: object,
+        options: [.prettyPrinted, .withoutEscapingSlashes]
+    )
+    guard let text = String(data: data, encoding: .utf8) else {
+        throw ComputerUseError.message("Failed to encode CLI output as JSON.")
+    }
+    return text
 }
 
 private func parseLockedUse(arguments: [String]) throws -> UltraTermComputerUseCLICommand {

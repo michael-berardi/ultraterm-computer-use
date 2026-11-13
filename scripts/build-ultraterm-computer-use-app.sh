@@ -381,6 +381,8 @@ cat > "${contents_dir}/Info.plist" <<PLIST
   <true/>
   <key>NSPrincipalClass</key>
   <string>NSApplication</string>
+  <key>NSScreenCaptureUsageDescription</key>
+  <string>UltraTerm Computer Use reads on-screen pixels only while a screenshot, preview, or recording is running.</string>
 </dict>
 </plist>
 PLIST

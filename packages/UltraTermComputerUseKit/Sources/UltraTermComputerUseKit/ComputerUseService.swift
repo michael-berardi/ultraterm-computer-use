@@ -225,6 +225,70 @@ func makeVisualCursorTarget(
     )
 }
 
+/// How the visual cursor wraps up after a tool action. Primary clicks end with a
+/// click pulse; every other visual action (secondary action, scroll, drag,
+/// set_value) settles back to the resting pose.
+enum VisualCursorCompletion: Equatable {
+    case pulse(clickCount: Int, mouseButton: MouseButtonKind)
+    case settle
+}
+
+/// Centralized trigger policy for the software cursor overlay. Every visual
+/// action (click, secondary action, scroll, drag, set_value) routes through
+/// these entry points so cursor semantics stay consistent: `begin` moves the
+/// cursor to the target before the action runs, `finish` plays the completion
+/// on success, and failures always settle instead of leaving the cursor
+/// mid-flight.
+enum VisualCursorTriggerPolicy {
+    static func begin(_ target: VisualCursorTarget?) {
+        guard let target else {
+            return
+        }
+
+        VisualCursorSupport.performOnMain {
+            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window, anchor: target.anchor)
+        }
+    }
+
+    static func finish(_ target: VisualCursorTarget?, completion: VisualCursorCompletion) {
+        guard let target else {
+            return
+        }
+
+        VisualCursorSupport.performOnMain {
+            switch completion {
+            case let .pulse(clickCount, mouseButton):
+                SoftwareCursorOverlay.pulseClick(
+                    at: target.point,
+                    clickCount: clickCount,
+                    mouseButton: mouseButton,
+                    in: target.window,
+                    anchor: target.anchor
+                )
+            case .settle:
+                SoftwareCursorOverlay.settle(at: target.point, in: target.window, anchor: target.anchor)
+            }
+        }
+    }
+
+    @discardableResult
+    static func run<T>(
+        target: VisualCursorTarget?,
+        completion: VisualCursorCompletion,
+        action: () throws -> T
+    ) throws -> T {
+        begin(target)
+        do {
+            let value = try action()
+            finish(target, completion: completion)
+            return value
+        } catch {
+            finish(target, completion: .settle)
+            throw error
+        }
+    }
+}
+
 func inputFallbackDebugEnabled(environment: [String: String]) -> Bool {
     guard let rawValue = environment["ULTRATERM_COMPUTER_USE_DEBUG_INPUT_FALLBACKS"]?
         .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -760,8 +824,20 @@ public final class ComputerUseService {
             clickCount: clickCount
         )
 
+        // Defense in depth: the dispatcher rejects these first, but direct service
+        // callers must never get a silent .left fallback or a clamped click count.
+        guard let button = MouseButtonKind(
+            rawValue: mouseButton.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        ) else {
+            throw ComputerUseError.invalidArguments(
+                "mouse_button must be one of \(MouseButtonKind.allCases.map(\.rawValue).joined(separator: ", "))"
+            )
+        }
+        guard clickCount > 0 else {
+            throw ComputerUseError.invalidArguments("click_count must be a positive integer")
+        }
+
         let snapshot = try snapshotForAction(app: query, elementIndex: elementIndex)
-        let button = MouseButtonKind(rawValue: mouseButton.lowercased()) ?? .left
         if elementIndex == nil, !snapshot.observation.includeScreenshot {
             throw ComputerUseError.stateUnavailable(SnapshotObservationOptions.screenshotOmittedNote + "; request a screenshot before screenshot-coordinate actions")
         }
@@ -2336,39 +2412,15 @@ public final class ComputerUseService {
     }
 
     private func moveVisualCursor(to target: VisualCursorTarget?) {
-        guard let target else {
-            return
-        }
-
-        VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.moveCursor(to: target.point, in: target.window, anchor: target.anchor)
-        }
+        VisualCursorTriggerPolicy.begin(target)
     }
 
     private func settleVisualCursor(at target: VisualCursorTarget?) {
-        guard let target else {
-            return
-        }
-
-        VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.settle(at: target.point, in: target.window, anchor: target.anchor)
-        }
+        VisualCursorTriggerPolicy.finish(target, completion: .settle)
     }
 
     private func pulseVisualCursor(at target: VisualCursorTarget?, clickCount: Int, mouseButton: MouseButtonKind) {
-        guard let target else {
-            return
-        }
-
-        VisualCursorSupport.performOnMain {
-            SoftwareCursorOverlay.pulseClick(
-                at: target.point,
-                clickCount: clickCount,
-                mouseButton: mouseButton,
-                in: target.window,
-                anchor: target.anchor
-            )
-        }
+        VisualCursorTriggerPolicy.finish(target, completion: .pulse(clickCount: clickCount, mouseButton: mouseButton))
     }
 
     private func debugInputFallback(tool: String, targetDescription: String, snapshot: AppSnapshot) {
@@ -2543,7 +2595,9 @@ public final class ComputerUseService {
         }
     }
 
-    private func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
+    /// Internal (not private) so tests can pin the result shape: text item,
+    /// State-ID item, optional image item, and top-level state_id.
+    func snapshotResult(for snapshot: AppSnapshot, style: SnapshotTextStyle) -> ToolCallResult {
         var content = [ToolResultContentItem.text(snapshot.renderedText(style: style))]
         let stateID = snapshot.stateID.isEmpty ? nil : snapshot.stateID
         if let stateID { content.append(.text("State-ID: \(stateID)")) }
@@ -2552,5 +2606,28 @@ public final class ComputerUseService {
             content.append(.screenshotImage(screenshotData))
         }
         return ToolCallResult(content: content, stateID: stateID)
+    }
+
+    /// Non-disruptive inspection for the `inspect` CLI command: resolves only
+    /// running apps (never launches), builds the snapshot with the read-only
+    /// recovery policy (never activates), and does not register state for actions.
+    public func inspectAppState(
+        app query: String,
+        windowTitleHint: String? = nil,
+        textLimit: SnapshotTextLimit = .defaults,
+        treeLimits: AccessibilityTreeLimits = .defaults
+    ) throws -> ToolCallResult {
+        let app = try AppDiscovery.resolveRunning(query, maxAttempts: 2)
+        if app.name != FixtureBridge.appName {
+            try validateSnapshotPermissions(PermissionDiagnostics.current(), includeScreenshot: true)
+        }
+        let snapshot = try SnapshotBuilder.build(
+            for: app,
+            textLimit: textLimit,
+            treeLimits: treeLimits,
+            recoveryPolicy: .readOnly,
+            windowTitleHint: windowTitleHint
+        )
+        return snapshotResult(for: snapshot, style: .fullState)
     }
 }

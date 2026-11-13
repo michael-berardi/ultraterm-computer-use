@@ -11,14 +11,14 @@ enum UltraTermComputerUseMain {
             try run()
         } catch let error as UltraTermComputerUseCLIError {
             writeToStandardError(error.errorDescription ?? error.message)
-            exit(EXIT_FAILURE)
+            exit(ultraTermComputerUseExitStatus(for: error).rawValue)
         } catch let error as ComputerUseError {
             writeToStandardError(error.errorDescription ?? String(describing: error))
-            exit(EXIT_FAILURE)
+            exit(ultraTermComputerUseExitStatus(for: error).rawValue)
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             writeToStandardError(message)
-            exit(EXIT_FAILURE)
+            exit(ultraTermComputerUseExitStatus(for: error).rawValue)
         }
     }
 
@@ -50,13 +50,13 @@ enum UltraTermComputerUseMain {
             } else {
                 try server.run()
             }
-        case let .doctor(json):
+        case let .doctor(statusOnly, json):
             let permissions = PermissionDiagnostics.current()
             print(try json ? permissions.jsonText() : permissions.summary)
             if !json, let lockedUse = LockedUseDiagnostics.current().doctorSummary {
                 print(lockedUse)
             }
-            if !json && !permissions.missingPermissions.isEmpty {
+            if !json && !statusOnly && !permissions.missingPermissions.isEmpty {
                 PermissionOnboardingApp.launch()
             }
         case let .lockedUseStatus(json):
@@ -65,6 +65,34 @@ enum UltraTermComputerUseMain {
         case .listApps:
             let service = ComputerUseService()
             print(service.listApps().primaryText ?? "")
+        case let .targets(runningOnly, json):
+            if json {
+                print(try ultraTermComputerUseJSONText(ultraTermComputerUseTargetsPayload(runningOnly: runningOnly)))
+            } else {
+                print(ultraTermComputerUseTargetsText(runningOnly: runningOnly))
+            }
+        case let .tools(name, json):
+            if json {
+                print(try ultraTermComputerUseJSONText(ultraTermComputerUseToolsPayload(name: name)))
+            } else {
+                print(try ultraTermComputerUseToolsText(name: name))
+            }
+        case let .inspect(app, windowTitle, json, mediaDir):
+            let service = ComputerUseService()
+            var result = try service.inspectAppState(app: app, windowTitleHint: windowTitle)
+            if let mediaDir {
+                result = try externalizeToolResultImages(result, mediaDir: mediaDir, stem: "\(app)-inspect")
+            }
+            if json {
+                print(try ultraTermComputerUseJSONText(result.asDictionary))
+            } else {
+                print(result.primaryText ?? "")
+                for item in result.content where item.dictionary["type"] as? String == "image_path" {
+                    if let path = item.dictionary["path"] as? String {
+                        print("image: \(path)")
+                    }
+                }
+            }
         case let .snapshot(app, textLimit, treeLimits, observation):
             let service = ComputerUseService()
             print(try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits, observation: observation).textContent)
@@ -75,6 +103,18 @@ enum UltraTermComputerUseMain {
             let output = try runUltraTermComputerUseCall(invocation)
             print(try output.jsonText())
             if output.hasToolError {
+                exit(output.errorInfo.map { ultraTermComputerUseExitStatus(forStructuredCode: $0.code).rawValue } ?? EXIT_FAILURE)
+            }
+        case let .preview(app, options):
+            let summary = try PreviewCaptureCommand.run(app: app, options: options)
+            print(try summary.jsonText())
+            if summary.status == .failed {
+                exit(EXIT_FAILURE)
+            }
+        case let .record(app, options):
+            let summary = try RecordingCaptureCommand.run(app: app, options: options)
+            print(try summary.jsonText())
+            if summary.status == .failed {
                 exit(EXIT_FAILURE)
             }
         case .turnEnded:

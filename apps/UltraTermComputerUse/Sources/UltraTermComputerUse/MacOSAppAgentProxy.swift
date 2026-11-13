@@ -483,10 +483,8 @@ private final class AppAgentConnection: @unchecked Sendable {
     }
 
     func run() {
-        guard let file = fdopen(fileDescriptor, "r+") else {
-            close(fileDescriptor)
-            return
-        }
+        // The channel owns the descriptor (buffered chunk reads) and closes it when run() returns.
+        let channel = LineDelimitedSocketChannel(fileDescriptor: fileDescriptor)
         let monitorQueue = DispatchQueue(label: "ocu.client-disconnect")
         let monitor = DispatchSource.makeTimerSource(queue: monitorQueue)
         // Polls only while a request runs (rescheduled below): between requests the blocking
@@ -506,15 +504,14 @@ private final class AppAgentConnection: @unchecked Sendable {
             lockedUse.end(disconnecting: true)
             if let probe = keychainProbe { keychainProbe = nil; LockedUseDeferredCleanup.shared.retainIfNeeded(probe) }
             server.endSession()
-            fclose(file)
         }
 
-        while let line = readAgentLine(file) {
+        while let line = channel.readLine() {
             // A pool per request: this thread's own drains only when the client disconnects.
             autoreleasepool {
                 monitor.schedule(deadline: .now(), repeating: .milliseconds(100))
                 let response = handle(requestLine: line)
-                writeAgentLine(response, to: file)
+                channel.writeJSONLine(response)
                 // A slow reader can also block the response write. Keep disconnect
                 // monitoring active until the whole exchange has finished.
                 monitor.schedule(deadline: .distantFuture)
@@ -677,9 +674,9 @@ private final class AppAgentConnection: @unchecked Sendable {
                 }
                 return CLIProxyResponse(stdout: "", stderr: "", exitCode: EXIT_SUCCESS)
 
-            case let .doctor(json):
+            case let .doctor(statusOnly, json):
                 let permissions = PermissionDiagnostics.current()
-                if !json && !permissions.missingPermissions.isEmpty {
+                if !json && !statusOnly && !permissions.missingPermissions.isEmpty {
                     Task { @MainActor in
                         PermissionOnboardingApp.present()
                     }
@@ -695,6 +692,61 @@ private final class AppAgentConnection: @unchecked Sendable {
                 let service = ComputerUseService()
                 return CLIProxyResponse(stdout: (service.listApps().primaryText ?? "") + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
+            case let .targets(runningOnly, json):
+                let stdout: String
+                if json {
+                    stdout = try ultraTermComputerUseJSONText(ultraTermComputerUseTargetsPayload(runningOnly: runningOnly)) + "\n"
+                } else {
+                    stdout = ultraTermComputerUseTargetsText(runningOnly: runningOnly) + "\n"
+                }
+                return CLIProxyResponse(stdout: stdout, stderr: "", exitCode: EXIT_SUCCESS)
+
+            case let .tools(name, json):
+                do {
+                    let stdout: String
+                    if json {
+                        stdout = try ultraTermComputerUseJSONText(ultraTermComputerUseToolsPayload(name: name)) + "\n"
+                    } else {
+                        stdout = try ultraTermComputerUseToolsText(name: name) + "\n"
+                    }
+                    return CLIProxyResponse(stdout: stdout, stderr: "", exitCode: EXIT_SUCCESS)
+                } catch {
+                    let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                    return CLIProxyResponse(
+                        stdout: "",
+                        stderr: message + "\n",
+                        exitCode: ultraTermComputerUseExitStatus(for: error).rawValue
+                    )
+                }
+
+            case let .inspect(app, windowTitle, json, mediaDir):
+                do {
+                    let service = ComputerUseService()
+                    var result = try service.inspectAppState(app: app, windowTitleHint: windowTitle)
+                    if let mediaDir {
+                        result = try externalizeToolResultImages(result, mediaDir: mediaDir, stem: "\(app)-inspect")
+                    }
+                    var stdout: String
+                    if json {
+                        stdout = try ultraTermComputerUseJSONText(result.asDictionary) + "\n"
+                    } else {
+                        stdout = (result.primaryText ?? "") + "\n"
+                        for item in result.content where item.dictionary["type"] as? String == "image_path" {
+                            if let path = item.dictionary["path"] as? String {
+                                stdout += "image: \(path)\n"
+                            }
+                        }
+                    }
+                    return CLIProxyResponse(stdout: stdout, stderr: "", exitCode: EXIT_SUCCESS)
+                } catch {
+                    let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+                    return CLIProxyResponse(
+                        stdout: "",
+                        stderr: message + "\n",
+                        exitCode: ultraTermComputerUseExitStatus(for: error).rawValue
+                    )
+                }
+
             case let .snapshot(app, textLimit, treeLimits, observation):
                 let service = ComputerUseService()
                 let text = try service.getAppState(app: app, textLimit: textLimit, treeLimits: treeLimits, observation: observation).textContent
@@ -705,7 +757,9 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return CLIProxyResponse(
                     stdout: try output.jsonText() + "\n",
                     stderr: "",
-                    exitCode: output.hasToolError ? EXIT_FAILURE : EXIT_SUCCESS
+                    exitCode: output.hasToolError
+                        ? (output.errorInfo.map { ultraTermComputerUseExitStatus(forStructuredCode: $0.code).rawValue } ?? EXIT_FAILURE)
+                        : EXIT_SUCCESS
                 )
 
             default:
@@ -713,7 +767,11 @@ private final class AppAgentConnection: @unchecked Sendable {
             }
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            return CLIProxyResponse(stdout: "", stderr: message + "\n", exitCode: EXIT_FAILURE)
+            return CLIProxyResponse(
+                stdout: "",
+                stderr: message + "\n",
+                exitCode: ultraTermComputerUseExitStatus(for: error).rawValue
+            )
         }
     }
 }
@@ -749,14 +807,10 @@ private enum AppAgentEnvironment {
 }
 
 private final class AppAgentSocketClient: @unchecked Sendable {
-    private let file: UnsafeMutablePointer<FILE>
+    private let channel: LineDelimitedSocketChannel
 
-    private init(file: UnsafeMutablePointer<FILE>) {
-        self.file = file
-    }
-
-    deinit {
-        fclose(file)
+    private init(fileDescriptor: Int32) {
+        channel = LineDelimitedSocketChannel(fileDescriptor: fileDescriptor)
     }
 
     /// Bound control requests (agentInfo, terminate) so a wedged agent cannot
@@ -764,8 +818,8 @@ private final class AppAgentSocketClient: @unchecked Sendable {
     func setControlTimeout(seconds: Int) {
         var timeout = timeval(tv_sec: seconds, tv_usec: 0)
         let size = socklen_t(MemoryLayout<timeval>.size)
-        setsockopt(fileno(file), SOL_SOCKET, SO_RCVTIMEO, &timeout, size)
-        setsockopt(fileno(file), SOL_SOCKET, SO_SNDTIMEO, &timeout, size)
+        setsockopt(channel.fileDescriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, size)
+        setsockopt(channel.fileDescriptor, SOL_SOCKET, SO_SNDTIMEO, &timeout, size)
     }
 
     /// True when a live agent accepts connections at `path`.
@@ -806,12 +860,12 @@ private final class AppAgentSocketClient: @unchecked Sendable {
                 Darwin.connect(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
             }
         }
-        guard result == 0, let file = fdopen(fd, "r+") else {
+        guard result == 0 else {
             close(fd)
             return nil
         }
 
-        return AppAgentSocketClient(file: file)
+        return AppAgentSocketClient(fileDescriptor: fd)
     }
 
     func request(_ object: [String: Any]) throws -> [String: Any] {
@@ -820,9 +874,9 @@ private final class AppAgentSocketClient: @unchecked Sendable {
             throw ComputerUseError.message("Failed to encode app-agent request.")
         }
 
-        writeAgentLine(line, to: file)
+        channel.writeLine(line)
 
-        guard let responseLine = readAgentLine(file),
+        guard let responseLine = channel.readLine(),
               let response = try JSONSerialization.jsonObject(with: Data(responseLine.utf8)) as? [String: Any]
         else {
             throw ComputerUseError.message("UltraTerm Computer Use.app agent closed the connection.")
@@ -839,7 +893,7 @@ private final class AppAgentSocketClient: @unchecked Sendable {
         let deadline = ProcessInfo.processInfo.systemUptime + 3
         var byte: UInt8 = 0
         while ProcessInfo.processInfo.systemUptime < deadline {
-            let count = recv(fileno(file), &byte, 1, MSG_PEEK | MSG_DONTWAIT)
+            let count = recv(channel.fileDescriptor, &byte, 1, MSG_PEEK | MSG_DONTWAIT)
             if count == 0 { return true }
             if count < 0, ![EAGAIN, EWOULDBLOCK, EINTR].contains(errno) { return true }
             Thread.sleep(forTimeInterval: 0.05)
@@ -860,7 +914,7 @@ private final class AppAgentSocketClient: @unchecked Sendable {
 
         // Prefer the kernel's start time of the process actually on the other
         // end of this socket over the agent's own report.
-        let peerStart = AppAgentProcess.peerPID(ofSocket: fileno(file)).flatMap(AppAgentProcess.startTime)
+        let peerStart = AppAgentProcess.peerPID(ofSocket: channel.fileDescriptor).flatMap(AppAgentProcess.startTime)
         guard let processStartTime = peerStart ?? response["processStartTime"] as? TimeInterval else {
             return false
         }
@@ -891,35 +945,4 @@ private final class AppAgentSocketClient: @unchecked Sendable {
             .appendingPathComponent(executableName)
             .standardizedFileURL
     }
-}
-
-private func readAgentLine(_ file: UnsafeMutablePointer<FILE>) -> String? {
-    var bytes: [UInt8] = []
-
-    while true {
-        let character = fgetc(file)
-        if character == EOF {
-            return bytes.isEmpty ? nil : String(data: Data(bytes), encoding: .utf8)
-        }
-        if character == 10 {
-            return String(data: Data(bytes), encoding: .utf8)
-        }
-        bytes.append(UInt8(character))
-    }
-}
-
-private func writeAgentLine(_ object: [String: Any], to file: UnsafeMutablePointer<FILE>) {
-    if let data = try? JSONSerialization.data(withJSONObject: object, options: [.withoutEscapingSlashes]),
-       let line = String(data: data, encoding: .utf8)
-    {
-        writeAgentLine(line, to: file)
-    }
-}
-
-private func writeAgentLine(_ line: String, to file: UnsafeMutablePointer<FILE>) {
-    let output = line + "\n"
-    _ = output.withCString { pointer in
-        fputs(pointer, file)
-    }
-    fflush(file)
 }

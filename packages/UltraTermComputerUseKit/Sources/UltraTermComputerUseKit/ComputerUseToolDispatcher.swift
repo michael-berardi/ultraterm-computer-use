@@ -6,15 +6,17 @@ func normalizedElementIndexArgument(_ value: Any?) -> String? {
         return string.isEmpty ? nil : string
     }
 
+    // CFBoolean NSNumbers (JSON true/false) bridge-cast to Int/Double, so the
+    // boolean check must run before any numeric branch.
+    if let number = value as? NSNumber, CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
+        return nil
+    }
+
     if let integer = value as? Int {
         return String(integer)
     }
 
     if let number = value as? NSNumber {
-        if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
-            return nil
-        }
-
         return normalizedElementIndexNumber(number.doubleValue)
     }
 
@@ -49,6 +51,38 @@ public final class ComputerUseToolDispatcher {
         // app-agent connection), so without one per call every screenshot's bitmap and
         // encoded data stayed alive for the whole session.
         try autoreleasepool { try dispatchTool(name: name, arguments: arguments) }
+    }
+
+    /// Runs a call and folds every failure into a `ToolCallResult` carrying a
+    /// structured `error` payload (phase `execute`). The result text is exactly the
+    /// error's own description, so the tool contract is unchanged; schema preflight
+    /// is the CLI's job (`preflightUltraTermComputerUseCalls`).
+    public func callToolAsResult(name: String, arguments: [String: Any]) -> ToolCallResult {
+        callToolAsResult(name: name, arguments: arguments, callIndex: nil)
+    }
+
+    func callToolAsResult(name: String, arguments: [String: Any], callIndex: Int?) -> ToolCallResult {
+        callValidatedToolAsResult(name: name, arguments: arguments, callIndex: callIndex)
+    }
+
+    /// Executes a call after schema validation has already completed. Sequence
+    /// execution uses this after its all-calls preflight, avoiding another
+    /// identical validation pass while preserving the public dispatch contract.
+    fileprivate func callValidatedToolAsResult(
+        name: String,
+        arguments: [String: Any],
+        callIndex: Int?
+    ) -> ToolCallResult {
+        let result: ToolCallResult
+        do {
+            result = try callTool(name: name, arguments: arguments)
+        } catch {
+            // Argument and tool-name failures never mutate anything, so they report as
+            // `preflight`; everything else failed while executing.
+            let info = computerUseErrorInfo(for: error, phase: dispatchFailurePhase(for: error), callIndex: callIndex)
+            result = ToolCallResult.text(info.message, errorInfo: info)
+        }
+        return result
     }
 
     /// Tools that change the app and so accept `state_id`.
@@ -95,11 +129,11 @@ public final class ComputerUseToolDispatcher {
         case "click":
             return try service.click(
                 app: requireString("app", in: arguments),
-                elementIndex: optionalElementIndex(in: arguments),
-                x: optionalDouble("x", in: arguments),
-                y: optionalDouble("y", in: arguments),
-                clickCount: Int(optionalDouble("click_count", in: arguments) ?? 1),
-                mouseButton: optionalString("mouse_button", in: arguments) ?? "left",
+                elementIndex: try optionalElementIndex(in: arguments),
+                x: try optionalDouble("x", in: arguments),
+                y: try optionalDouble("y", in: arguments),
+                clickCount: try optionalPositiveInt("click_count", in: arguments) ?? 1,
+                mouseButton: try optionalMouseButton(in: arguments) ?? MouseButtonKind.left.rawValue,
                 clickMethod: try parseClickMethod(optionalString("click_method", in: arguments))
             )
         case "perform_secondary_action":
@@ -113,7 +147,7 @@ public final class ComputerUseToolDispatcher {
                 app: requireString("app", in: arguments),
                 direction: requireString("direction", in: arguments),
                 elementIndex: requireElementIndex(in: arguments),
-                pages: optionalDouble("pages", in: arguments) ?? 1
+                pages: try optionalDouble("pages", in: arguments) ?? 1
             )
         case "drag":
             return try service.drag(
@@ -152,20 +186,6 @@ public final class ComputerUseToolDispatcher {
             )
         default:
             throw ComputerUseError.unsupportedTool(name)
-        }
-    }
-
-    public func callToolAsResult(name: String, arguments: [String: Any]) -> ToolCallResult {
-        do {
-            return try callTool(name: name, arguments: arguments)
-        } catch let error as ComputerUseError {
-            return ToolCallResult.text(
-                error.errorDescription ?? String(describing: error),
-                isError: error.toolResultIsError
-            )
-        } catch {
-            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
-            return ToolCallResult.text(message, isError: true)
         }
     }
 
@@ -244,39 +264,66 @@ public final class ComputerUseToolDispatcher {
     }
 
     private func requireElementIndex(in arguments: [String: Any]) throws -> String {
-        guard let value = optionalElementIndex(in: arguments) else {
+        guard let value = try optionalElementIndex(in: arguments) else {
             throw ComputerUseError.missingArgument("element_index")
         }
 
         return value
     }
 
-    private func optionalElementIndex(in arguments: [String: Any]) -> String? {
-        normalizedElementIndexArgument(arguments["element_index"])
+    private func optionalElementIndex(in arguments: [String: Any]) throws -> String? {
+        // A JSON boolean is never an index; refuse it instead of treating it as absent.
+        if let number = arguments["element_index"] as? NSNumber, CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
+            throw ComputerUseError.invalidArguments("element_index must be a string or a whole number")
+        }
+        return normalizedElementIndexArgument(arguments["element_index"])
     }
 
     private func requireDouble(_ key: String, in arguments: [String: Any]) throws -> Double {
-        guard let value = optionalDouble(key, in: arguments) else {
+        guard let value = try optionalDouble(key, in: arguments) else {
             throw ComputerUseError.missingArgument(key)
         }
 
         return value
     }
 
-    private func optionalDouble(_ key: String, in arguments: [String: Any]) -> Double? {
-        if let double = arguments[key] as? Double {
+    private func optionalDouble(_ key: String, in arguments: [String: Any]) throws -> Double? {
+        guard let raw = arguments[key] else {
+            return nil
+        }
+
+        if let number = raw as? NSNumber, CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
+            throw ComputerUseError.invalidArguments("\(key) must be a number")
+        }
+
+        if let double = raw as? Double {
             return double
         }
 
-        if let integer = arguments[key] as? Int {
+        if let integer = raw as? Int {
             return Double(integer)
         }
 
-        if let number = arguments[key] as? NSNumber {
+        if let number = raw as? NSNumber {
             return number.doubleValue
         }
 
         return nil
+    }
+
+    private func optionalMouseButton(in arguments: [String: Any]) throws -> String? {
+        guard let raw = optionalString("mouse_button", in: arguments) else {
+            return nil
+        }
+
+        let normalized = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard MouseButtonKind(rawValue: normalized) != nil else {
+            throw ComputerUseError.invalidArguments(
+                "mouse_button must be one of \(MouseButtonKind.allCases.map(\.rawValue).joined(separator: ", "))"
+            )
+        }
+
+        return normalized
     }
 
     private func optionalPositiveInt(_ key: String, in arguments: [String: Any]) throws -> Int? {
@@ -288,6 +335,12 @@ public final class ComputerUseToolDispatcher {
     }
 
     private func positiveInt(from value: Any, key: String, expectedDescription: String) throws -> Int {
+        // CFBoolean NSNumbers (JSON true/false) bridge-cast to Int/Double, so
+        // the boolean check must run before any numeric branch.
+        if let number = value as? NSNumber, CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
+            throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
+        }
+
         if let integer = value as? Int {
             return try validatePositiveInt(integer, key: key, expectedDescription: expectedDescription)
         }
@@ -297,9 +350,6 @@ public final class ComputerUseToolDispatcher {
         }
 
         if let number = value as? NSNumber {
-            if CFGetTypeID(number as CFTypeRef) == CFBooleanGetTypeID() {
-                throw ComputerUseError.invalidArguments("\(key) must be \(expectedDescription)")
-            }
             return try validatePositiveWholeNumber(number.doubleValue, key: key, expectedDescription: expectedDescription)
         }
 
@@ -339,10 +389,12 @@ public struct UltraTermComputerUseCallSpec {
 public struct UltraTermComputerUseCallOutput {
     public let jsonObject: Any
     public let hasToolError: Bool
+    public let errorInfo: ComputerUseErrorInfo?
 
-    public init(jsonObject: Any, hasToolError: Bool) {
+    public init(jsonObject: Any, hasToolError: Bool, errorInfo: ComputerUseErrorInfo? = nil) {
         self.jsonObject = jsonObject
         self.hasToolError = hasToolError
+        self.errorInfo = errorInfo
     }
 
     public func jsonText() throws -> String {
@@ -359,6 +411,24 @@ public struct UltraTermComputerUseCallOutput {
 
 public typealias UltraTermComputerUseSleepHandler = (TimeInterval) -> Void
 
+/// Validate every call in a sequence against the tool schemas before any
+/// call executes. Returns nil when all calls are valid; otherwise the
+/// structured failure for the first invalid call (0-based `callIndex`).
+public func preflightUltraTermComputerUseCalls(_ calls: [UltraTermComputerUseCallSpec]) -> ComputerUseErrorInfo? {
+    for (index, call) in calls.enumerated() {
+        // An unknown tool is reported when it is reached, like any other tool error:
+        // the sequence stops there instead of being refused up front.
+        guard ToolSchemaValidator.isKnownTool(call.tool) else { continue }
+        do {
+            try ToolSchemaValidator.validate(tool: call.tool, arguments: call.arguments)
+        } catch {
+            return computerUseErrorInfo(for: error, phase: .preflight, callIndex: index)
+        }
+    }
+
+    return nil
+}
+
 public func runUltraTermComputerUseCall(
     _ invocation: UltraTermComputerUseCallInvocation,
     service: ComputerUseService = ComputerUseService(),
@@ -372,19 +442,47 @@ public func runUltraTermComputerUseCall(
             json: argumentsJSON,
             file: argumentsFile
         )
-        let result = dispatcher.callToolAsResult(name: toolName, arguments: arguments)
+
+        if let preflightError = preflightUltraTermComputerUseCalls([
+            UltraTermComputerUseCallSpec(tool: toolName, arguments: arguments),
+        ]) {
+            return UltraTermComputerUseCallOutput(
+                jsonObject: [
+                    "error": preflightError.asDictionary,
+                    "calls_executed": 0,
+                ],
+                hasToolError: true,
+                errorInfo: preflightError
+            )
+        }
+
+        let result = dispatcher.callValidatedToolAsResult(name: toolName, arguments: arguments, callIndex: nil)
         return UltraTermComputerUseCallOutput(
             jsonObject: result.asDictionary,
-            hasToolError: result.isError
+            hasToolError: result.isError,
+            errorInfo: result.errorInfo
         )
 
     case let .sequence(callsJSON, callsFile, interCallDelay):
         let calls = try readUltraTermComputerUseCallSequence(json: callsJSON, file: callsFile)
+
+        if let preflightError = preflightUltraTermComputerUseCalls(calls) {
+            return UltraTermComputerUseCallOutput(
+                jsonObject: [
+                    "error": preflightError.asDictionary,
+                    "calls_executed": 0,
+                ],
+                hasToolError: true,
+                errorInfo: preflightError
+            )
+        }
+
         var outputs: [[String: Any]] = []
         var hasToolError = false
+        var firstErrorInfo: ComputerUseErrorInfo?
 
         for (index, call) in calls.enumerated() {
-            let result = dispatcher.callToolAsResult(name: call.tool, arguments: call.arguments)
+            let result = dispatcher.callValidatedToolAsResult(name: call.tool, arguments: call.arguments, callIndex: index)
             outputs.append([
                 "tool": call.tool,
                 "result": result.asDictionary,
@@ -392,6 +490,7 @@ public func runUltraTermComputerUseCall(
 
             if result.isError {
                 hasToolError = true
+                firstErrorInfo = result.errorInfo
                 break
             }
 
@@ -400,7 +499,11 @@ public func runUltraTermComputerUseCall(
             }
         }
 
-        return UltraTermComputerUseCallOutput(jsonObject: outputs, hasToolError: hasToolError)
+        return UltraTermComputerUseCallOutput(
+            jsonObject: outputs,
+            hasToolError: hasToolError,
+            errorInfo: firstErrorInfo
+        )
     }
 }
 
@@ -522,4 +625,15 @@ func validatedQueryExact(_ value: Any?) throws -> Bool {
         throw ComputerUseError.invalidArguments("exact must be true or false")
     }
     return number.boolValue
+}
+
+func dispatchFailurePhase(for error: Error) -> ComputerUseErrorPhase {
+    switch error as? ComputerUseError {
+    case .invalidArguments, .unsupportedTool:
+        return .preflight
+    case .message(let text) where text.hasPrefix("Missing required argument:"):
+        return .preflight
+    default:
+        return .execute
+    }
 }

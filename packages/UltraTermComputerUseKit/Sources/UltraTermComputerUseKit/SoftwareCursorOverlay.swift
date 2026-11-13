@@ -99,7 +99,7 @@ func visualCursorIdleRotationAmplitude() -> CGFloat {
     0.09
 }
 
-public struct VisualCursorObservationPoint: Codable, Sendable {
+public struct VisualCursorObservationPoint: Codable, Equatable, Sendable {
     public let x: Double
     public let y: Double
 
@@ -129,6 +129,22 @@ public struct VisualCursorObservationSnapshot: Codable, Sendable {
         self.rotation = rotation.map(Double.init)
         self.timestamp = timestamp
     }
+}
+
+/// Identity of an observation snapshot for change detection. The timestamp is
+/// deliberately excluded so unchanged frames are not rewritten to disk.
+struct VisualCursorObservationSignature: Equatable {
+    let phase: String
+    let tipPosition: VisualCursorObservationPoint?
+    let restingTipPosition: VisualCursorObservationPoint?
+    let rotation: Double?
+}
+
+func shouldWriteVisualCursorObservation(
+    last: VisualCursorObservationSignature?,
+    next: VisualCursorObservationSignature
+) -> Bool {
+    last != next
 }
 
 struct VisualCursorIdlePose {
@@ -225,6 +241,7 @@ enum SoftwareCursorOverlay {
     private static var idlePhase: CGFloat = 0
     private static var idleTicks = 0
     private static var observationPhase = "hidden"
+    private static var lastWrittenObservationSignature: VisualCursorObservationSignature?
 
     static func moveCursor(
         to targetPoint: CGPoint,
@@ -330,6 +347,7 @@ enum SoftwareCursorOverlay {
         CursorWindowFrameTracker.forgetAll()
         visualDynamicsState = nil
         observationPhase = "hidden"
+        lastWrittenObservationSignature = nil
         writeObservationSnapshot(tipPosition: nil, rotation: nil)
         panel?.orderOut(nil)
     }
@@ -800,6 +818,7 @@ enum SoftwareCursorOverlay {
                 CursorWindowFrameTracker.forgetAll()
                 visualDynamicsState = nil
                 observationPhase = "hidden"
+                lastWrittenObservationSignature = nil
                 writeObservationSnapshot(tipPosition: nil, rotation: nil)
             }
         }
@@ -890,6 +909,19 @@ enum SoftwareCursorOverlay {
             rotation: rotation,
             timestamp: CACurrentMediaTime()
         )
+
+        // Skip the disk write entirely when the visible state has not changed;
+        // per-frame writes of identical snapshots are pure IO overhead.
+        let signature = VisualCursorObservationSignature(
+            phase: snapshot.phase,
+            tipPosition: snapshot.tipPosition,
+            restingTipPosition: snapshot.restingTipPosition,
+            rotation: snapshot.rotation
+        )
+        guard shouldWriteVisualCursorObservation(last: lastWrittenObservationSignature, next: signature) else {
+            return
+        }
+        lastWrittenObservationSignature = signature
 
         do {
             let directory = url.deletingLastPathComponent()

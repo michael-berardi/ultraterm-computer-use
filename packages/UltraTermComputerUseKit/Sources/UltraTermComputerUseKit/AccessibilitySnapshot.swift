@@ -58,23 +58,47 @@ enum SnapshotRecoveryPolicy: Equatable {
 public struct AccessibilityTreeLimits: Equatable, Sendable {
     public static let defaultMaxNodeCount = 1200
     public static let defaultMaxDepth = 64
+    public static let defaultMaxVisitedNodeCount = 10_000
+    public static let defaultMaxVisitedDepth = 256
     public static let defaults = AccessibilityTreeLimits(
         maxNodeCount: defaultMaxNodeCount,
         maxDepth: defaultMaxDepth
     )
 
+    /// Maximum number of nodes emitted into the rendered snapshot.
     public let maxNodeCount: Int
+    /// Maximum depth of emitted nodes in the rendered snapshot.
     public let maxDepth: Int
+    /// Maximum number of accessibility nodes visited while walking the tree,
+    /// including elided nodes that are never emitted.
+    public let maxVisitedNodeCount: Int
+    /// Maximum recursion depth while walking the tree, including elided
+    /// containers that do not increase the emitted depth.
+    public let maxVisitedDepth: Int
 
-    public init(maxNodeCount: Int = defaultMaxNodeCount, maxDepth: Int = defaultMaxDepth) {
+    public init(
+        maxNodeCount: Int = defaultMaxNodeCount,
+        maxDepth: Int = defaultMaxDepth,
+        maxVisitedNodeCount: Int = defaultMaxVisitedNodeCount,
+        maxVisitedDepth: Int = defaultMaxVisitedDepth
+    ) {
         self.maxNodeCount = maxNodeCount
         self.maxDepth = maxDepth
+        self.maxVisitedNodeCount = maxVisitedNodeCount
+        self.maxVisitedDepth = maxVisitedDepth
     }
 
-    public func replacing(maxNodeCount: Int? = nil, maxDepth: Int? = nil) -> AccessibilityTreeLimits {
+    public func replacing(
+        maxNodeCount: Int? = nil,
+        maxDepth: Int? = nil,
+        maxVisitedNodeCount: Int? = nil,
+        maxVisitedDepth: Int? = nil
+    ) -> AccessibilityTreeLimits {
         AccessibilityTreeLimits(
             maxNodeCount: maxNodeCount ?? self.maxNodeCount,
-            maxDepth: maxDepth ?? self.maxDepth
+            maxDepth: maxDepth ?? self.maxDepth,
+            maxVisitedNodeCount: maxVisitedNodeCount ?? self.maxVisitedNodeCount,
+            maxVisitedDepth: maxVisitedDepth ?? self.maxVisitedDepth
         )
     }
 }
@@ -102,6 +126,17 @@ public struct SnapshotTextLimit: Equatable, Sendable {
 let accessibilityTreeMaxNodeCount = AccessibilityTreeLimits.defaultMaxNodeCount
 let accessibilityTreeMaxDepth = AccessibilityTreeLimits.defaultMaxDepth
 let screenshotResultMaxDimension: CGFloat = 1280
+/// Finite timeout applied to accessibility messaging so a hung target app
+/// cannot block a snapshot or hit test indefinitely.
+let axMessagingTimeoutSeconds: Float = 4
+
+/// Applies a finite accessibility messaging timeout so a hung target process
+/// cannot block snapshot or hit-test calls indefinitely. Best-effort: the
+/// error is ignored because some processes reject the call.
+func applyAccessibilityMessagingTimeout(to appElement: AXUIElement, timeoutSeconds: Float = axMessagingTimeoutSeconds) {
+    AXUIElementSetMessagingTimeout(appElement, timeoutSeconds)
+}
+
 private let windowVisibilityRecoveryDelay: TimeInterval = 0.7
 private let axWebAreaRole = "AXWebArea"
 // Chrome needs up to ~2s after AXManualAccessibility before the web tree exists.
@@ -195,7 +230,8 @@ enum SnapshotBuilder {
         textLimit: SnapshotTextLimit = .defaults,
         treeLimits: AccessibilityTreeLimits = .defaults,
         recoveryPolicy: SnapshotRecoveryPolicy = .allowActivation,
-        observation: SnapshotObservationOptions = .defaults
+        observation: SnapshotObservationOptions = .defaults,
+        windowTitleHint: String? = nil
     ) throws -> AppSnapshot {
         try observation.validate()
         let recoveryPolicy = effectiveSnapshotRecoveryPolicy(recoveryPolicy)
@@ -221,6 +257,12 @@ enum SnapshotBuilder {
            recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
             focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
             focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        }
+
+        if let windowTitleHint,
+           !windowTitleHint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           let hintedWindow = window(matchingTitleHint: windowTitleHint, appElement: appElement) {
+            focusedWindow = hintedWindow
         }
 
         var rootWindow: AXUIElement
@@ -266,6 +308,29 @@ enum SnapshotBuilder {
             lazyWebAccessibility: lazyWebAccessibility,
             observation: observation
         )
+    }
+
+    /// First AX window whose title contains the hint (case-insensitive).
+    /// Exact title matches win over prefix matches, which win over substrings.
+    private static func window(matchingTitleHint hint: String, appElement: AXUIElement) -> AXUIElement? {
+        guard let windows = copyArray(appElement, attribute: kAXWindowsAttribute) else {
+            return nil
+        }
+
+        let titled: [(element: AXUIElement, title: String)] = windows.compactMap { window in
+            guard let title = stringValue(of: window, attribute: kAXTitleAttribute), !title.isEmpty else {
+                return nil
+            }
+            return (window, title)
+        }
+
+        if let exact = titled.first(where: { $0.title.caseInsensitiveCompare(hint) == .orderedSame }) {
+            return exact.element
+        }
+        if let prefix = titled.first(where: { $0.title.range(of: hint, options: [.caseInsensitive, .anchored]) != nil }) {
+            return prefix.element
+        }
+        return titled.first(where: { $0.title.range(of: hint, options: .caseInsensitive) != nil })?.element
     }
 
     private static func buildAccessibilitySnapshot(
@@ -530,6 +595,21 @@ enum SnapshotBuilder {
 /// also in apps whose own window tree leaves the sheet out (Firefox).
 func isSnapshotRootRole(_ role: String?) -> Bool {
     role == kAXWindowRole as String || role == kAXSheetRole as String
+}
+
+/// Permission gate for callers that must not silently degrade (the `inspect`
+/// command): Accessibility is always required, Screen Recording only when a
+/// screenshot is requested.
+func validateSnapshotPermissions(
+    _ permissions: PermissionDiagnostics,
+    includeScreenshot: Bool
+) throws {
+    guard permissions.accessibilityTrusted else {
+        throw ComputerUseError.permissionDenied("Accessibility permission is required. Run `ultraterm-computer-use doctor` and grant access to UltraTerm Computer Use.")
+    }
+    if includeScreenshot, !permissions.screenCaptureGranted {
+        throw ComputerUseError.permissionDenied("Screen Recording permission is required for screenshots. Run `ultraterm-computer-use doctor` and grant access to UltraTerm Computer Use.")
+    }
 }
 
 /// Returns `true` when the app accepts `AXManualAccessibility`, i.e. it builds
@@ -909,13 +989,15 @@ private struct TreeRenderer {
         }
         selected = []; plannedChildren = [:]
         let limit = max(0, context.treeLimits.maxNodeCount - nextIndex)
-        let scanLimit = max(64, min(limit, 2500) * 4)
+        let scanLimit = min(max(64, min(limit, 2500) * 4), context.treeLimits.maxVisitedNodeCount)
         var scanned = 0, truncated = false
         var queues = Array(repeating: [Work](), count: 5)
         var offsets = Array(repeating: 0, count: 5)
         var discovered: Set<TraversalElementKey> = []
         func enqueue(_ work: Work) {
-            guard work.depth < context.treeLimits.maxDepth, scanned < scanLimit else { truncated = true; return }
+            guard work.depth < context.treeLimits.maxDepth,
+                  shouldContinueVisiting(visitedNodeCount: scanned, visitedDepth: work.depth, limits: context.treeLimits)
+            else { truncated = true; return }
             scanned += 1
             guard discovered.insert(.init(element: work.node)).inserted else { return }
             let role = stringValue(of: work.node, attribute: kAXRoleAttribute) ?? ""
@@ -1294,6 +1376,14 @@ private func shouldSkipChild(_ child: AXUIElement, of parent: AXUIElement) -> Bo
     }
 
     return stringValue(of: child, attribute: kAXTitleAttribute) == "Apple"
+}
+
+func shouldContinueVisiting(
+    visitedNodeCount: Int,
+    visitedDepth: Int,
+    limits: AccessibilityTreeLimits = .defaults
+) -> Bool {
+    visitedNodeCount < limits.maxVisitedNodeCount && visitedDepth < limits.maxVisitedDepth
 }
 
 func shouldContinueRendering(

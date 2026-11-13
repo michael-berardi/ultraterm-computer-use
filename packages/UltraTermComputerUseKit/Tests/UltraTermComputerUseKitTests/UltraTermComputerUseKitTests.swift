@@ -686,6 +686,14 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         XCTAssertEqual(parsed.modifiers.count, 1)
     }
 
+    func testKeyPressParserSupportsBackquoteChordAliases() throws {
+        for alias in ["grave", "backquote", "backtick"] {
+            let parsed = try KeyPressParser.parse("option+\(alias)")
+            XCTAssertEqual(parsed.displayValue, alias)
+            XCTAssertEqual(parsed.modifiers.count, 1)
+        }
+    }
+
     func testKeyPressParserSupportsOfficialXdotoolAliases() throws {
         XCTAssertEqual(try KeyPressParser.parse("BackSpace").displayValue, "backspace")
         XCTAssertEqual(try KeyPressParser.parse("Page_Up").displayValue, "page_up")
@@ -1656,6 +1664,13 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.1password.1password"))
         XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.bitwarden.desktop"))
         XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "me.proton.pass.electron"))
+        XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "com.apple.Passwords.MenuBarExtra"))
+    }
+
+    func testAppSafetyPolicyBlocksCaseVariantBundleIdentifiers() {
+        XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "COM.1PASSWORD.1PASSWORD"))
+        XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: "Com.LastPass.LastPass"))
+        XCTAssertTrue(AppSafetyPolicy.isBlocked(bundleIdentifier: " com.bitwarden.desktop "))
     }
 
     func testVisualCursorEnvFlagDefaultsToEnabled() {

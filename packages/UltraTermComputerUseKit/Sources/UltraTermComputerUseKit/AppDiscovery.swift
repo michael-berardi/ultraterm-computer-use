@@ -9,6 +9,36 @@ public struct RunningAppDescriptor {
     public let runningApplication: NSRunningApplication
 }
 
+/// A parsed app target query. Accepts `pid:<pid>`, a bare pid, a bundle
+/// identifier (contains `.`), or an exact app name.
+public enum AppTargetQuery: Equatable {
+    case pid(pid_t)
+    case bundleIdentifier(String)
+    case name(String)
+
+    public static func parse(_ raw: String) -> AppTargetQuery {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        let pidPrefix = "pid:"
+        if trimmed.lowercased().hasPrefix(pidPrefix) {
+            let remainder = trimmed.dropFirst(pidPrefix.count)
+            if let pid = pid_t(remainder) {
+                return .pid(pid)
+            }
+        }
+
+        if let pid = pid_t(trimmed), String(pid) == trimmed {
+            return .pid(pid)
+        }
+
+        if trimmed.contains(".") {
+            return .bundleIdentifier(trimmed)
+        }
+
+        return .name(trimmed)
+    }
+}
+
 struct ListedAppDescriptor {
     let name: String
     let bundleIdentifier: String
@@ -86,6 +116,10 @@ enum AppDiscovery {
         var entriesByBundle: [String: ListedAppDescriptor] = [:]
 
         for record in SpotlightAppIndex.recentApps(cutoffDate: recentUsageCutoff()) {
+            guard !AppSafetyPolicy.isBlocked(bundleIdentifier: record.bundleIdentifier) else {
+                continue
+            }
+
             let key = record.bundleIdentifier.lowercased()
             let runningDescriptor = runningByBundle[key]
             entriesByBundle[key] = ListedAppDescriptor(
@@ -99,7 +133,8 @@ enum AppDiscovery {
         }
 
         for descriptor in running {
-            guard let bundleIdentifier = listedBundleIdentifier(for: descriptor) else {
+            guard let bundleIdentifier = listedBundleIdentifier(for: descriptor),
+                  !AppSafetyPolicy.isBlocked(bundleIdentifier: bundleIdentifier) else {
                 continue
             }
 
@@ -141,15 +176,109 @@ enum AppDiscovery {
             }
     }
 
-    static func resolveRunning(_ query: String, applications: [RunningAppDescriptor]? = nil) throws -> RunningAppDescriptor {
+    /// Resolve a target strictly among running apps. Never launches, never
+    /// activates. `pid:<pid>` and bare pids address one process exactly; names and
+    /// bundle identifiers use the ranked resolution below. Retries a bounded number
+    /// of times when a scan transiently finds no match.
+    static func resolveRunning(
+        _ query: String,
+        applications: [RunningAppDescriptor]? = nil,
+        maxAttempts: Int = 1,
+        retryDelay: TimeInterval = 0.25
+    ) throws -> RunningAppDescriptor {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if let bundleIdentifier = blockedBundleIdentifier(forQuery: query) {
             throw AppSafetyPolicy.permissionDenied(bundleIdentifier: bundleIdentifier)
         }
-        guard let app = resolvedRunningApp(in: applications ?? runningApps(), matching: query) else {
-            throw ComputerUseError.appNotFound(query)
+
+        var attempt = 0
+        while true {
+            let running = applications ?? runningApps()
+            if case .pid = AppTargetQuery.parse(query) {
+                if let unique = try safetyCheckedUniqueMatch(in: runningMatches(in: running, for: query), for: query) {
+                    return unique
+                }
+            } else if let app = resolvedRunningApp(in: running, matching: query) {
+                return app
+            }
+
+            attempt += 1
+            if applications != nil || attempt >= max(1, maxAttempts) {
+                throw ComputerUseError.appNotFound(query)
+            }
+
+            Thread.sleep(forTimeInterval: retryDelay)
         }
-        return app
+    }
+
+    /// All running apps matching the query: exact pid, exact bundle
+    /// identifier, or exact (case-insensitive) app/executable name.
+    static func runningMatches(for query: String) -> [RunningAppDescriptor] {
+        runningMatches(in: runningApps(), for: query)
+    }
+
+    static func runningMatches(in descriptors: [RunningAppDescriptor], for query: String) -> [RunningAppDescriptor] {
+        switch AppTargetQuery.parse(query) {
+        case .pid(let pid):
+            return descriptors.filter { $0.pid == pid }
+        case .bundleIdentifier(let bundleIdentifier):
+            return descriptors.filter {
+                $0.bundleIdentifier?.caseInsensitiveCompare(bundleIdentifier) == .orderedSame
+            }
+        case .name(let name):
+            return descriptors.filter { descriptor in
+                guard !AppSafetyPolicy.isBlocked(bundleIdentifier: descriptor.bundleIdentifier) else {
+                    return false
+                }
+
+                return descriptor.name.caseInsensitiveCompare(name) == .orderedSame
+                    || descriptor.runningApplication.executableURL?.deletingPathExtension().lastPathComponent.caseInsensitiveCompare(name) == .orderedSame
+            }
+        }
+    }
+
+    /// Returns the single match, nil when there are none, and throws
+    /// `.ambiguousApp` with candidate descriptions when several distinct
+    /// processes match.
+    static func uniqueMatch(
+        in matches: [RunningAppDescriptor],
+        for query: String
+    ) throws -> RunningAppDescriptor? {
+        guard let first = matches.first else {
+            return nil
+        }
+
+        let distinctPIDs = Set(matches.map(\.pid))
+        guard distinctPIDs.count > 1 else {
+            return first
+        }
+
+        throw ComputerUseError.ambiguousApp(query, candidates: matches.map(candidateDescription(for:)))
+    }
+
+    /// Single-match resolution with the safety policy applied to the result.
+    /// A blocked app is rejected with permission-denied no matter how the
+    /// query addressed it (pid, bundle identifier, or name), so a blocked
+    /// target can never be reached through any query kind.
+    static func safetyCheckedUniqueMatch(
+        in matches: [RunningAppDescriptor],
+        for query: String
+    ) throws -> RunningAppDescriptor? {
+        guard let unique = try uniqueMatch(in: matches, for: query) else {
+            return nil
+        }
+
+        if let bundleIdentifier = unique.bundleIdentifier,
+           AppSafetyPolicy.isBlocked(bundleIdentifier: bundleIdentifier) {
+            throw AppSafetyPolicy.permissionDenied(bundleIdentifier: bundleIdentifier)
+        }
+
+        return unique
+    }
+
+    private static func candidateDescription(for descriptor: RunningAppDescriptor) -> String {
+        let bundleIdentifier = descriptor.bundleIdentifier ?? "unknown-bundle"
+        return "\(descriptor.name) — \(bundleIdentifier) (pid \(descriptor.pid))"
     }
 
     static func resolve(_ query: String) throws -> RunningAppDescriptor {
@@ -158,6 +287,11 @@ enum AppDiscovery {
 
         if let bundleIdentifier = blockedBundleIdentifier(forQuery: normalizedQuery) {
             throw AppSafetyPolicy.permissionDenied(bundleIdentifier: bundleIdentifier)
+        }
+
+        // A pid addresses one live process: never fall through to launching.
+        if case .pid = AppTargetQuery.parse(normalizedQuery) {
+            return try resolveRunning(normalizedQuery, applications: running)
         }
 
         if let match = resolvedRunningApp(in: running, matching: normalizedQuery) {
@@ -276,6 +410,52 @@ enum AppDiscovery {
         }
 
         return fixtureListBundleIdentifier
+    }
+
+    /// Machine-readable payload for the `targets` CLI command.
+    static func targetsPayload(runningOnly: Bool) -> [[String: Any]] {
+        if runningOnly {
+            let frontmostPID = NSWorkspace.shared.frontmostApplication?.processIdentifier
+            return runningTargetsPayload(from: runningApps(), frontmostPID: frontmostPID)
+        }
+
+        return listCatalog().map { descriptor in
+            var entry: [String: Any] = [
+                "name": descriptor.name,
+                "bundle_id": descriptor.bundleIdentifier,
+                "running": descriptor.isRunning,
+                "frontmost": descriptor.isFrontmost,
+            ]
+            if let lastUsed = descriptor.lastUsed {
+                entry["last_used"] = usageDateFormatter.string(from: lastUsed)
+            }
+            if let uses = descriptor.uses {
+                entry["uses"] = uses
+            }
+            return entry
+        }
+    }
+
+    /// Running-only target entries with safety-blocked apps removed:
+    /// discovery payloads never expose blocked apps or their PIDs.
+    static func runningTargetsPayload(
+        from descriptors: [RunningAppDescriptor],
+        frontmostPID: pid_t?
+    ) -> [[String: Any]] {
+        descriptors
+            .filter { !AppSafetyPolicy.isBlocked(bundleIdentifier: $0.bundleIdentifier) }
+            .map { descriptor in
+                var entry: [String: Any] = [
+                    "name": descriptor.name,
+                    "pid": Int(descriptor.pid),
+                    "running": true,
+                    "frontmost": descriptor.pid == frontmostPID,
+                ]
+                if let bundleIdentifier = descriptor.bundleIdentifier {
+                    entry["bundle_id"] = bundleIdentifier
+                }
+                return entry
+            }
     }
 
     static func compareListedApps(_ lhs: ListedAppDescriptor, _ rhs: ListedAppDescriptor) -> Bool {
@@ -564,13 +744,30 @@ enum AppDiscovery {
     }
 }
 
+/// JSON payload for the `targets` CLI command.
+public func ultraTermComputerUseTargetsPayload(runningOnly: Bool) -> [[String: Any]] {
+    AppDiscovery.targetsPayload(runningOnly: runningOnly)
+}
+
+/// Human-readable listing for the `targets` CLI command.
+public func ultraTermComputerUseTargetsText(runningOnly: Bool) -> String {
+    let catalog = AppDiscovery.listCatalog()
+    let entries = runningOnly ? catalog.filter(\.isRunning) : catalog
+    return entries.map(\.renderedLine).joined(separator: "\n")
+}
+
 enum AppSafetyPolicy {
+    /// Entries are normalized lowercase; matching is case-insensitive.
     private static let blockedBundleIdentifiers: Set<String> = [
         "com.1password.1password",
         "com.1password.safari",
+        "com.apple.keychainaccess",
+        "com.apple.passwordmanagerbrowserextensionhelper",
+        "com.apple.passwords",
+        "com.apple.passwords.menubarextra",
         "com.bitwarden.desktop",
         "com.dashlane.dashlanephonefinal",
-        "com.lastpass.LastPass",
+        "com.lastpass.lastpass",
         "com.nordsec.nordpass",
         "me.proton.pass.electron",
         "me.proton.pass.catalyst",
@@ -581,7 +778,8 @@ enum AppSafetyPolicy {
             return false
         }
 
-        return blockedBundleIdentifiers.contains(bundleIdentifier)
+        let normalized = bundleIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return blockedBundleIdentifiers.contains(normalized)
     }
 
     static func permissionDenied(bundleIdentifier: String) -> ComputerUseError {
