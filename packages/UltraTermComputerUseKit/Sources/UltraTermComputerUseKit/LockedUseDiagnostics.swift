@@ -163,6 +163,12 @@ public struct LockedUseDiagnostics: Codable, Sendable {
         return "Installed Locked Use components differ from this UltraTerm Computer Use app. Updating UltraTerm Computer Use does not update system components. Run ultraterm-computer-use locked-use disable, then ultraterm-computer-use locked-use enable to reinstall; incomplete tasks must finish recovery first."
     }
 
+    /// What `doctor` adds for Locked Use: nothing when this build does not bundle it and it is
+    /// not installed, because the full report would only describe a feature that is not there.
+    public var doctorSummary: String? {
+        bundledPluginVersion == nil && installedPluginVersion == nil && !enabled ? nil : summary
+    }
+
     public var summary: String {
         "Locked Use: stage=\(stage), enabled=\(enabled), available=\(available), session=\(session.state.rawValue)\n"
             + "Client approved: \(clientApproved), authentication policy intact: \(authenticationPolicyIntact)\n"

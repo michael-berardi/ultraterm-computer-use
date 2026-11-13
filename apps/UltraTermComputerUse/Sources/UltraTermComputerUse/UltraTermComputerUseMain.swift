@@ -53,8 +53,8 @@ enum UltraTermComputerUseMain {
         case let .doctor(json):
             let permissions = PermissionDiagnostics.current()
             print(try json ? permissions.jsonText() : permissions.summary)
-            if !json {
-                print(LockedUseDiagnostics.current().summary)
+            if !json, let lockedUse = LockedUseDiagnostics.current().doctorSummary {
+                print(lockedUse)
             }
             if !json && !permissions.missingPermissions.isEmpty {
                 PermissionOnboardingApp.launch()

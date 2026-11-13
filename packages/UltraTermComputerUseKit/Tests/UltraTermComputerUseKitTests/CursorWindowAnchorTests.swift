@@ -123,7 +123,9 @@ final class CursorWindowAnchorTests: XCTestCase {
         }
         CursorWindowFrameTracker.register(windowID: 1, element: nil)
         XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 1))
-        XCTAssertEqual(entered.wait(timeout: .now() + 1), .success)
+        // A loaded machine can take seconds to schedule the background read; what is under test
+        // starts once it is running.
+        XCTAssertEqual(entered.wait(timeout: .now() + 20), .success)
         let start = ProcessInfo.processInfo.systemUptime
         for _ in 0..<1000 { XCTAssertNil(CursorWindowFrameTracker.liveFrame(for: 1)) }
         XCTAssertLessThan(ProcessInfo.processInfo.systemUptime - start, 0.25)

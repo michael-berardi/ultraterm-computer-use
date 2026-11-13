@@ -684,7 +684,7 @@ private final class AppAgentConnection: @unchecked Sendable {
                         PermissionOnboardingApp.present()
                     }
                 }
-                let text = try json ? permissions.jsonText() : permissions.summary + "\n" + LockedUseDiagnostics.current().summary
+                let text = try json ? permissions.jsonText() : permissions.summary + (LockedUseDiagnostics.current().doctorSummary.map { "\n" + $0 } ?? "")
                 return CLIProxyResponse(stdout: text + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case let .lockedUseStatus(json):

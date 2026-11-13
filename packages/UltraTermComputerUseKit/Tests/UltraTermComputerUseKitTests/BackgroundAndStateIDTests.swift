@@ -42,6 +42,19 @@ final class BackgroundAndStateIDTests: XCTestCase {
         XCTAssertNoThrow(try requireForegroundAllowed(forSecondaryAction: "AXRaise", environment: [foregroundActivationEnvironmentKey: "1"]))
     }
 
+    func testDoctorOmitsLockedUseWhenItIsNeitherBundledNorInstalled() {
+        // The test host bundles no Locked Use components; the report must not describe them
+        // unless a system-wide install exists on this machine.
+        let diagnostics = LockedUseDiagnostics.current()
+        XCTAssertNil(diagnostics.bundledPluginVersion)
+        if diagnostics.installedPluginVersion == nil, !diagnostics.enabled {
+            XCTAssertNil(diagnostics.doctorSummary)
+        } else {
+            XCTAssertEqual(diagnostics.doctorSummary, diagnostics.summary)
+        }
+        XCTAssertTrue(diagnostics.summary.hasPrefix("Locked Use:"))
+    }
+
     func testVisualCursorMoveIsShortAndBounded() {
         XCTAssertEqual(visualCursorMoveDuration(environment: [:]), 0.18, accuracy: 0.0001)
         XCTAssertLessThan(defaultVisualCursorMoveDuration, 0.25)

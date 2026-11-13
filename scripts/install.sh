@@ -6,7 +6,7 @@
 # unless you pass --npm to install the npm package into your home folder instead (never touches /Applications).
 # Uses the Node 18+ already on this machine, or fetches the official Node 22 LTS into the tool's own folder.
 # Environment: UTCU_HOME (default ~/.ultraterm-computer-use), UTCU_BIN_DIR (default ~/.local/bin),
-# UTCU_VERSION (pin a version, e.g. 0.8.0), UTCU_RELEASE_BASE (override the download base URL, used by tests).
+# UTCU_VERSION (pin a version, e.g. 0.8.1), UTCU_RELEASE_BASE (override the download base URL, used by tests).
 set -eu
 
 REPO="your-org/ultraterm-computer-use"

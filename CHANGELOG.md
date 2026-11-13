@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.8.1
+
+Fixed: on macOS, `doctor` printed nine lines about Locked Use, a feature this build does not bundle, ending with an instruction to enable it. `doctor` now prints the Locked Use report only when the build bundles it or it is installed. `locked-use status` is unchanged.
+
 ## 0.8.0
 
 This release brings in the upstream project's work through 2026-11-13 and adds our own changes. The main change is that the runtime now works in the background by default. See `docs/background-operation.md` and `docs/state-id.md`.
