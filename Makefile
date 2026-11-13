@@ -8,6 +8,7 @@ app:
 
 test:
 	swift test
+	node --test test/*.test.mjs scripts/node-repl/*.test.mjs scripts/tests/*.test.mjs
 
 smoke:
 	./scripts/run-tool-smoke-tests.sh

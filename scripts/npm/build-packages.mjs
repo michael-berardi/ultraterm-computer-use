@@ -8,13 +8,14 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   statSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "..", "..");
@@ -67,6 +68,103 @@ const runtimeTargets = [
 const packageNames = [
   ...metaPackageNames,
 ];
+
+export const placeholderSlug = "your-org/ultraterm-computer-use";
+const slugPattern = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const remotePattern = /^(?:git@github\.com:|ssh:\/\/git@github\.com\/|https:\/\/github\.com\/)([A-Za-z0-9._-]+)\/([A-Za-z0-9._-]+?)(?:\.git)?\/?$/;
+
+export function isValidSlug(slug) {
+  return typeof slug === "string" && slugPattern.test(slug);
+}
+
+// Same rules as scripts/stamp-installers.sh: https and ssh GitHub forms, with or without .git.
+export function slugFromRemoteUrl(url) {
+  const match = remotePattern.exec(String(url ?? "").trim());
+  return match ? `${match[1]}/${match[2]}` : "";
+}
+
+// Env override first, then the origin remote. Returns "" when nothing usable is found.
+export function resolveReleaseSlug({ env = process.env, remoteUrl = "" } = {}) {
+  const override = env.ULTRATERM_COMPUTER_USE_RELEASE_REPO ?? "";
+  if (override) {
+    return isValidSlug(override) ? override : "";
+  }
+  return slugFromRemoteUrl(remoteUrl);
+}
+
+export function readOriginRemote(cwd = repoRoot) {
+  const result = spawnSync("git", ["-C", cwd, "remote", "get-url", "origin"], { encoding: "utf-8" });
+  return result.status === 0 ? result.stdout.trim() : "";
+}
+
+// Returns the slug to stamp, or "" when a debug build may keep the placeholder.
+// Release builds throw a named error instead.
+export function requireSlug({ configuration, env = process.env, remoteUrl = "" }) {
+  const slug = resolveReleaseSlug({ env, remoteUrl });
+  if (slug && slug !== placeholderSlug) {
+    return slug;
+  }
+  if (configuration !== "release") {
+    return "";
+  }
+  const cause = slug
+    ? `the owner/repo is still the placeholder ${placeholderSlug}`
+    : "cannot tell the GitHub owner/repo (ULTRATERM_COMPUTER_USE_RELEASE_REPO is unset or invalid and there is no GitHub origin remote)";
+  throw new Error(`build-packages: ${cause}; set ULTRATERM_COMPUTER_USE_RELEASE_REPO=owner/repo or add a GitHub origin remote, or build with --configuration debug to keep the placeholder.`);
+}
+
+export function stampText(text, slug) {
+  return text.split(placeholderSlug).join(slug);
+}
+
+function walkFiles(root, visit) {
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const full = path.join(root, entry.name);
+    if (entry.isDirectory()) {
+      // Bundled native runtimes are binary; they are not text files.
+      if (entry.name === "dist" && path.dirname(full) === root) continue;
+      walkFiles(full, visit);
+    } else if (entry.isFile()) {
+      visit(full);
+    }
+  }
+}
+
+function readTextFile(filePath) {
+  const buffer = readFileSync(filePath);
+  return buffer.includes(0) ? undefined : buffer.toString("utf-8");
+}
+
+export function stampStagedPackage(packageRoot, slug) {
+  let stamped = 0;
+  walkFiles(packageRoot, (filePath) => {
+    const text = readTextFile(filePath);
+    if (text === undefined || !text.includes(placeholderSlug)) return;
+    writeFileSync(filePath, stampText(text, slug), { encoding: "utf-8", mode: statSync(filePath).mode });
+    stamped += 1;
+  });
+  return stamped;
+}
+
+export function findPlaceholders(packageRoot) {
+  const found = [];
+  walkFiles(packageRoot, (filePath) => {
+    const text = readTextFile(filePath);
+    if (text !== undefined && text.includes(placeholderSlug)) found.push(path.relative(packageRoot, filePath));
+  });
+  return found;
+}
+
+export function assertNoPlaceholders(packageRoot) {
+  const found = findPlaceholders(packageRoot);
+  if (found.length > 0) {
+    throw new Error(`build-packages: the placeholder ${placeholderSlug} survived in the staged package: ${found.join(", ")}`);
+  }
+}
+
+export function stagedAppHasLockedUse(appPath) {
+  return existsSync(path.join(appPath, "Contents", "Resources", "LockedUse"));
+}
 
 function parseArgs(argv) {
   const options = {
@@ -209,161 +307,20 @@ function platformLaunchTable() {
 
 function renderLauncher() {
   return `#!/usr/bin/env node
-const { spawn } = require("node:child_process");
-const fs = require("node:fs");
 const path = require("node:path");
+const { pathToFileURL } = require("node:url");
 
 const platformPackages = ${JSON.stringify(platformLaunchTable(), null, 2)};
 const packageRoot = path.resolve(__dirname, "..");
-const args = process.argv.slice(2);
-const command = args[0] || "";
-const installCommands = new Map([
-  ["install-claude-mcp", "install-claude-mcp.sh"],
-  ["install-gemini-mcp", "install-gemini-mcp.sh"],
-  ["install-codex-mcp", "install-codex-mcp.sh"],
-  ["install-opencode-mcp", "install-opencode-mcp.sh"],
-  ["install-codex-plugin", "install-codex-plugin.sh"],
-]);
+const cliModule = pathToFileURL(path.join(packageRoot, "scripts", "node-repl", "ultraterm-computer-use-cli.mjs")).href;
 
-function printLauncherHelp() {
-  console.log(\`UltraTerm Computer Use
-
-Usage:
-  ultraterm-computer-use [command] [options]
-  ultraterm-computer-use
-
-Commands:
-  mcp                  Start the stdio MCP server.
-  doctor               Print permission status and launch onboarding if needed on macOS.
-  list-apps            Print running or recently used apps.
-  snapshot <app>       Print the current accessibility snapshot for an app.
-  call <tool>          Call one tool, or run a JSON array of tool calls.
-  turn-ended           Notify the running MCP process that the host turn ended.
-  install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
-  install-gemini-mcp   Install the MCP server into Gemini CLI config.
-  install-codex-mcp    Install the MCP server into ~/.codex/config.toml.
-  install-opencode-mcp Install the MCP server into ~/.config/opencode.
-  install-codex-plugin Install this npm package into the local Codex plugin cache.
-  help [command]       Show general or command-specific help.
-  version              Print the CLI version.
-
-Global options:
-  -h, --help           Show help.
-  -v, --version        Show version.
-
-Notes:
-  This npm package bundles native runtimes for supported platforms and selects the current os-arch at launch.
-  Use 'ultraterm-computer-use help <command>' for command-specific help.\`);
-}
-
-function printInstallHelp(scriptName, usage) {
-  console.log(\`Usage:
-  \${usage}
-
-This helper updates a local MCP or plugin config to run:
-  ultraterm-computer-use mcp
-
-Script:
-  \${scriptName}\`);
-}
-
-function fail(message) {
-  console.error(message);
-  process.exit(1);
-}
-
-function spawnAndExit(executable, executableArgs) {
-  const child = spawn(executable, executableArgs, {
-    stdio: "inherit",
-    windowsHide: false,
+import(cliModule)
+  .then(({ main }) => main({ packageRoot, platformPackages }))
+  .then(code => { process.exitCode = Number.isInteger(code) ? code : 1; })
+  .catch(error => {
+    console.error(\`ultraterm-computer-use: \${error instanceof Error ? error.message : String(error)}\`);
+    process.exitCode = 1;
   });
-
-  child.on("error", (error) => {
-    fail(\`Failed to start \${executable}: \${error.message}\`);
-  });
-
-  for (const signal of ["SIGINT", "SIGTERM"]) {
-    process.on(signal, () => {
-      child.kill(signal);
-    });
-  }
-
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      process.exit(1);
-    }
-    process.exit(code ?? 0);
-  });
-}
-
-function runInstallCommand(scriptName, scriptArgs) {
-  if (process.platform === "win32") {
-    fail(\`\${command} currently requires a POSIX shell. Configure your MCP client with command "ultraterm-computer-use" and args ["mcp"] on Windows.\`);
-  }
-
-  const scriptPath = path.join(packageRoot, "scripts", scriptName);
-  if (!fs.existsSync(scriptPath)) {
-    fail(\`Missing installer helper at \${scriptPath}.\`);
-  }
-
-  spawnAndExit(scriptPath, scriptArgs);
-}
-
-function resolveNativeExecutable() {
-  const platformKey = \`\${process.platform}-\${process.arch}\`;
-  const target = platformPackages[platformKey];
-  if (!target) {
-    const supported = Object.keys(platformPackages).sort().join(", ");
-    fail(\`Unsupported platform \${platformKey}. Supported platforms: \${supported}.\`);
-  }
-
-  const executablePath = path.join(packageRoot, ...target.executablePath);
-  if (!fs.existsSync(executablePath)) {
-    fail(\`Missing bundled native runtime for \${platformKey} at \${executablePath}.
-
-Reinstall with:
-  npm install -g ultraterm-computer-use\`);
-  }
-
-  return executablePath;
-}
-
-if (command === "-h" || command === "--help" || (command === "help" && args.length <= 1)) {
-  printLauncherHelp();
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-codex-plugin") {
-  printInstallHelp("install-codex-plugin.sh", "ultraterm-computer-use install-codex-plugin");
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-codex-mcp") {
-  printInstallHelp("install-codex-mcp.sh", "ultraterm-computer-use install-codex-mcp");
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-gemini-mcp") {
-  printInstallHelp("install-gemini-mcp.sh", "ultraterm-computer-use install-gemini-mcp [--scope project|user]");
-  process.exit(0);
-}
-
-if (command === "help" && args[1] === "install-opencode-mcp") {
-  printInstallHelp("install-opencode-mcp.sh", "ultraterm-computer-use install-opencode-mcp");
-  process.exit(0);
-}
-
-if (command === "help" && (args[1] === "install-claude-mcp" || args[1] === "install-clauce-mcp")) {
-  printInstallHelp("install-claude-mcp.sh", "ultraterm-computer-use install-claude-mcp");
-  process.exit(0);
-}
-
-if (installCommands.has(command)) {
-  const scriptName = installCommands.get(command);
-  runInstallCommand(scriptName, args.slice(1));
-} else {
-  spawnAndExit(resolveNativeExecutable(), args);
-}
 `;
 }
 
@@ -385,8 +342,8 @@ const lines = [
   "Native runtime will be selected from bundled artifacts for " + process.platform + "-" + process.arch + ".",
   "",
   "Next:",
-  "1. Run ultraterm-computer-use --version",
-  "2. Add the MCP config below to your host client",
+  "1. Run ultraterm-computer-use --version or ultraterm-computer-use capabilities",
+  "2. Add the MCP config below to your host client, or use ultraterm-computer-use js / ultraterm-computer-use repl directly",
   "3. On macOS, run ultraterm-computer-use doctor and grant Accessibility / Screen Recording if prompted",
   "",
   "MCP config:",
@@ -443,6 +400,11 @@ Package page: https://www.npmjs.com/package/${packageName}
 ultraterm-computer-use --version
 ultraterm-computer-use --help
 ultraterm-computer-use mcp
+ultraterm-computer-use mcp
+ultraterm-computer-use capabilities
+ultraterm-computer-use capabilities --json
+ultraterm-computer-use js 'nodeRepl.write(6 * 7)'
+printf 'var answer = 40\nanswer += 2; nodeRepl.write(answer)\n.exit\n' | ultraterm-computer-use repl
 ultraterm-computer-use call list_apps
 
 # macOS permission check and onboarding
@@ -461,6 +423,9 @@ ultraterm-computer-use install-codex-plugin
 
 - Version: \`${version}\`
 - Supported npm platforms: \`darwin-arm64\`, \`darwin-x64\`, \`linux-arm64\`, \`linux-x64\`, \`win32-arm64\`, \`win32-x64\`
+- \`ultraterm-computer-use js\` creates a one-shot JavaScript/native session; \`ultraterm-computer-use repl\` keeps one session for the current terminal and preserves bindings between evaluations.
+- Both code-first commands use the Node executable that started the npm launcher. The npm launcher itself still requires Node.js 18 or newer to be available when the command starts.
+- \`ultraterm-computer-use mcp\` intentionally continues to expose the native 9-tool compatibility surface; the Codex plugin adapter exposes \`js\` / \`js_reset\` separately.
 - macOS still requires \`Accessibility\` and \`Screen Recording\` permissions.
 - Linux requires a signed-in desktop session with AT-SPI2 / D-Bus accessibility available for real app control.
 - Windows requires a signed-in desktop session for UI Automation access.
@@ -497,6 +462,9 @@ function renderMetaPackageJson(packageName, version) {
       url: "https://github.com/your-org/ultraterm-computer-use/issues",
     },
     keywords: packageKeywords(),
+    engines: {
+      node: ">=18",
+    },
     preferGlobal: true,
     publishConfig: {
       access: "public",
@@ -522,10 +490,14 @@ function renderMetaPackageJson(packageName, version) {
       "scripts/install-config-helper.mjs",
       "scripts/install-codex-mcp.sh",
       "scripts/install-opencode-mcp.sh",
+      "scripts/install-dsh-mcp.sh",
       "scripts/install-codex-plugin.sh",
+      "scripts/node-repl/",
       "scripts/postinstall.mjs",
+      "skills/ultraterm-computer-use/",
       "README.md",
       "LICENSE",
+      "THIRD_PARTY_NOTICES.md",
     ],
   };
 }
@@ -536,13 +508,40 @@ function copyInstallerScripts(packageRoot) {
   cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-opencode-mcp.sh"), path.join(packageRoot, "scripts", "install-opencode-mcp.sh"));
+  cpSync(path.join(repoRoot, "scripts", "install-dsh-mcp.sh"), path.join(packageRoot, "scripts", "install-dsh-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-plugin.sh"), path.join(packageRoot, "scripts", "install-codex-plugin.sh"));
+  cpSync(path.join(repoRoot, "skills", "ultraterm-computer-use"), path.join(packageRoot, "skills", "ultraterm-computer-use"), { recursive: true });
+  mkdirSync(path.join(packageRoot, "scripts", "node-repl"), { recursive: true });
+  for (const scriptName of [
+    "ultraterm-computer-use-cli.mjs",
+    "config.mjs",
+    "ultraterm-computer-use-repl.mjs",
+    "ultraterm-computer-use-kernel.mjs",
+  ]) {
+    cpSync(
+      path.join(repoRoot, "scripts", "node-repl", scriptName),
+      path.join(packageRoot, "scripts", "node-repl", scriptName),
+    );
+  }
+  cpSync(
+    path.join(repoRoot, "scripts", "node-repl", "config.mjs"),
+    path.join(packageRoot, "plugins", "ultraterm-computer-use", "scripts", "config.mjs")
+  );
+  cpSync(
+    path.join(repoRoot, "scripts", "node-repl", "ultraterm-computer-use-repl.mjs"),
+    path.join(packageRoot, "plugins", "ultraterm-computer-use", "scripts", "ultraterm-computer-use-repl.mjs")
+  );
+  cpSync(
+    path.join(repoRoot, "scripts", "node-repl", "ultraterm-computer-use-kernel.mjs"),
+    path.join(packageRoot, "plugins", "ultraterm-computer-use", "scripts", "ultraterm-computer-use-kernel.mjs")
+  );
 
   for (const scriptName of [
     "install-claude-mcp.sh",
     "install-gemini-mcp.sh",
     "install-codex-mcp.sh",
     "install-opencode-mcp.sh",
+    "install-dsh-mcp.sh",
     "install-codex-plugin.sh",
   ]) {
     chmodSync(path.join(packageRoot, "scripts", scriptName), 0o755);
@@ -580,7 +579,7 @@ function copyBundledRuntimes(packageRoot, packageName) {
   }
 }
 
-function stageMetaPackage(packageName, version, outDir) {
+function stageMetaPackage(packageName, version, outDir, slug, configuration) {
   const packageRoot = path.join(outDir, packageName);
   rmSync(packageRoot, { recursive: true, force: true });
 
@@ -595,6 +594,7 @@ function stageMetaPackage(packageName, version, outDir) {
     recursive: true,
   });
   cpSync(path.join(repoRoot, "LICENSE"), path.join(packageRoot, "LICENSE"));
+  cpSync(path.join(repoRoot, "THIRD_PARTY_NOTICES.md"), path.join(packageRoot, "THIRD_PARTY_NOTICES.md"));
   copyBundledRuntimes(packageRoot, packageName);
   copyInstallerScripts(packageRoot);
 
@@ -604,19 +604,30 @@ function stageMetaPackage(packageName, version, outDir) {
   writeFileSync(path.join(packageRoot, "README.md"), renderReadme(packageName, version), "utf-8");
   writeFileSync(path.join(packageRoot, "package.json"), `${JSON.stringify(renderMetaPackageJson(packageName, version), null, 2)}\n`, "utf-8");
 
+  if (slug) {
+    stampStagedPackage(packageRoot, slug);
+  }
+  if (configuration === "release") {
+    assertNoPlaceholders(packageRoot);
+  }
+
   removeJunkFiles(packageRoot);
 }
 
-function stagePackage(packageName, version, outDir) {
+function stagePackage(packageName, version, outDir, slug, configuration) {
   if (!metaPackageNames.includes(packageName)) {
     throw new Error(`Unsupported package name: ${packageName}`);
   }
 
-  stageMetaPackage(packageName, version, outDir);
+  stageMetaPackage(packageName, version, outDir, slug, configuration);
 }
 
 function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (process.env.ULTRATERM_COMPUTER_USE_APP_VARIANT) {
+    throw new Error("ULTRATERM_COMPUTER_USE_APP_VARIANT is only supported by build-ultraterm-computer-use-app.sh; unset it before packaging.");
+  }
+  const slug = requireSlug({ configuration: options.configuration, remoteUrl: readOriginRemote() });
   const pluginManifestPath = path.join(repoRoot, "plugins", "ultraterm-computer-use", ".codex-plugin", "plugin.json");
   const { version } = readJSON(pluginManifestPath);
 
@@ -624,14 +635,37 @@ function main() {
     ensureBuilt(options.configuration, options.arch);
   }
 
+  const stagedApp = path.join(repoRoot, "dist", appBundleName);
+  if (options.configuration === "release" && stagedAppHasLockedUse(stagedApp)) {
+    run(path.join(repoRoot, "scripts", "verify-locked-use-bundle.sh"), [stagedApp]);
+  }
+
   rmSync(options.outDir, { recursive: true, force: true });
   mkdirSync(options.outDir, { recursive: true });
 
   for (const packageName of options.packageNames) {
-    stagePackage(packageName, version, options.outDir);
+    stagePackage(packageName, version, options.outDir, slug, options.configuration);
   }
 
   process.stdout.write(`${options.outDir}\n`);
 }
 
-main();
+// Compare real paths: a temp folder is reached through a symlink on macOS (/var -> /private/var),
+// and a plain string comparison would silently skip the build there.
+function invokedDirectly() {
+  if (!process.argv[1]) return false;
+  try {
+    return realpathSync(fileURLToPath(import.meta.url)) === realpathSync(path.resolve(process.argv[1]));
+  } catch {
+    return false;
+  }
+}
+
+if (invokedDirectly()) {
+  try {
+    main();
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exit(1);
+  }
+}

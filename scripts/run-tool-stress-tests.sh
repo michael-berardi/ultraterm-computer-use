@@ -29,7 +29,8 @@ fi
 
 cd "${repo_root}"
 
-swift build "${build_args[@]}"
+# macOS ships bash 3.2, where expanding an empty array under `set -u` is an error.
+swift build ${build_args[@]+"${build_args[@]}"}
 
 started_at="$(date +%s)"
 tmp_dir="$(mktemp -d "${TMPDIR:-/tmp}/ultraterm-computer-use-stress.XXXXXX")"

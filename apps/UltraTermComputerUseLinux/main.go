@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
 	_ "embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -20,14 +23,18 @@ import (
 	"time"
 )
 
-var version = "0.7.3"
+var version = "0.8.0"
 
 var clickMethodValues = []string{"auto", "accessibility", "app_post", "sky_click", "global"}
+
+var keyMethodValues = []string{"auto", "sky_key"}
+
+var windowPlacementValues = []string{"keep", "agent_display", "restore"}
 
 //go:embed runtime.py
 var linuxRuntimeScript string
 
-const serverInstructions = "Computer Use tools let you interact with Linux desktop apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Linux actions use AT-SPI2 semantic actions and editable text APIs first. Coordinate mouse and key synthesis are best-effort fallbacks and are not a universal Wayland background input model."
+const serverInstructions = "Computer Use tools let you interact with Linux desktop apps by performing UI actions.\n\nBegin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value.\n\nPrefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Linux actions use AT-SPI2 semantic actions and editable text APIs first. Coordinate mouse synthesis (drag, coordinate clicks, elements with no AT-SPI action) moves the real pointer and is refused unless ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1. Key synthesis goes to whichever window has keyboard focus, so it is refused unless the target app window is active or the same switch is set."
 
 type toolDefinition struct {
 	Name        string         `json:"name"`
@@ -46,6 +53,7 @@ type contentItem struct {
 type toolCallResult struct {
 	Content []contentItem `json:"content"`
 	IsError bool          `json:"isError"`
+	StateID string        `json:"state_id,omitempty"`
 }
 
 func textResult(text string, isError bool) toolCallResult {
@@ -84,6 +92,8 @@ type elementRecord struct {
 }
 
 type appSnapshot struct {
+	ScreenshotOmitted   bool            `json:"-"`
+	StateID             string          `json:"-"`
 	App                 appDescriptor   `json:"app"`
 	WindowTitle         string          `json:"windowTitle,omitempty"`
 	WindowBounds        *frame          `json:"windowBounds,omitempty"`
@@ -112,6 +122,9 @@ func (s *appSnapshot) renderedText() string {
 		fmt.Sprintf("Window: %q, App: %s.", title, s.App.Name),
 	}
 	lines = append(lines, s.TreeLines...)
+	if s.ScreenshotOmitted {
+		lines = append(lines, "Screenshot omitted by include_screenshot=false")
+	}
 	if strings.TrimSpace(s.SelectedText) != "" {
 		lines = append(lines, "", fmt.Sprintf("Selected text: [%s]", s.SelectedText))
 	} else if strings.TrimSpace(s.FocusedSummary) != "" {
@@ -124,6 +137,10 @@ func (s *appSnapshot) result() toolCallResult {
 	result := toolCallResult{
 		Content: []contentItem{{Type: "text", Text: s.renderedText()}},
 	}
+	if s != nil && s.StateID != "" {
+		result.StateID = s.StateID
+		result.Content = append(result.Content, contentItem{Type: "text", Text: "State-ID: " + s.StateID})
+	}
 	if s != nil && s.ScreenshotPNGBase64 != "" {
 		result.Content = append(result.Content, contentItem{
 			Type:     "image",
@@ -135,6 +152,9 @@ func (s *appSnapshot) result() toolCallResult {
 }
 
 type linuxRequest struct {
+	IncludeAX         *bool `json:"include_ax,omitempty"`
+	IncludeScreenshot *bool `json:"include_screenshot,omitempty"`
+
 	Tool         string         `json:"tool"`
 	App          string         `json:"app,omitempty"`
 	Element      *elementRecord `json:"element,omitempty"`
@@ -157,6 +177,7 @@ type linuxRequest struct {
 	TextLimit    any            `json:"text_limit,omitempty"`
 	MaxTreeNodes int            `json:"max_tree_nodes,omitempty"`
 	MaxTreeDepth int            `json:"max_tree_depth,omitempty"`
+	SkipReadBack bool           `json:"skip_read_back,omitempty"`
 }
 
 type textLimit struct {
@@ -186,7 +207,47 @@ func newService() *service {
 	return &service{snapshots: map[string]*appSnapshot{}}
 }
 
+const stateIDDescription = "state_id from the latest get_app_state or action result for this app. When given, the action is refused with stale_state before anything is sent if the app's state has been captured again since."
+
+func newStateID() string {
+	var buf [6]byte
+	if _, err := rand.Read(buf[:]); err != nil {
+		panic(err)
+	}
+	return hex.EncodeToString(buf[:])
+}
+
+// checkStateID refuses an action when the caller's state_id is not the current one for the app.
+func (s *service) checkStateID(name, app string, args map[string]any) *toolCallResult {
+	switch name {
+	case "click", "perform_secondary_action", "scroll", "drag", "type_text", "press_key", "set_value":
+	default:
+		return nil
+	}
+	raw, present := args["state_id"]
+	if !present || raw == nil {
+		return nil
+	}
+	given, ok := raw.(string)
+	if !ok {
+		result := textResult("Invalid argument: state_id must be a string", true)
+		return &result
+	}
+	if app == "" {
+		return nil
+	}
+	snapshot := s.currentSnapshot(app)
+	if snapshot == nil || snapshot.StateID == "" || snapshot.StateID != given {
+		result := textResult("stale_state: the state_id does not match the latest captured state for "+app+". Call get_app_state and retry with the new state_id.", true)
+		return &result
+	}
+	return nil
+}
+
 func (s *service) callTool(name string, args map[string]any) toolCallResult {
+	if refused := s.checkStateID(name, requiredString(args, "app"), args); refused != nil {
+		return *refused
+	}
 	switch name {
 	case "list_apps":
 		return s.listApps()
@@ -203,7 +264,25 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 		if err != nil {
 			return textResult(err.Error(), true)
 		}
-		return s.getAppState(requiredString(args, "app"), textLimit, maxTreeNodes, maxTreeDepth)
+		windowPlacement, err := parseWindowPlacement(optionalString(args, "window_placement"))
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		if windowPlacement != "keep" {
+			return textResult("window_placement '"+windowPlacement+"' is not supported on Linux", true)
+		}
+		includeAX, err := optionalBool(args, "include_ax")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		includeScreenshot, err := optionalBool(args, "include_screenshot")
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		if includeAX != nil && !*includeAX && includeScreenshot != nil && !*includeScreenshot {
+			return textResult("At least one of include_ax or include_screenshot must be true", true)
+		}
+		return s.getAppState(requiredString(args, "app"), textLimit, maxTreeNodes, maxTreeDepth, includeAX, includeScreenshot)
 	case "click":
 		clickMethod, err := parseClickMethod(optionalString(args, "click_method"))
 		if err != nil {
@@ -240,11 +319,27 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 			requiredFloat(args, "to_y"),
 		)
 	case "type_text":
-		return s.typeText(requiredString(args, "app"), requiredString(args, "text"))
+		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		text, ok := args["text"].(string)
+		if !ok {
+			return textResult("Missing required argument: text (must be a string)", true)
+		}
+		return s.typeText(requiredString(args, "app"), text, keyMethod)
 	case "press_key":
-		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"))
+		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		return s.pressKey(requiredString(args, "app"), requiredString(args, "key"), keyMethod)
 	case "set_value":
-		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), requiredString(args, "value"))
+		value, ok := args["value"].(string)
+		if !ok {
+			return textResult("set_value value must be a string", true)
+		}
+		return s.setValue(requiredString(args, "app"), requiredElementIndex(args), value)
 	default:
 		return textResult(fmt.Sprintf("unsupportedTool(%q)", name), true)
 	}
@@ -264,11 +359,11 @@ func (s *service) listApps() toolCallResult {
 	return textResult(response.Text, false)
 }
 
-func (s *service) getAppState(app string, textLimit *textLimit, maxTreeNodes, maxTreeDepth *int) toolCallResult {
+func (s *service) getAppState(app string, textLimit *textLimit, maxTreeNodes, maxTreeDepth *int, includeAX, includeScreenshot *bool) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
-	request := linuxRequest{Tool: "get_app_state", App: app}
+	request := linuxRequest{Tool: "get_app_state", App: app, IncludeAX: includeAX, IncludeScreenshot: includeScreenshot}
 	if textLimit != nil {
 		request.TextLimit = textLimit.runtimeValue()
 	}
@@ -282,7 +377,11 @@ func (s *service) getAppState(app string, textLimit *textLimit, maxTreeNodes, ma
 	if result.IsError {
 		return result
 	}
-	return snapshot.result()
+	result = snapshot.result()
+	if includeAX != nil && !*includeAX {
+		result.Content[0].Text += "\nAccessibility omitted; previous element indexes invalidated. Read AX before element-targeted actions."
+	}
+	return result
 }
 
 func (s *service) click(app, elementIndex string, x, y *float64, clickCount int, mouseButton, clickMethod string) toolCallResult {
@@ -307,6 +406,9 @@ func (s *service) click(app, elementIndex string, x, y *float64, clickCount int,
 	snapshot := s.currentSnapshot(app)
 	if snapshot == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
+	}
+	if elementIndex == "" && snapshot.ScreenshotOmitted {
+		return textResult("Screenshot omitted by include_screenshot=false; request a screenshot before screenshot-coordinate actions.", true)
 	}
 	request := linuxRequest{
 		Tool:         "click",
@@ -394,15 +496,18 @@ func (s *service) drag(app string, fromX, fromY, toX, toY *float64) toolCallResu
 	if snapshot == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
 	}
+	if snapshot.ScreenshotOmitted {
+		return textResult("Screenshot omitted by include_screenshot=false; request a screenshot before screenshot-coordinate actions.", true)
+	}
 	return s.actionResult(app, linuxRequest{Tool: "drag", App: app, FromX: fromX, FromY: fromY, ToX: toX, ToY: toY, WindowBounds: snapshot.WindowBounds})
 }
 
-func (s *service) typeText(app, text string) toolCallResult {
+func (s *service) typeText(app, text, keyMethod string) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
-	if text == "" {
-		return textResult("Missing required argument: text", true)
+	if keyMethod == "sky_key" {
+		return textResult("key_method 'sky_key' is not supported on Linux", true)
 	}
 	if s.currentSnapshot(app) == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
@@ -410,12 +515,15 @@ func (s *service) typeText(app, text string) toolCallResult {
 	return s.actionResult(app, linuxRequest{Tool: "type_text", App: app, Text: text})
 }
 
-func (s *service) pressKey(app, key string) toolCallResult {
+func (s *service) pressKey(app, key, keyMethod string) toolCallResult {
 	if app == "" {
 		return textResult("Missing required argument: app", true)
 	}
 	if key == "" {
 		return textResult("Missing required argument: key", true)
+	}
+	if keyMethod == "sky_key" {
+		return textResult("key_method 'sky_key' is not supported on Linux", true)
 	}
 	if s.currentSnapshot(app) == nil {
 		return textResult("No app state is available for "+app+". Run get_app_state before action tools.", true)
@@ -442,11 +550,33 @@ func (s *service) setValue(app, elementIndex, value string) toolCallResult {
 }
 
 func (s *service) actionResult(app string, request linuxRequest) toolCallResult {
+	if !actionReadBackEnabled() {
+		request.SkipReadBack = true
+		response, err := runPython(request)
+		if err != nil {
+			return textResult(err.Error(), true)
+		}
+		if !response.OK {
+			return textResult(response.Error, true)
+		}
+		// Keep the last explicitly observed indexes until get_app_state refreshes them.
+		return textResult("ok", false)
+	}
 	snapshot, result := s.refreshSnapshot(app, request)
 	if result.IsError {
 		return result
 	}
 	return snapshot.result()
+}
+
+// Match the macOS runtime: only explicit false values disable action read-back.
+func actionReadBackEnabled() bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK"))) {
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *service) currentSnapshot(app string) *appSnapshot {
@@ -463,6 +593,28 @@ func (s *service) refreshSnapshot(app string, request linuxRequest) (*appSnapsho
 	}
 	if response.Snapshot == nil {
 		return nil, textResult("Linux runtime did not return an app snapshot.", true)
+	}
+	if request.IncludeScreenshot != nil && !*request.IncludeScreenshot {
+		response.Snapshot.ScreenshotPNGBase64 = ""
+		response.Snapshot.ScreenshotOmitted = true
+	}
+	if request.IncludeAX != nil && !*request.IncludeAX {
+		// A screenshot cannot validate AX indexes, even if the window title matches.
+		// Invalidate every alias of the prior observation, including PID queries.
+		previous := s.currentSnapshot(app)
+		for alias, cached := range s.snapshots {
+			if cached == previous || cached.App.PID == response.Snapshot.App.PID ||
+				(previous != nil && cached.App.PID == previous.App.PID) {
+				delete(s.snapshots, alias)
+			}
+		}
+		response.Snapshot.Elements = nil
+		response.Snapshot.TreeLines = nil
+		response.Snapshot.FocusedSummary = ""
+		response.Snapshot.SelectedText = ""
+	}
+	if request.IncludeAX == nil || *request.IncludeAX {
+		response.Snapshot.StateID = newStateID()
 	}
 	s.rememberSnapshot(app, response.Snapshot)
 	return response.Snapshot, toolCallResult{}
@@ -552,6 +704,15 @@ func linuxRuntimeEnvironment(base []string) []string {
 
 func linuxRuntimeEnvironmentFrom(base []string, uid int, processEnvs []map[string]string) []string {
 	env := envSliceToMap(base)
+	// A sandbox process's DISPLAY, XAUTHORITY and bus names belong to its
+	// namespace, not necessarily the caller's desktop session.
+	var hostEnvs []map[string]string
+	for _, candidate := range processEnvs {
+		if !sandboxedProcessEnvironment(candidate) {
+			hostEnvs = append(hostEnvs, candidate)
+		}
+	}
+	processEnvs = hostEnvs
 	runtimeDir := chooseRuntimeDir(env, processEnvs, uid)
 	if runtimeDir != "" {
 		env["XDG_RUNTIME_DIR"] = runtimeDir
@@ -573,7 +734,6 @@ func linuxRuntimeEnvironmentFrom(base []string, uid int, processEnvs []map[strin
 		"DESKTOP_SESSION",
 		"GDK_BACKEND",
 		"QT_QPA_PLATFORMTHEME",
-		"AT_SPI_BUS_ADDRESS",
 	} {
 		if strings.TrimSpace(env[key]) == "" {
 			if value := firstSessionValue(processEnvs, key); value != "" {
@@ -582,7 +742,14 @@ func linuxRuntimeEnvironmentFrom(base []string, uid int, processEnvs []map[strin
 		}
 	}
 
+	// Do not import AT_SPI_BUS_ADDRESS from another process, even if its socket
+	// happens to exist here. libatspi resolves org.a11y.Bus.GetAddress on the
+	// caller's session bus. Explicit caller overrides remain untouched.
 	return envMapToSlice(base, env)
+}
+
+func sandboxedProcessEnvironment(env map[string]string) bool {
+	return strings.TrimSpace(env["FLATPAK_ID"]) != "" || strings.TrimSpace(env["container"]) != ""
 }
 
 func chooseRuntimeDir(env map[string]string, processEnvs []map[string]string, uid int) string {
@@ -751,7 +918,7 @@ func desktopProcessEnvironments(uid int) []map[string]string {
 			continue
 		}
 		processEnv := readProcEnviron(procDir)
-		if !hasSessionEnvSignal(processEnv) {
+		if sandboxedProcessEnvironment(processEnv) || !hasSessionEnvSignal(processEnv) {
 			continue
 		}
 		candidates = append(candidates, rankedProcessEnv{
@@ -781,8 +948,10 @@ func processSearchText(procDir string) string {
 		parts = append(parts, string(bytes.TrimSpace(data)))
 	}
 	if data, err := os.ReadFile(filepath.Join(procDir, "cmdline")); err == nil {
-		data = bytes.Trim(data, "\x00")
-		parts = append(parts, strings.ReplaceAll(string(data), "\x00", " "))
+		// Arguments may contain Xwayland authentication paths or other process
+		// names. Only comm and argv[0] identify the process being ranked.
+		program := bytes.SplitN(data, []byte{0}, 2)[0]
+		parts = append(parts, filepath.Base(string(program)))
 	}
 	return strings.ToLower(strings.Join(parts, " "))
 }
@@ -817,7 +986,7 @@ func desktopProcessRank(text string) int {
 		{"tilix", 65},
 		{"codex", 50},
 		{"dbus-daemon", 45},
-		{"systemd --user", 40},
+		{"systemd", 40},
 	}
 
 	rank := 0
@@ -961,6 +1130,18 @@ func requiredString(args map[string]any, key string) string {
 func optionalString(args map[string]any, key string) string {
 	value, _ := args[key].(string)
 	return value
+}
+
+func optionalBool(args map[string]any, key string) (*bool, error) {
+	value, exists := args[key]
+	if !exists {
+		return nil, nil
+	}
+	boolean, ok := value.(bool)
+	if !ok {
+		return nil, fmt.Errorf("%s must be a boolean", key)
+	}
+	return &boolean, nil
 }
 
 func requiredElementIndex(args map[string]any) string {
@@ -1114,6 +1295,32 @@ func defaultString(value, fallback string) string {
 	return value
 }
 
+func parseWindowPlacement(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "keep", nil
+	}
+	for _, candidate := range windowPlacementValues {
+		if normalized == candidate {
+			return normalized, nil
+		}
+	}
+	return "", fmt.Errorf("Invalid window_placement %q. Expected one of: %s", value, strings.Join(windowPlacementValues, ", "))
+}
+
+func parseKeyMethod(value string) (string, error) {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	if normalized == "" {
+		return "auto", nil
+	}
+	for _, candidate := range keyMethodValues {
+		if normalized == candidate {
+			return normalized, nil
+		}
+	}
+	return "", fmt.Errorf("Invalid key_method %q. Expected one of: %s", value, strings.Join(keyMethodValues, ", "))
+}
+
 func parseClickMethod(value string) (string, error) {
 	normalized := strings.ToLower(strings.TrimSpace(value))
 	if normalized == "" {
@@ -1149,12 +1356,12 @@ func toolDefinitions() []toolDefinition {
 				"y":             numberProperty("Y coordinate in screenshot pixel coordinates"),
 				"click_count":   integerProperty("Number of clicks. Defaults to 1"),
 				"mouse_button":  enumStringProperty("Mouse button to click. Defaults to left.", []string{"left", "right", "middle"}),
-				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. Linux supports global AT-SPI mouse synthesis and does not currently support app_post or sky_click.", clickMethodValues),
+				"click_method":  enumStringProperty("Click implementation: auto (default), accessibility, app_post, sky_click, or global. Accessibility requires element_index. Coordinate clicks and elements with no AT-SPI action need real pointer synthesis, which is refused unless ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 is set. Linux does not support app_post or sky_click.", clickMethodValues),
 			}, []string{"app"}),
 		},
 		{
 			Name:        "drag",
-			Description: "Drag from one point to another using pixel coordinates. This tool is part of plugin `Computer Use`.",
+			Description: "Drag from one point to another using pixel coordinates. On Linux this moves the real pointer, so it is refused unless ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 is set. This tool is part of plugin `Computer Use`.",
 			Annotations: defaultAnnotations(),
 			InputSchema: objectSchema(map[string]any{
 				"app":    stringProperty("App name or bundle identifier"),
@@ -1166,13 +1373,16 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "get_app_state",
-			Description: "Get the state of an already running app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
+			Description: "Get the state of an already running app's key window. By default returns a screenshot and accessibility tree; include_ax/include_screenshot can opt out of either collection. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
 			Annotations: readOnlyAnnotations(),
 			InputSchema: objectSchema(map[string]any{
 				"app":            stringProperty("App name or bundle identifier"),
 				"text_limit":     textLimitProperty("Maximum text characters to return. Use \"max\" for full text. Defaults to 500."),
 				"max_tree_nodes": positiveIntegerProperty("Maximum accessibility tree nodes to render. Defaults to 1200."),
 				"max_tree_depth": positiveIntegerProperty("Maximum accessibility tree depth to render. Defaults to 64."),
+
+				"include_ax":         map[string]any{"type": "boolean", "default": true, "description": "Include accessibility tree, focus and selection. False skips AX collection and invalidates prior element indexes; coordinate actions remain available."},
+				"include_screenshot": map[string]any{"type": "boolean", "default": true, "description": "Capture and return a screenshot. False skips capture and PNG encoding."},
 			}, []string{"app"}),
 		},
 		{
@@ -1193,11 +1403,12 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "press_key",
-			Description: "Press a key or key-combination on the keyboard, including modifier and navigation keys.\n  - This supports xdotool's `key` syntax.\n  - Examples: \"a\", \"Return\", \"Tab\", \"super+c\", \"Up\", \"KP_0\" (for the numpad 0). This tool is part of plugin `Computer Use`.",
+			Description: "Press a key or key-combination on the keyboard, including modifier and navigation keys. On Linux the keys go to the focused window, so this is refused unless the target app window is active or ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 is set. Unknown modifiers are rejected.\n  - This supports xdotool's `key` syntax.\n  - Examples: \"a\", \"Return\", \"Tab\", \"super+c\", \"Up\", \"KP_0\" (for the numpad 0). This tool is part of plugin `Computer Use`.",
 			Annotations: defaultAnnotations(),
 			InputSchema: objectSchema(map[string]any{
-				"app": stringProperty("App name or bundle identifier"),
-				"key": stringProperty("Key or key-combination to press"),
+				"app":        stringProperty("App name or bundle identifier"),
+				"key":        stringProperty("Key or key-combination to press"),
+				"key_method": enumStringProperty("Keyboard delivery: auto (default) or sky_key. sky_key is the macOS SkyLight background-window path and is not supported on Linux.", keyMethodValues),
 			}, []string{"app", "key"}),
 		},
 		{
@@ -1213,7 +1424,7 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "set_value",
-			Description: "Set the value of a settable accessibility element. This tool is part of plugin `Computer Use`.",
+			Description: "Set the value of a settable accessibility element and verify the actual value. Text is compared exactly, including whitespace; an empty string clears it. Unverified writes return an error. This tool is part of plugin `Computer Use`.",
 			Annotations: defaultAnnotations(),
 			InputSchema: objectSchema(map[string]any{
 				"app":           stringProperty("App name or bundle identifier"),
@@ -1223,17 +1434,23 @@ func toolDefinitions() []toolDefinition {
 		},
 		{
 			Name:        "type_text",
-			Description: "Type literal text using keyboard input. This tool is part of plugin `Computer Use`.",
+			Description: "Type literal text exactly as given (whitespace and newlines are kept). On Linux it is inserted through the focused editable element when possible; otherwise it is synthesized as keys, which is refused unless the target app window is active or ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 is set. This tool is part of plugin `Computer Use`.",
 			Annotations: defaultAnnotations(),
 			InputSchema: objectSchema(map[string]any{
-				"app":  stringProperty("App name or bundle identifier"),
-				"text": stringProperty("Literal text to type"),
+				"app":        stringProperty("App name or bundle identifier"),
+				"text":       stringProperty("Literal text to type"),
+				"key_method": enumStringProperty("Keyboard delivery: auto (default) or sky_key. sky_key is the macOS SkyLight background-window path and is not supported on Linux.", keyMethodValues),
 			}, []string{"app", "text"}),
 		},
 	}
 }
 
 func objectSchema(properties map[string]any, required []string) map[string]any {
+	if _, hasApp := properties["app"]; hasApp {
+		if _, isGet := properties["max_tree_nodes"]; !isGet {
+			properties["state_id"] = stringProperty(stateIDDescription)
+		}
+	}
 	schema := map[string]any{
 		"type":                 "object",
 		"properties":           properties,
@@ -1312,6 +1529,9 @@ func runCLI(args []string, stdout io.Writer) error {
 	case "mcp":
 		return runMCP(os.Stdin, stdout)
 	case "doctor":
+		if len(args) > 1 && args[1] == "--json" {
+			return errors.New("doctor --json permission diagnostics are only supported on macOS")
+		}
 		fmt.Fprintln(stdout, "Linux runtime: AT-SPI2 and GDK run against the signed-in desktop user's accessibility session. When Codex starts without XDG_RUNTIME_DIR, DBUS_SESSION_BUS_ADDRESS, or display variables, ultraterm-computer-use tries to discover the same user's session from /run/user/<uid> and desktop processes.")
 		return nil
 	case "list-apps":
@@ -1322,13 +1542,16 @@ func runCLI(args []string, stdout io.Writer) error {
 		fmt.Fprintln(stdout, result.Content[0].Text)
 		return nil
 	case "snapshot":
-		app, textLimit, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs(args[1:])
+		snapshotArgs, observation, err := parseSnapshotObservationArgs(args[1:])
 		if err != nil {
 			return err
 		}
-		toolArgs := map[string]any{
-			"app": app,
+		app, textLimit, maxTreeNodes, maxTreeDepth, err := parseSnapshotArgs(snapshotArgs)
+		if err != nil {
+			return err
 		}
+		toolArgs := observation
+		toolArgs["app"] = app
 		if textLimit != nil {
 			toolArgs["text_limit"] = textLimit.runtimeValue()
 		}
@@ -1361,6 +1584,37 @@ func runCLI(args []string, stdout io.Writer) error {
 	default:
 		return fmt.Errorf("unknown command: %s\n\n%s", args[0], helpText(""))
 	}
+}
+
+func parseSnapshotObservationArgs(args []string) ([]string, map[string]any, error) {
+	remaining := []string{}
+	options := map[string]any{}
+	for index := 0; index < len(args); index++ {
+		option := args[index]
+		if option != "--include-ax" && option != "--include-screenshot" {
+			remaining = append(remaining, option)
+			continue
+		}
+		index++
+		if index >= len(args) {
+			return nil, nil, fmt.Errorf("%s requires true or false", option)
+		}
+		var value bool
+		switch strings.ToLower(args[index]) {
+		case "true":
+			value = true
+		case "false":
+			value = false
+		default:
+			return nil, nil, fmt.Errorf("%s requires true or false", option)
+		}
+		key := strings.ReplaceAll(strings.TrimPrefix(option, "--"), "-", "_")
+		options[key] = value
+	}
+	if options["include_ax"] == false && options["include_screenshot"] == false {
+		return nil, nil, errors.New("At least one of include_ax or include_screenshot must be true")
+	}
+	return remaining, options, nil
 }
 
 func parseSnapshotArgs(args []string) (string, *textLimit, *int, *int, error) {
@@ -1591,15 +1845,27 @@ func readJSONSource(inline, file string) (string, error) {
 
 func runMCP(stdin io.Reader, stdout io.Writer) error {
 	svc := newService()
-	decoder := json.NewDecoder(stdin)
+	reader := bufio.NewReaderSize(stdin, 64*1024)
 	encoder := json.NewEncoder(stdout)
 	for {
-		var request map[string]any
-		if err := decoder.Decode(&request); err != nil {
-			if errors.Is(err, io.EOF) {
+		line, readErr := reader.ReadBytes('\n')
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return readErr
+		}
+		if len(bytes.TrimSpace(line)) == 0 {
+			if readErr != nil {
 				return nil
 			}
-			_ = encoder.Encode(jsonRPCError(nil, -32700, "Invalid JSON-RPC payload"))
+			continue
+		}
+		var request map[string]any
+		if err := json.Unmarshal(line, &request); err != nil || request == nil {
+			if encErr := encoder.Encode(jsonRPCError(nil, -32700, "Invalid JSON-RPC payload: each line must be one JSON object")); encErr != nil {
+				return encErr
+			}
+			if readErr != nil {
+				return nil
+			}
 			continue
 		}
 		response := handleMCPRequest(request, svc)
@@ -1607,6 +1873,9 @@ func runMCP(stdin io.Reader, stdout io.Writer) error {
 			if err := encoder.Encode(response); err != nil {
 				return err
 			}
+		}
+		if readErr != nil {
+			return nil
 		}
 	}
 }
@@ -1666,7 +1935,7 @@ func helpText(command string) string {
 	case "call":
 		return "Usage:\n  ultraterm-computer-use call <tool> [--args '<json-object>']\n  ultraterm-computer-use call --calls '<json-array>'\n\nThe JSON array form keeps all calls in one process so element_index state can be reused.\n"
 	case "snapshot":
-		return "Usage:\n  ultraterm-computer-use snapshot [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>\n\nPrint the current Linux AT-SPI snapshot for the target app.\n"
+		return "Usage:\n  ultraterm-computer-use snapshot [--include-ax true|false] [--include-screenshot true|false] [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>\n\nPrint the current Linux AT-SPI snapshot for the target app.\n"
 	default:
 		return `UltraTerm Computer Use for Linux
 

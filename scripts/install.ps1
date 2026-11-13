@@ -3,7 +3,7 @@
 # %LOCALAPPDATA%\UltraTermComputerUse, and puts an ultraterm-computer-use.cmd shim on your user Path.
 # Uses the Node 18+ already on this machine, or fetches the official Node 22 LTS into the tool's own folder.
 # Also runs under PowerShell 7 on Linux for testing, with UTCU_HOME / UTCU_BIN_DIR overrides.
-# Environment: UTCU_HOME, UTCU_BIN_DIR, UTCU_VERSION (pin a version, e.g. 0.7.3), UTCU_RELEASE_BASE (test override).
+# Environment: UTCU_HOME, UTCU_BIN_DIR, UTCU_VERSION (pin a version, e.g. 0.8.0), UTCU_RELEASE_BASE (test override).
 # Everything runs inside one function and ends with a single call: under `irm | iex` nothing is left behind in the
 # user's session, errors are thrown (never `exit`, which would close the user's shell), and the user's
 # $ErrorActionPreference / $ProgressPreference are restored.

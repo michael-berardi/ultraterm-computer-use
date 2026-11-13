@@ -130,7 +130,13 @@ if [[ "$(uname -s)" == "Darwin" ]]; then
 fi
 
 container_base="http://host.docker.internal:$port"
-pwsh_image="${UTCU_TEST_PWSH_IMAGE:-mcr.microsoft.com/powershell}"
+# The untagged image resolves to a 32-bit ARM build on some hosts, which a 64-bit ARM machine cannot run
+# ("exec format error"). Pick an image for this machine's architecture unless one is named.
+case "$(uname -m)" in
+  arm64|aarch64) default_pwsh_image="mcr.microsoft.com/powershell:7.5-azurelinux-3.0-arm64" ;;
+  *) default_pwsh_image="mcr.microsoft.com/powershell:7.5-ubuntu-24.04" ;;
+esac
+pwsh_image="${UTCU_TEST_PWSH_IMAGE:-$default_pwsh_image}"
 pwsh_platform_args=()
 [[ -n "${UTCU_TEST_PWSH_PLATFORM:-}" ]] && pwsh_platform_args=(--platform "$UTCU_TEST_PWSH_PLATFORM")
 
@@ -172,6 +178,16 @@ echo mine"
 fi
 
 if [[ "$run_pwsh" -eq 1 ]]; then
+  # install.ps1 needs tar, which Windows ships; a minimal PowerShell image may not. Build a local
+  # image with tar once so every phase below runs offline against the fixture.
+  if ! docker run --rm ${pwsh_platform_args[@]+"${pwsh_platform_args[@]}"} "$pwsh_image" sh -c 'command -v tar' >/dev/null 2>&1; then
+    echo "== pwsh container: adding tar to $pwsh_image =="
+    tar_image="ultraterm-computer-use-test-pwsh-tar:local"
+    printf 'FROM %s\nRUN (command -v tdnf >/dev/null && tdnf install -y tar gzip >/dev/null) || (command -v apt-get >/dev/null && apt-get update -qq && apt-get install -y -qq tar gzip >/dev/null) || (command -v apk >/dev/null && apk add --no-cache tar gzip >/dev/null)\n' "$pwsh_image" |
+      docker build -q ${pwsh_platform_args[@]+"${pwsh_platform_args[@]}"} -t "$tar_image" - >/dev/null ||
+      { echo "test-install: could not add tar to $pwsh_image; set UTCU_TEST_PWSH_IMAGE to an image that has tar" >&2; exit 1; }
+    pwsh_image="$tar_image"
+  fi
   echo "== pwsh container: install (fetch Node), version, upgrade =="
   docker run --rm --name ultraterm-computer-use-test-pwsh \
     ${pwsh_platform_args[@]+"${pwsh_platform_args[@]}"} \

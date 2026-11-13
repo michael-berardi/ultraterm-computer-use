@@ -31,6 +31,10 @@ if command -v go >/dev/null 2>&1; then
   )
 fi
 
-node --test "${repo_root}"/test/*.test.mjs
+node --test "${repo_root}"/test/*.test.mjs "${repo_root}"/scripts/node-repl/*.test.mjs "${repo_root}"/scripts/tests/*.test.mjs
+
+if command -v swift >/dev/null 2>&1 && [[ "$(uname -s)" == Darwin ]]; then
+  (cd "${repo_root}" && swift build && swift test)
+fi
 
 echo "Validation passed"

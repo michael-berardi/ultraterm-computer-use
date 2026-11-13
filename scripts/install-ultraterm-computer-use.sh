@@ -158,7 +158,7 @@ case "${1:-}" in
   diagnostics)
     codesign --verify --deep --strict --verbose=2 "$app_bundle"
     codesign -dr - "$app_bundle" 2>&1 || true
-    "$app" doctor --status-only --json
+    "$app" doctor --json
     ;;
   *)
     exec "$app" "$@"

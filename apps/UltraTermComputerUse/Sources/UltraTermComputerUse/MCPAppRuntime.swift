@@ -32,6 +32,7 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
             queue: .main
         ) { _ in
             Task { @MainActor in
+                resetUltraTermComputerUseBackgroundWindowState()
                 resetUltraTermComputerUseVisualCursor()
             }
         }
@@ -39,6 +40,7 @@ final class MCPAppRuntime: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        resetUltraTermComputerUseBackgroundWindowState()
         if let turnEndedObserver {
             DistributedNotificationCenter.default().removeObserver(turnEndedObserver)
         }

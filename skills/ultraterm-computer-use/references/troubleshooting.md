@@ -47,6 +47,10 @@ Common causes:
 
 Ask the user to bring the target app/window into a visible state when automation cannot do so safely.
 
+On macOS, a hidden app, a minimized window or an app with no open window fails with `The app has no window that can be read in the background`. Nothing was changed. Fix: ask the user to show the window, or, if they agree, set `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1` in the server environment so the runtime may unhide, unminimize and raise it.
+
+On Windows, `get_app_state` may intentionally return the accessibility tree without an image when the main window is hidden, minimized, DWM-cloaked, off-screen, or too small to be a trustworthy Computer Use screenshot. Do not synthesize, upscale, or pad an image. Use `element_index` actions when the returned tree is sufficient; screenshot-coordinate click and drag require a later state result that contains a usable image.
+
 ## Truncated Text
 
 Snapshot text is limited to 500 characters by default. If a visible chat message, email body, document paragraph, or form value ends with `...`, do not assume the page itself is missing content.
@@ -85,11 +89,23 @@ If an element-targeted action fails:
 4. Prefer `perform_secondary_action` only for actions exposed in the state result.
 5. Use coordinate `click`, `scroll`, or `drag` only after the semantic route is unavailable.
 
+## stale_state
+
+An action that fails with `stale_state` was given a `state_id` that is no longer the latest for that app. Nothing was sent. Run `get_app_state`, read the new state, and retry with the new `state_id`. See `docs/state-id.md`.
+
+## Linux Action Refused
+
+On Linux, a coordinate click, a drag, `click_method=global`, and keys for a window that is not active are refused with a message that says nothing was sent. Use `element_index` and `set_value` where you can, or ask the user to make the window active. Only if the user agrees, set `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` in the server environment. `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND` has no effect on Linux.
+
 ## Desktop Session Issues
 
 Windows UI Automation and Linux AT-SPI require a live user desktop. SSH sessions, CI jobs, launch daemons, or services often do not have access to the GUI session even when the CLI binary starts successfully.
 
 If desktop access is missing, ask the user to run the command from the logged-in desktop session or start the target app visibly in that session.
+
+## Linux Accessible Interface Errors
+
+If a Linux release reports that `Accessible` has no `is_text` or `is_editable_text` attribute, upgrade to a release containing the AT-SPI interface-detection fix. Current source checks `Accessible.get_interfaces()` for `Text` and `EditableText`, which is compatible with the PyGObject bindings used by Ubuntu 24.04.
 
 ## Permission And Safety Issues
 

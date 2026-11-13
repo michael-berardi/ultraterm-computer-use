@@ -261,3 +261,41 @@ test("install.ps1 writes the user Path through the registry, never the expanding
   assert.match(ps, /OpenSubKey\('Environment', \$true\)/);
   assert.match(ps, /GetValueKind\('Path'\)/);
 });
+
+test("every shell script only calls scripts and variables that exist", () => {
+  // A merge once left release-package.sh expanding an array that was never set and calling a deleted script.
+  for (const name of readdirSync(join(root, "scripts")).filter((f) => f.endsWith(".sh"))) {
+    const own = read(`scripts/${name}`);
+    // Arrays may be set by a sourced helper.
+    const sourced = [...own.matchAll(/^\s*(?:source|\.)\s+"?\$\{?repo_root\}?\/scripts\/([A-Za-z0-9._-]+\.sh)"?/gm)]
+      .map((m) => (existsSync(join(root, "scripts", m[1])) ? read(`scripts/${m[1]}`) : ""));
+    const text = [own, ...sourced].join("\n");
+    for (const match of own.matchAll(/\$\{repo_root\}\/scripts\/([A-Za-z0-9._\/-]+\.(?:sh|mjs|py))/g)) {
+      assert.ok(existsSync(join(root, "scripts", match[1])), `${name} calls missing scripts/${match[1]}`);
+    }
+    for (const match of own.matchAll(/"\$\{([a-z_]+)\[@\]\}"/g)) {
+      const name_ = match[1];
+      const set = new RegExp(`(?:^|[\\s;])${name_}\\+?=\\(`, "m").test(text) || new RegExp(`read -r?a? ?-a ${name_}\\b|read -ra ${name_}\\b|mapfile -t ${name_}\\b`).test(text);
+      assert.ok(set, `${name} expands \${${name_}[@]} but never sets it`);
+    }
+  }
+});
+
+test("no script expands a possibly empty array bare under set -u (bash 3.2 on macOS fails)", () => {
+  for (const name of readdirSync(join(root, "scripts")).filter((f) => f.endsWith(".sh"))) {
+    const text = read(`scripts/${name}`);
+    if (!/^set -[a-z]*u/m.test(text)) continue;
+    for (const match of text.matchAll(/^\s*(?:local -a )?([a-z_]+)=\(\)\s*$/gm)) {
+      const lines = text.split("\n");
+      const bare = lines.filter((line, index) => line.includes(`"\${${match[1]}[@]}"`) && !line.includes(`\${${match[1]}[@]+`)
+        && !new RegExp(`\\$\\{#${match[1]}\\[@\\]\\}"? -gt 0`).test(lines[index - 1] ?? ""));
+      assert.deepEqual(bare.map((line) => `${name}: ${line.trim()}`), [], `guard it as \${${match[1]}[@]+"\${${match[1]}[@]}"}`);
+    }
+  }
+});
+
+test("the PowerShell container test picks an image for the host architecture", () => {
+  const text = read("scripts/test-install.sh");
+  assert.match(text, /arm64\|aarch64\) default_pwsh_image="mcr\.microsoft\.com\/powershell:[^"]*arm64"/);
+  assert.ok(!/pwsh_image="\$\{UTCU_TEST_PWSH_IMAGE:-mcr\.microsoft\.com\/powershell\}"/.test(text), "the untagged image can resolve to a build this machine cannot run");
+});

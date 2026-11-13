@@ -9,6 +9,8 @@ public enum ComputerUseError: Error, LocalizedError {
     case appNotFound(String)
     case permissionDenied(String)
     case stateUnavailable(String)
+    /// The caller's state_id is not the current one for the app; nothing was sent.
+    case staleState(String)
 
     public var errorDescription: String? {
         switch self {
@@ -24,6 +26,8 @@ public enum ComputerUseError: Error, LocalizedError {
             return message
         case .stateUnavailable(let message):
             return message
+        case .staleState(let message):
+            return "stale_state: \(message)"
         }
     }
 

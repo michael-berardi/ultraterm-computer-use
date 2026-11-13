@@ -3,9 +3,11 @@ import Foundation
 public enum UltraTermComputerUseCLICommand: Equatable {
     case launchOnboarding
     case mcp
-    case doctor
+    case doctor(json: Bool = false)
+    case lockedUseStatus(json: Bool)
+    case lockedUseManagement(action: String, validation: Bool)
     case listApps
-    case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults)
+    case snapshot(app: String, textLimit: SnapshotTextLimit = .defaults, treeLimits: AccessibilityTreeLimits = .defaults, observation: SnapshotObservationOptions = .defaults)
     case call(UltraTermComputerUseCallInvocation)
     case turnEnded(payload: String?)
     case help(command: String?)
@@ -17,7 +19,9 @@ public enum UltraTermComputerUseCallInvocation: Equatable {
     case sequence(callsJSON: String?, callsFile: String?, interCallDelay: TimeInterval)
 }
 
-public let ultraTermComputerUseDefaultInterCallDelay: TimeInterval = 1
+/// Every action already waits for the app to settle before it reads the result back, so a
+/// sequence needs only a short gap between steps.
+public let ultraTermComputerUseDefaultInterCallDelay: TimeInterval = 0.2
 
 public func shouldUseMacOSAppAgentProxy(
     command: UltraTermComputerUseCLICommand,
@@ -32,11 +36,40 @@ public func shouldUseMacOSAppAgentProxy(
     switch command {
     case .launchOnboarding:
         return !runningFromLaunchServicesAppInstance
-    case .mcp, .doctor, .listApps, .snapshot, .call:
+    case .mcp, .doctor, .lockedUseStatus, .listApps, .snapshot, .call:
         return true
-    case .turnEnded, .help, .version:
+    case .lockedUseManagement, .turnEnded, .help, .version:
         return false
     }
+}
+
+/// The app agent is launched through LaunchServices and does not share the
+/// caller's working directory, so relative `--args-file` / `--calls-file`
+/// paths are resolved here before the arguments are proxied.
+public func resolvingUltraTermComputerUseCallFilePaths(
+    _ arguments: [String],
+    currentDirectory: String = FileManager.default.currentDirectoryPath
+) -> [String] {
+    guard arguments.first == "call" else { return arguments }
+    var resolved = arguments
+    var index = 1
+    while index < arguments.count {
+        let option = arguments[index]
+        if ["--args-file", "--calls-file", "--args", "--calls", "--sleep"].contains(option) {
+            guard index + 1 < arguments.count else { break }
+            if option == "--args-file" || option == "--calls-file" {
+                resolved[index + 1] = URL(
+                    fileURLWithPath: arguments[index + 1],
+                    relativeTo: URL(fileURLWithPath: currentDirectory, isDirectory: true)
+                ).path
+            }
+            // Values are opaque, even when they happen to look like another option.
+            index += 2
+        } else {
+            index += 1
+        }
+    }
+    return resolved
 }
 
 public struct UltraTermComputerUseCLIError: LocalizedError, Equatable {
@@ -77,7 +110,12 @@ public func parseUltraTermComputerUseCLI(arguments: [String]) throws -> UltraTer
     case "mcp":
         return try parseSimpleCommand(name: "mcp", arguments: Array(arguments.dropFirst()), result: .mcp)
     case "doctor":
-        return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor)
+        if Array(arguments.dropFirst()) == ["--json"] {
+            return .doctor(json: true)
+        }
+        return try parseSimpleCommand(name: "doctor", arguments: Array(arguments.dropFirst()), result: .doctor())
+    case "locked-use":
+        return try parseLockedUse(arguments: Array(arguments.dropFirst()))
     case "list-apps":
         return try parseSimpleCommand(name: "list-apps", arguments: Array(arguments.dropFirst()), result: .listApps)
     case "call":
@@ -133,10 +171,29 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
     case "doctor":
         return """
         Usage:
-          ultraterm-computer-use doctor
+          ultraterm-computer-use doctor [--json]
 
         Print the current Accessibility and Screen Recording permission state.
         If permissions are missing, this also launches the onboarding app.
+        --json prints a permission snapshot without launching onboarding (macOS only).
+        Read allGranted to determine readiness; missing permissions still exit successfully.
+        """
+    case "locked-use":
+        return """
+        Usage:
+          ultraterm-computer-use locked-use status [--json]
+
+        Read-only macOS session, permission, and system-component diagnostics.
+          ultraterm-computer-use locked-use enable
+          ultraterm-computer-use locked-use disable
+          ultraterm-computer-use locked-use recover
+          ultraterm-computer-use locked-use certify
+          ultraterm-computer-use locked-use settings
+
+        Installation and removal require macOS administrator authentication.
+        enable installs signed components and requests macOS permissions.
+        Automatic unlock requires an approved client and both display guards.
+        recover restores an interrupted installation only after safe drainage.
         """
     case "list-apps":
         return """
@@ -148,12 +205,14 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
     case "snapshot":
         return """
         Usage:
-          ultraterm-computer-use snapshot [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>
+          ultraterm-computer-use snapshot [--include-ax true|false] [--include-screenshot true|false] [--text-limit <positive-int|max>] [--max-tree-nodes <positive-int>] [--max-tree-depth <positive-int>] <app>
 
         Arguments:
           <app>                App name or bundle identifier to inspect.
 
         Options:
+          --include-ax         Include AX/focus/selection (true by default). False invalidates prior indexes.
+          --include-screenshot Include screenshot capture (true by default). At least one channel must be true.
           --text-limit         Override the default 500 character text limit. Use `max` for full text.
           --max-tree-nodes     Override the default 1200 node accessibility tree budget.
           --max-tree-depth     Override the default 64 level accessibility tree depth.
@@ -274,6 +333,7 @@ private func parseSnapshot(arguments: [String]) throws -> UltraTermComputerUseCL
         return .help(command: "snapshot")
     }
 
+    var observation = SnapshotObservationOptions.defaults
     var app: String?
     var textLimit = SnapshotTextLimit.defaults
     var maxTreeNodes: Int?
@@ -283,6 +343,13 @@ private func parseSnapshot(arguments: [String]) throws -> UltraTermComputerUseCL
     while index < arguments.count {
         let argument = arguments[index]
         switch argument {
+        case "--include-ax", "--include-screenshot":
+            index += 1
+            guard index < arguments.count, let value = Bool(arguments[index].lowercased()) else {
+                throw UltraTermComputerUseCLIError(message: "\(argument) requires true or false", helpCommand: "snapshot")
+            }
+            if argument == "--include-ax" { observation.includeAX = value }
+            else { observation.includeScreenshot = value }
         case "--text-limit":
             index += 1
             guard index < arguments.count else {
@@ -321,13 +388,17 @@ private func parseSnapshot(arguments: [String]) throws -> UltraTermComputerUseCL
         throw UltraTermComputerUseCLIError(message: "snapshot requires an app name or bundle identifier", helpCommand: "snapshot")
     }
 
+    guard observation.includeAX || observation.includeScreenshot else {
+        throw UltraTermComputerUseCLIError(message: "At least one of include_ax or include_screenshot must be true", helpCommand: "snapshot")
+    }
     return .snapshot(
         app: app,
         textLimit: textLimit,
         treeLimits: AccessibilityTreeLimits.defaults.replacing(
             maxNodeCount: maxTreeNodes,
             maxDepth: maxTreeDepth
-        )
+        ),
+        observation: observation
     )
 }
 
@@ -467,4 +538,17 @@ private func formatUltraTermComputerUseDelay(_ delay: TimeInterval) -> String {
     }
 
     return "\(delay)s"
+}
+
+private func parseLockedUse(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+    if arguments == ["--help"] || arguments == ["-h"] || arguments == ["status", "--help"] {
+        return .help(command: "locked-use")
+    }
+    if arguments == ["status"] { return .lockedUseStatus(json: false) }
+    if arguments == ["status", "--json"] { return .lockedUseStatus(json: true) }
+    if arguments.count == 1, let action = arguments.first,
+       ["enable", "disable", "recover", "certify", "settings"].contains(action) {
+        return .lockedUseManagement(action: action, validation: false)
+    }
+    throw UltraTermComputerUseCLIError(message: "Expected locked-use status, enable, disable, recover, certify, or settings", helpCommand: "locked-use")
 }

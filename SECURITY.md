@@ -1,15 +1,15 @@
-# 安全策略
+# Security Policy
 
-## 漏洞反馈
+## Reporting vulnerabilities
 
-如果发现疑似安全漏洞，不要直接提公开 issue。
+If you find a suspected security vulnerability, do not open a public issue.
 
-请通过你们组织内部约定的私有安全通道反馈，并尽量附上：
+Report it through the private security channel agreed within your organization, and include where possible:
 
-- 影响范围和潜在风险。
-- 复现步骤或 PoC。
-- 已知的缓解方式或临时绕过方案。
+- Scope and potential impact.
+- Reproduction steps or a PoC.
+- Known mitigations or temporary workarounds.
 
-## 适用范围
+## Scope
 
-这个仓库本身只是一个基础模板。基于它创建的新项目，应该把这里替换成自己真实的安全联系人和响应流程。
+This repository is only a base template. Projects created from it should replace this file with their own real security contact and response process.

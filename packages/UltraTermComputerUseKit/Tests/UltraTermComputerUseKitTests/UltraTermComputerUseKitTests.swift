@@ -4,11 +4,54 @@ import XCTest
 @testable import UltraTermComputerUseKit
 
 final class UltraTermComputerUseKitTests: XCTestCase {
+    func testAppAgentSocketFileNamePreservesLegacyDefault() {
+        XCTAssertEqual(ultraTermComputerUseAppAgentSocketFileName(namespace: nil), "ultraterm-computer-use-agent.sock")
+        XCTAssertEqual(ultraTermComputerUseAppAgentSocketFileName(namespace: "   "), "ultraterm-computer-use-agent.sock")
+    }
+
+    func testAppAgentSocketFileNameIsDeterministicAndNamespaced() {
+        let first = ultraTermComputerUseAppAgentSocketFileName(namespace: "boss-resume:profile-a")
+        let second = ultraTermComputerUseAppAgentSocketFileName(namespace: "boss-resume:profile-b")
+
+        XCTAssertEqual(first, ultraTermComputerUseAppAgentSocketFileName(namespace: "boss-resume:profile-a"))
+        XCTAssertNotEqual(first, second)
+        XCTAssertTrue(first.hasPrefix("ultraterm-computer-use-agent-"))
+        XCTAssertTrue(first.hasSuffix(".sock"))
+        XCTAssertLessThan(first.count, 80)
+    }
+
     func testCLIRecognizesGlobalHelpAndVersionFlags() throws {
         XCTAssertEqual(try parseUltraTermComputerUseCLI(arguments: ["-h"]), .help(command: nil))
         XCTAssertEqual(try parseUltraTermComputerUseCLI(arguments: ["--help"]), .help(command: nil))
         XCTAssertEqual(try parseUltraTermComputerUseCLI(arguments: ["-v"]), .version)
         XCTAssertEqual(try parseUltraTermComputerUseCLI(arguments: ["--version"]), .version)
+    }
+
+    func testDoctorJSONContract() throws {
+        XCTAssertEqual(try parseUltraTermComputerUseCLI(arguments: ["doctor"]), .doctor())
+        XCTAssertEqual(try parseUltraTermComputerUseCLI(arguments: ["doctor", "--json"]), .doctor(json: true))
+        XCTAssertThrowsError(try parseUltraTermComputerUseCLI(arguments: ["doctor", "--json", "--json"]))
+        XCTAssertThrowsError(try parseUltraTermComputerUseCLI(arguments: ["doctor", "--unknown"]))
+        XCTAssertTrue(shouldUseMacOSAppAgentProxy(
+            command: .doctor(json: true), proxyDisabled: false,
+            appBundleAvailable: true, runningFromLaunchServicesAppInstance: false
+        ))
+        for accessibility in [false, true] {
+            for screenCapture in [false, true] {
+                let diagnostics = PermissionDiagnostics(
+                    accessibilityTrusted: accessibility, screenCaptureGranted: screenCapture
+                )
+                let payload = try XCTUnwrap(JSONSerialization.jsonObject(
+                    with: Data(try diagnostics.jsonText().utf8)
+                ) as? [String: Any])
+                XCTAssertEqual(payload["platform"] as? String, "macos")
+                XCTAssertEqual(payload["accessibilityTrusted"] as? Bool, accessibility)
+                XCTAssertEqual(payload["screenCaptureGranted"] as? Bool, screenCapture)
+                XCTAssertEqual(payload["allGranted"] as? Bool, accessibility && screenCapture)
+                XCTAssertEqual(payload["missingPermissions"] as? [String],
+                               diagnostics.missingPermissions.map(\.rawValue))
+            }
+        }
     }
 
     func testCLIRecognizesCommandSpecificHelp() throws {
@@ -217,27 +260,51 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         let image = try makeNoisyTestImage(width: 800, height: 600)
         let data = try XCTUnwrap(boundedScreenshotPNGData(
             for: image,
-            maxBytes: 50_000,
-            maxDimension: 320,
-            minScale: 0.05
+            maxDimension: 320
         ))
         let size = try imageSize(in: data)
 
-        XCTAssertLessThanOrEqual(data.count, 50_000)
+        XCTAssertEqual(size.width, 320)
+        XCTAssertEqual(size.height, 240)
         XCTAssertLessThanOrEqual(max(size.width, size.height), 320)
     }
 
     func testBoundedScreenshotPNGDataKeepsSmallScreenshotsAtOriginalSize() throws {
         let image = try makeSolidTestImage(width: 32, height: 24)
-        let data = try XCTUnwrap(boundedScreenshotPNGData(for: image, maxBytes: 1_000_000, maxDimension: 320))
+        let data = try XCTUnwrap(boundedScreenshotPNGData(for: image, maxDimension: 320))
         let size = try imageSize(in: data)
 
         XCTAssertEqual(size.width, 32)
         XCTAssertEqual(size.height, 24)
     }
 
+    func testRenderedCoordinateNeverTrapsOnNonFiniteValues() {
+        XCTAssertEqual(renderedCoordinate(12.7), "12")
+        XCTAssertEqual(renderedCoordinate(-3.2), "-3")
+        XCTAssertEqual(renderedCoordinate(.nan), "?")
+        XCTAssertEqual(renderedCoordinate(.infinity), "?")
+        XCTAssertEqual(renderedCoordinate(-.infinity), "?")
+        XCTAssertEqual(renderedCoordinate(CGFloat(Int64.max)), "?")
+    }
+
     func testToolDefinitionCount() {
-        XCTAssertEqual(ToolDefinitions.all.count, 9)
+        XCTAssertEqual(ToolDefinitions.all.count, 11)
+        XCTAssertEqual(
+            ToolDefinitions.all.map(\.name).sorted(),
+            [
+                "click",
+                "drag",
+                "get_app_state",
+                "list_apps",
+                "perform_secondary_action",
+                "press_key",
+                "query",
+                "scroll",
+                "select_text",
+                "set_value",
+                "type_text",
+            ]
+        )
     }
 
     func testReadToolArgumentsAcceptsJSONObject() throws {
@@ -331,7 +398,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
     func testMacOSAppAgentProxyDecisionRoutesAutomationCommandsThroughAppBundle() {
         for command in [
             UltraTermComputerUseCLICommand.mcp,
-            .doctor,
+            .doctor(),
             .listApps,
             .snapshot(app: "TextEdit"),
             .call(.single(toolName: "list_apps", argumentsJSON: nil, argumentsFile: nil)),
@@ -343,6 +410,68 @@ final class UltraTermComputerUseKitTests: XCTestCase {
                 runningFromLaunchServicesAppInstance: false
             ))
         }
+    }
+
+    func testProxiedCallFilePathsOnlyRewriteFileOptionValues() {
+        let cwd = "/tmp/ocu path/中文"
+        for arguments in [
+            ["snapshot", "--args-file", "--text-limit", "50"],
+            ["call", "list_apps", "--args", "--calls-file", "--sleep", "0"],
+            ["call", "list_apps", "--args-file"],
+            [],
+        ] {
+            XCTAssertEqual(resolvingUltraTermComputerUseCallFilePaths(arguments, currentDirectory: cwd), arguments)
+        }
+        XCTAssertEqual(
+            resolvingUltraTermComputerUseCallFilePaths(["call", "list_apps", "--args-file", "args 中文.json"], currentDirectory: cwd),
+            ["call", "list_apps", "--args-file", cwd + "/args 中文.json"]
+        )
+        XCTAssertEqual(
+            resolvingUltraTermComputerUseCallFilePaths(["call", "list_apps", "--args-file", "--calls-file"], currentDirectory: cwd),
+            ["call", "list_apps", "--args-file", cwd + "/--calls-file"]
+        )
+    }
+
+    func testProxiedCallFilePathsResolveAgainstCallerDirectory() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        try #"[{"tool":"list_apps"}]"#.write(to: directory.appendingPathComponent("calls.json"), atomically: true, encoding: .utf8)
+
+        let arguments = resolvingUltraTermComputerUseCallFilePaths(
+            ["call", "--calls-file", "calls.json", "--sleep", "0"],
+            currentDirectory: directory.path
+        )
+        XCTAssertEqual(arguments, ["call", "--calls-file", directory.appendingPathComponent("calls.json").path, "--sleep", "0"])
+        guard case let .call(.sequence(_, callsFile, _)) = try parseUltraTermComputerUseCLI(arguments: arguments) else {
+            return XCTFail("expected a call sequence")
+        }
+        XCTAssertEqual(try readUltraTermComputerUseCallSequence(json: nil, file: callsFile).map(\.tool), ["list_apps"])
+
+        XCTAssertEqual(
+            resolvingUltraTermComputerUseCallFilePaths(["call", "list_apps", "--args-file", "/tmp/args.json"], currentDirectory: directory.path),
+            ["call", "list_apps", "--args-file", "/tmp/args.json"]
+        )
+    }
+
+    func testAppNameResolutionPrefersRegularAppsAndDisplayNames() {
+        let ranked = [
+            AppDiscovery.ResolutionCandidate(name: "Safari", executableName: nil, isRegularApp: true),
+            AppDiscovery.ResolutionCandidate(name: "Browser", executableName: "Safari", isRegularApp: true),
+            AppDiscovery.ResolutionCandidate(name: "Safari", executableName: nil, isRegularApp: false),
+            AppDiscovery.ResolutionCandidate(name: "Browser Helper", executableName: "Safari", isRegularApp: false),
+        ]
+        for preferred in ranked.indices {
+            for fallback in ranked.indices where fallback > preferred {
+                XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [ranked[fallback], ranked[preferred]], matching: "sAfArI"), 1)
+                XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [ranked[preferred], ranked[fallback]], matching: "sAfArI"), 0)
+            }
+        }
+        for candidate in ranked {
+            XCTAssertEqual(AppDiscovery.bestResolutionIndex(of: [candidate, candidate], matching: "Safari"), 0)
+        }
+        XCTAssertNil(AppDiscovery.bestResolutionIndex(of: ranked, matching: "missing"))
+        XCTAssertNil(AppDiscovery.bestResolutionIndex(of: [], matching: "Safari"))
     }
 
     func testMacOSAppAgentProxyDecisionKeepsNonAutomationCommandsLocal() {
@@ -377,13 +506,13 @@ final class UltraTermComputerUseKitTests: XCTestCase {
 
     func testMacOSAppAgentProxyDecisionHonorsDisableAndMissingBundle() {
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: true,
             appBundleAvailable: true,
             runningFromLaunchServicesAppInstance: false
         ))
         XCTAssertFalse(shouldUseMacOSAppAgentProxy(
-            command: .doctor,
+            command: .doctor(),
             proxyDisabled: false,
             appBundleAvailable: false,
             runningFromLaunchServicesAppInstance: false
@@ -587,11 +716,16 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         XCTAssertEqual(instructions, computerUseServerInstructions)
     }
 
-    func testMCPAcceptsTurnEndedNotificationWithoutResponse() {
-        let server = StdioMCPServer(service: ComputerUseService())
+    func testMCPTurnEndedNotificationResetsBackgroundStateWithoutResponse() {
+        var resetCount = 0
+        let server = StdioMCPServer(
+            service: ComputerUseService(),
+            backgroundStateReset: { resetCount += 1 }
+        )
         let response = server.handle(line: #"{"jsonrpc":"2.0","method":"notifications/turn-ended","params":{"type":"agent-turn-complete"}}"#)
 
         XCTAssertNil(response)
+        XCTAssertEqual(resetCount, 1)
     }
 
     func testWindowRelativeFrameUsesSharedGlobalCoordinates() {
@@ -618,7 +752,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         )
         XCTAssertEqual(
             tools["get_app_state"]?.annotations["readOnlyHint"] as? Bool,
-            true
+            nil
         )
         XCTAssertEqual(
             tools["click"]?.inputSchema["additionalProperties"] as? Bool,
@@ -632,6 +766,10 @@ final class UltraTermComputerUseKitTests: XCTestCase {
             ((tools["click"]?.inputSchema["properties"] as? [String: [String: Any]])?["click_method"]?["enum"] as? [String]) ?? [],
             ["auto", "accessibility", "app_post", "sky_click", "global"]
         )
+        let dragDescription = tools["drag"]?.description ?? ""
+        XCTAssertTrue(dragDescription.contains("ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1"))
+        XCTAssertTrue(dragDescription.contains("window moves, text selection, or Finder drag-and-drop"))
+        XCTAssertTrue(dragDescription.hasSuffix("This tool is part of plugin `Computer Use`."))
         let getAppStateSchema = tools["get_app_state"]?.inputSchema
         let getAppStateProperties = getAppStateSchema?["properties"] as? [String: [String: Any]]
         XCTAssertNil(getAppStateProperties?["show_full_text"])
@@ -651,6 +789,46 @@ final class UltraTermComputerUseKitTests: XCTestCase {
             scrollPages?["description"] as? String,
             "Number of pages to scroll. Fractional values are supported. Defaults to 1"
         )
+        XCTAssertEqual(
+            tools["select_text"]?.description,
+            "Select text inside a text element, or place the text cursor before or after it. Provide text exactly as it appears in the accessibility tree, including any Markdown formatting. If the text is not unique, provide surrounding prefix or suffix text to disambiguate it. This tool is part of plugin `Computer Use`."
+        )
+        let selectTextSchema = tools["select_text"]?.inputSchema
+        let selectTextProperties = selectTextSchema?["properties"] as? [String: [String: Any]]
+        XCTAssertEqual(selectTextSchema?["required"] as? [String], ["app", "element_index", "text"])
+        XCTAssertEqual(selectTextSchema?["additionalProperties"] as? Bool, false)
+        XCTAssertEqual(
+            selectTextProperties?["selection"]?["enum"] as? [String],
+            ["text", "cursor_before", "cursor_after"]
+        )
+        XCTAssertEqual(
+            selectTextProperties?["selection"]?["description"] as? String,
+            "Whether to select the text or place the cursor before or after it. Defaults to text."
+        )
+        XCTAssertEqual(selectTextProperties?["element_index"]?["description"] as? String, "Text element identifier")
+        XCTAssertEqual(
+            selectTextProperties?["prefix"]?["description"] as? String,
+            "Optional text immediately before the target, used to disambiguate repeated matches"
+        )
+        XCTAssertEqual(
+            selectTextProperties?["suffix"]?["description"] as? String,
+            "Optional text immediately after the target, used to disambiguate repeated matches"
+        )
+        XCTAssertEqual(
+            selectTextProperties?["text"]?["description"] as? String,
+            "Target text as shown in the accessibility tree"
+        )
+    }
+
+    func testSelectTextRejectsInvalidSelectionMode() {
+        let dispatcher = ComputerUseToolDispatcher()
+        let result = dispatcher.callToolAsResult(
+            name: "select_text",
+            arguments: ["app": "Sublime Text", "element_index": "14", "text": "abc", "selection": "sideways"]
+        )
+
+        XCTAssertTrue(result.isError)
+        XCTAssertEqual(result.primaryText, "selection must be one of text, cursor_before, cursor_after")
     }
 
     func testDispatcherMissingArgumentsMatchOfficialToolText() {
@@ -782,6 +960,41 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testCoordinateClickDescendantMustContainThePoint() {
+        // A blank spot in a 560x372 window: the window is the best record, so its descendants get scanned.
+        let blankSpot = CGPoint(x: 400, y: 250)
+        let window = CGRect(x: 0, y: 0, width: 560, height: 372)
+        let closeButton = CGRect(x: 8, y: 8, width: 16, height: 16)
+        let zeroSizeButton = CGRect(x: 400, y: 250, width: 0, height: 0)
+        let buttonUnderPoint = CGRect(x: 380, y: 236, width: 80, height: 28)
+
+        XCTAssertFalse(isDescendantClickCandidateAtTarget(candidateFrame: closeButton, clickPoint: blankSpot, targetFrame: window))
+        XCTAssertFalse(isDescendantClickCandidateAtTarget(candidateFrame: zeroSizeButton, clickPoint: blankSpot, targetFrame: window))
+        XCTAssertFalse(isDescendantClickCandidateAtTarget(candidateFrame: nil, clickPoint: blankSpot, targetFrame: window))
+        XCTAssertTrue(isDescendantClickCandidateAtTarget(candidateFrame: buttonUnderPoint, clickPoint: blankSpot, targetFrame: window))
+    }
+
+    func testDescendantClickRejectsDegenerateFrames() {
+        let target = CGRect(x: 0, y: 0, width: 500, height: 500)
+        for frame in [CGRect(x: 10, y: 10, width: 0, height: 20),
+                      CGRect(x: 10, y: 10, width: 20, height: 0), CGRect.infinite, CGRect.null] {
+            XCTAssertFalse(isDescendantClickCandidateAtTarget(candidateFrame: frame, clickPoint: nil, targetFrame: target))
+            XCTAssertFalse(isDescendantClickCandidateAtTarget(candidateFrame: frame, clickPoint: CGPoint(x: 10, y: 10), targetFrame: target))
+        }
+    }
+
+    func testElementClickDescendantMustOverlapTheElement() {
+        let card = CGRect(x: 40, y: 120, width: 300, height: 120)
+
+        XCTAssertTrue(
+            isDescendantClickCandidateAtTarget(candidateFrame: CGRect(x: 52, y: 128, width: 120, height: 20), clickPoint: nil, targetFrame: card)
+        )
+        XCTAssertFalse(
+            isDescendantClickCandidateAtTarget(candidateFrame: CGRect(x: 8, y: 8, width: 16, height: 16), clickPoint: nil, targetFrame: card)
+        )
+        XCTAssertFalse(isDescendantClickCandidateAtTarget(candidateFrame: nil, clickPoint: nil, targetFrame: card))
+    }
+
     func testContainingRowActionAcceptsTightClickableAncestor() {
         XCTAssertTrue(
             isLikelyContainingRowActionFrame(
@@ -866,6 +1079,39 @@ final class UltraTermComputerUseKitTests: XCTestCase {
 
     func testActivationOnlyClickFallbackKeepsWindowRaisePath() {
         XCTAssertTrue(canUseActivationOnlyClickFallback(role: kAXWindowRole as String))
+    }
+
+    func testActivationOnlyClickFallbackKeepsSheetRaisePath() {
+        XCTAssertTrue(canUseActivationOnlyClickFallback(role: kAXSheetRole as String))
+        XCTAssertFalse(canUseActivationOnlyClickFallback(role: kAXGroupRole as String))
+        XCTAssertFalse(canUseActivationOnlyClickFallback(role: nil))
+    }
+
+    func testSnapshotRootsAtFocusedSheet() {
+        XCTAssertTrue(isSnapshotRootRole(kAXWindowRole as String))
+        XCTAssertTrue(isSnapshotRootRole(kAXSheetRole as String))
+        XCTAssertFalse(isSnapshotRootRole(kAXGroupRole as String))
+        XCTAssertFalse(isSnapshotRootRole(nil))
+    }
+
+    func testTypeTextReplacementPreservesUTF16SelectionAndCaret() throws {
+        let replaced = try XCTUnwrap(typedTextReplacement(value: "中🙂文e\u{301}", selection: CFRange(location: 1, length: 2), text: "新🚀"))
+        XCTAssertEqual(replaced.value, "中新🚀文e\u{301}")
+        XCTAssertEqual(replaced.caret, 4)
+        XCTAssertEqual(typedTextReplacement(value: "e\u{301}", selection: CFRange(location: 1, length: 1), text: "X")?.value, "eX")
+        XCTAssertEqual(typedTextReplacement(value: "  ", selection: CFRange(location: 0, length: 0), text: "X")?.value, "X  ")
+        XCTAssertEqual(typedTextReplacement(value: "abc", selection: CFRange(location: 1, length: 0), text: "X")?.value, "aXbc")
+        XCTAssertEqual(typedTextReplacement(value: "abc", selection: CFRange(location: 3, length: 0), text: "X")?.caret, 4)
+        XCTAssertEqual(typedTextReplacement(value: "abc", selection: CFRange(location: 0, length: 3), text: "X")?.value, "X")
+        XCTAssertEqual(typedTextReplacement(value: "", selection: CFRange(location: 0, length: 0), text: "X")?.value, "X")
+    }
+
+    func testTypeTextReplacementRejectsInvalidSelection() {
+        for range in [CFRange(location: -1, length: 0), CFRange(location: 4, length: 0),
+                      CFRange(location: 2, length: 2), CFRange(location: 0, length: -1),
+                      CFRange(location: 1, length: Int.max), CFRange(location: 1, length: 1)] {
+            XCTAssertNil(typedTextReplacement(value: "🙂x", selection: range, text: "X"))
+        }
     }
 
     func testKeyboardTextFallbackRejectsPlainWebArea() {
@@ -1102,6 +1348,90 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         ))
     }
 
+    func testAccessibilityRendererUsesSafariCustomActionDescriptionName() {
+        XCTAssertEqual(
+            meaningfulActions(
+                ["Name:close tab Target:SafariTab Selector:_close Button Clicked:"],
+                role: kAXButtonRole as String
+            ),
+            ["close tab"]
+        )
+        XCTAssertNil(accessibilityActionDescriptionName("Namespace:close tab Target:SafariTab"))
+    }
+
+    func testSecondaryActionMatchingKeepsFilteredRawActionsAligned() {
+        let service = ComputerUseService()
+        let closeTab = "Name:close tab Target:SafariTab Selector:_close Button Clicked:"
+        let record = ElementRecord(
+            index: 48,
+            identifier: nil,
+            element: nil,
+            localFrame: nil,
+            role: kAXButtonRole as String,
+            rawActions: [kAXPressAction as String, closeTab],
+            prettyActions: ["close tab"]
+        )
+
+        XCTAssertEqual(service.matchingAction(requested: "close-tab", record: record), closeTab)
+        XCTAssertEqual(service.matchingAction(requested: kAXPressAction as String, record: record), kAXPressAction as String)
+        XCTAssertNil(service.matchingAction(requested: "Press", record: record))
+    }
+
+    func testSecondaryActionSelectorsDoNotShadowRawActionNames() {
+        let service = ComputerUseService()
+        // Include both a filtered action and a visible action, and exercise the
+        // case-insensitive exact lookup used by the executor.
+        for nativeAction in ["AXPress", "AXRaise"] {
+            for customName in [nativeAction, nativeAction.lowercased()] {
+                let customAction = "Name:\(customName) Target:CustomTarget Selector:_custom:"
+                for rawActions in [[nativeAction, customAction], [customAction, nativeAction]] {
+                    let emitted = meaningfulActions(rawActions, role: kAXButtonRole as String)
+                    let visible = meaningfulRawActions(rawActions, role: kAXButtonRole as String)
+                    let record = ElementRecord(
+                        index: 50,
+                        identifier: nil,
+                        element: nil,
+                        localFrame: nil,
+                        role: kAXButtonRole as String,
+                        rawActions: rawActions,
+                        prettyActions: emitted
+                    )
+
+                    XCTAssertTrue(emitted.contains(customAction))
+                    XCTAssertEqual(emitted.count, visible.count)
+                    for (selector, expected) in zip(emitted, visible) {
+                        XCTAssertEqual(service.matchingAction(requested: selector, record: record), expected)
+                    }
+                    XCTAssertEqual(service.matchingAction(requested: nativeAction, record: record), nativeAction)
+                }
+            }
+        }
+    }
+
+    func testSecondaryActionMatchingRejectsAmbiguousDisplayNames() {
+        let service = ComputerUseService()
+        let record = ElementRecord(
+            index: 49,
+            identifier: nil,
+            element: nil,
+            localFrame: nil,
+            role: kAXButtonRole as String,
+            rawActions: [
+                "Name:close tab Target:FirstTab Selector:_close:",
+                "Name:close tab Target:SecondTab Selector:_close:",
+            ],
+            prettyActions: ["close tab", "close tab"]
+        )
+
+        XCTAssertNil(service.matchingAction(requested: "close tab", record: record))
+        XCTAssertEqual(service.matchingAction(requested: record.rawActions[1], record: record), record.rawActions[1])
+        let emitted = meaningfulActions(record.rawActions, role: kAXButtonRole as String)
+        XCTAssertEqual(emitted, record.rawActions)
+        for (selector, rawAction) in zip(emitted, record.rawActions) {
+            XCTAssertEqual(service.matchingAction(requested: selector, record: record), rawAction)
+        }
+    }
+
     func testAccessibilityRendererMarksCompactGenericClickTargetsAsButtons() {
         XCTAssertTrue(shouldRenderCompactGenericActionTarget(
             role: kAXGroupRole as String,
@@ -1117,6 +1447,12 @@ final class UltraTermComputerUseKitTests: XCTestCase {
             role: kAXGroupRole as String,
             hasPrimaryClickAction: true,
             localFrame: CGRect(x: 10, y: 10, width: 240, height: 120)
+        ))
+        XCTAssertFalse(shouldRenderCompactGenericActionTarget(
+            role: kAXGroupRole as String,
+            hasPrimaryClickAction: true,
+            localFrame: CGRect(x: 10, y: 10, width: 117, height: 35),
+            hasActionableLinkDescendant: true
         ))
         XCTAssertFalse(shouldRenderCompactGenericActionTarget(
             role: kAXButtonRole as String,
@@ -1345,6 +1681,72 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         XCTAssertFalse(globalPointerFallbacksEnabled(environment: ["ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "false"]))
     }
 
+    func testActionReadBackFlagDefaultsToEnabled() {
+        XCTAssertTrue(actionReadBackEnabled(environment: [:]))
+        XCTAssertTrue(actionReadBackEnabled(environment: ["ULTRATERM_COMPUTER_USE_ACTION_READ_BACK": "1"]))
+        XCTAssertFalse(actionReadBackEnabled(environment: ["ULTRATERM_COMPUTER_USE_ACTION_READ_BACK": "0"]))
+        XCTAssertFalse(actionReadBackEnabled(environment: ["ULTRATERM_COMPUTER_USE_ACTION_READ_BACK": " off "]))
+    }
+
+    func testDragStepCountScalesWithDistanceAndClampsToBounds() {
+        XCTAssertEqual(InputSimulation.dragStepCount(from: .zero, to: .zero), 10)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 8, y: 0)), 10)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 200, y: 0)), 50)
+        XCTAssertEqual(InputSimulation.dragStepCount(from: CGPoint(x: 0, y: 0), to: CGPoint(x: 5000, y: 0)), 60)
+    }
+
+    func testNeedsDragEventNumberGatesOnRecentMacOS() {
+        // Older macOS ignores the gesture event number; 26+ needs it (codex#43047).
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 14))
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 15))
+        XCTAssertFalse(InputSimulation.needsDragEventNumber(majorVersion: 25))
+        XCTAssertTrue(InputSimulation.needsDragEventNumber(majorVersion: 26))
+        XCTAssertTrue(InputSimulation.needsDragEventNumber(majorVersion: 27))
+    }
+
+    func testDragDeliveryPathFollowsGlobalPointerGate() {
+        XCTAssertEqual(dragDeliveryPath(environment: [:]), .appPost)
+        XCTAssertEqual(dragDeliveryPath(environment: ["ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "0"]), .appPost)
+        XCTAssertEqual(dragDeliveryPath(environment: ["ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": "1"]), .global)
+        XCTAssertEqual(dragDeliveryPath(environment: ["ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS": " True "]), .global)
+    }
+
+    func testDragDeliveryNoteExplainsWhyDefaultPathCannotDriveWindowServerDrags() {
+        let appPostNote = dragDeliveryNote(for: .appPost)
+        XCTAssertTrue(appPostNote.hasPrefix("Drag delivered via app_post"))
+        XCTAssertTrue(appPostNote.contains("system pointer did not move"))
+        XCTAssertTrue(appPostNote.contains("window moves"))
+        XCTAssertTrue(appPostNote.contains("text selection"))
+        XCTAssertTrue(appPostNote.contains("Finder drag-and-drop"))
+        XCTAssertTrue(appPostNote.contains("ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1"))
+
+        let globalNote = dragDeliveryNote(for: .global)
+        XCTAssertTrue(globalNote.hasPrefix("Drag delivered via global pointer path"))
+        XCTAssertTrue(globalNote.contains("real pointer may have moved"))
+    }
+
+    func testDragDeliveryNoteIsInsertedAfterSnapshotTextAndBeforeScreenshot() {
+        let snapshotText = "App=com.example.app (pid 42)\nWindow: \"Example\", App: Example."
+        let result = ToolCallResult(content: [.text(snapshotText), .pngImage(Data([0x89, 0x50, 0x4E, 0x47]))])
+
+        let annotated = appendingDragDeliveryNote(to: result, path: .appPost)
+
+        XCTAssertEqual(annotated.primaryText, snapshotText)
+        XCTAssertEqual(annotated.content.count, 3)
+        XCTAssertEqual(annotated.content[1].dictionary["type"] as? String, "text")
+        XCTAssertEqual(annotated.content[1].dictionary["text"] as? String, dragDeliveryNote(for: .appPost))
+        XCTAssertEqual(annotated.content[2].dictionary["type"] as? String, "image")
+        XCTAssertFalse(annotated.isError)
+    }
+
+    func testDragDeliveryNoteIsAppendedWhenResultHasNoScreenshot() {
+        let annotated = appendingDragDeliveryNote(to: .text("App=com.example.app (pid 42)"), path: .global)
+
+        XCTAssertEqual(annotated.primaryText, "App=com.example.app (pid 42)")
+        XCTAssertEqual(annotated.content.count, 2)
+        XCTAssertEqual(annotated.content[1].dictionary["text"] as? String, dragDeliveryNote(for: .global))
+    }
+
     func testClickMethodDefaultsToAutoAndNormalizesExplicitValues() throws {
         XCTAssertEqual(try parseClickMethod(nil), .auto)
         XCTAssertEqual(try parseClickMethod(" AUTO "), .auto)
@@ -1486,7 +1888,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         }
     }
 
-    func testSkyClickWindowValidationRequiresMatchingOnScreenOwner() {
+    func testSkyClickWindowValidationRequiresMatchingOwner() {
         let matching: [String: Any] = [
             kCGWindowNumber as String: NSNumber(value: UInt32(321)),
             kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
@@ -1501,12 +1903,17 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         XCTAssertFalse(
             skyClickWindowMatchesTarget(windowInfo: [matching], windowID: 321, pid: 1235)
         )
+    }
 
-        var offScreen = matching
-        offScreen[kCGWindowIsOnscreen as String] = NSNumber(value: false)
-        XCTAssertFalse(
-            skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234)
-        )
+    func testWindowLooksUnoccludedSamplesAGrid() {
+        let bounds = CGRect(x: 100, y: 100, width: 400, height: 300)
+        XCTAssertTrue(windowLooksUnoccluded(bounds: bounds, coveringBounds: []))
+        XCTAssertFalse(windowLooksUnoccluded(bounds: bounds, coveringBounds: [bounds.insetBy(dx: -10, dy: -10)]))
+        XCTAssertFalse(windowLooksUnoccluded(bounds: bounds, coveringBounds: [
+            CGRect(x: 0, y: 0, width: 300, height: 1000), CGRect(x: 300, y: 0, width: 1000, height: 1000),
+        ]), "two windows that jointly cover the target count as occlusion")
+        XCTAssertTrue(windowLooksUnoccluded(bounds: bounds, coveringBounds: [CGRect(x: 100, y: 100, width: 360, height: 300)]), "an exposed strip keeps it visible")
+        XCTAssertFalse(windowLooksUnoccluded(bounds: .zero, coveringBounds: []))
     }
 
     func testSkyLightCapabilityReportsMissingSymbols() {
@@ -1556,6 +1963,170 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         )
     }
 
+    func testSkyLightKeyWindowRecordsFollowYabaiLayout() {
+        let records = skyLightKeyWindowRecords(windowID: 0x1234_5678)
+        XCTAssertEqual(records.map(\.count), [0xF8, 0xF8])
+        XCTAssertEqual(records.map { $0[0x08] }, [0x01, 0x02])
+        for record in records {
+            XCTAssertEqual(record[0x04], 0xF8)
+            XCTAssertEqual(record[0x3A], 0x10)
+            XCTAssertEqual(Array(record[0x3C...0x3F]), [0x78, 0x56, 0x34, 0x12])
+            XCTAssertEqual(Array(record[0x20..<0x30]), [UInt8](repeating: 0xFF, count: 0x10))
+            XCTAssertEqual(record[0x8A], 0, "key-window records must not carry the activation focus marker")
+        }
+    }
+
+    func testSkyMenuKeyEquivalentOnlyCoversCommandCharacterChords() throws {
+        XCTAssertEqual(
+            skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+a")),
+            SkyMenuKeyEquivalent(character: "A", modifiers: 0)
+        )
+        XCTAssertEqual(
+            skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+shift+option+ctrl+z")),
+            SkyMenuKeyEquivalent(character: "Z", modifiers: 7)
+        )
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("shift+a")), "non-command chords are key events")
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("cmd+shift+left")), "navigation chords are key bindings, not menu items")
+        XCTAssertNil(skyMenuKeyEquivalent(for: try KeyPressParser.parse("return")))
+    }
+
+    func testSkyMenuItemMatchingIsCaseInsensitiveAndSkipsDisabledItems() {
+        let selectAll = SkyMenuKeyEquivalent(character: "A", modifiers: 0)
+        XCTAssertTrue(skyMenuItemMatches(cmdChar: "a", cmdModifiers: nil, enabled: nil, equivalent: selectAll))
+        XCTAssertTrue(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 0, enabled: true, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 1, enabled: true, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: "A", cmdModifiers: 0, enabled: false, equivalent: selectAll))
+        XCTAssertFalse(skyMenuItemMatches(cmdChar: nil, cmdModifiers: 0, enabled: true, equivalent: selectAll))
+    }
+
+    func testSkyKeyWindowValidationAllowsOffScreenWindowsOfTheSameOwner() {
+        let offScreen: [String: Any] = [
+            kCGWindowNumber as String: NSNumber(value: UInt32(321)),
+            kCGWindowOwnerPID as String: NSNumber(value: Int32(1234)),
+            kCGWindowIsOnscreen as String: NSNumber(value: false),
+        ]
+        XCTAssertTrue(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234))
+        XCTAssertFalse(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1235))
+        XCTAssertFalse(skyKeyWindowMatchesTarget(windowInfo: [offScreen], windowID: 322, pid: 1234))
+        XCTAssertTrue(skyClickWindowMatchesTarget(windowInfo: [offScreen], windowID: 321, pid: 1234), "sky_click also accepts covered or other-Space windows")
+    }
+
+    func testLazyWebAccessibilityDetectionUsesShippedFrameworks() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("ocu-lazy-ax-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let chromium = root.appendingPathComponent("Chromium.app/Contents/Frameworks/Chromium Framework.framework")
+        try FileManager.default.createDirectory(at: chromium, withIntermediateDirectories: true)
+        let native = root.appendingPathComponent("Native.app/Contents/Frameworks/Sparkle.framework")
+        try FileManager.default.createDirectory(at: native, withIntermediateDirectories: true)
+        XCTAssertTrue(appHasLazyWebAccessibility(bundleURL: root.appendingPathComponent("Chromium.app")))
+        XCTAssertFalse(appHasLazyWebAccessibility(bundleURL: root.appendingPathComponent("Native.app")))
+        XCTAssertFalse(appHasLazyWebAccessibility(bundleURL: nil))
+    }
+
+    func testWindowPlacementParsingAndAgentDisplayGeometry() throws {
+        XCTAssertEqual(try parseWindowPlacement(nil), .keep)
+        XCTAssertEqual(try parseWindowPlacement(" Agent_Display "), .agentDisplay)
+        XCTAssertEqual(try parseWindowPlacement("restore"), .restore)
+        XCTAssertThrowsError(try parseWindowPlacement("park")) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "Invalid window_placement 'park'. Expected one of: keep, agent_display, restore"
+            )
+        }
+
+        let display = CGRect(x: 1512, y: 0, width: 1920, height: 1080)
+        XCTAssertEqual(agentDisplayPlacement(windowSize: CGSize(width: 600, height: 420), displayBounds: display), CGPoint(x: 1552, y: 40))
+        let huge = agentDisplayPlacement(windowSize: CGSize(width: 4000, height: 3000), displayBounds: display)
+        XCTAssertEqual(huge, CGPoint(x: 1512, y: 0), "oversized windows are pinned to the display origin")
+        XCTAssertTrue(display.contains(huge))
+        for name in ["get_app_state"] {
+            let tool = ToolDefinitions.configured(virtualDisplayEnabled: true).first { $0.name == name }
+            let properties = tool?.inputSchema["properties"] as? [String: Any]
+            XCTAssertEqual((properties?["window_placement"] as? [String: Any])?["enum"] as? [String], ["keep", "agent_display", "restore"])
+        }
+    }
+
+    func testBackgroundInputTimingDefaultsKeepCompatibilityMargins() {
+        XCTAssertEqual(InputTiming.typeChunkDelayDefaultMilliseconds, 20)
+        XCTAssertEqual(InputTiming.pressKeySettleDefaultMilliseconds, 100)
+        XCTAssertEqual(SkyKeyboardDispatcher.keyWindowFallbackSettleDefaultMilliseconds, 10)
+        XCTAssertEqual(SkyKeyboardDispatcher.releaseSettleDefaultMilliseconds, 10)
+        XCTAssertEqual(
+            InputTiming.milliseconds("OCU_TEST_TIMING", default: 20, environment: [:]),
+            0.020,
+            accuracy: 0.000_001
+        )
+        XCTAssertEqual(
+            InputTiming.milliseconds("OCU_TEST_TIMING", default: 20, environment: ["OCU_TEST_TIMING": "7.5"]),
+            0.0075,
+            accuracy: 0.000_001
+        )
+    }
+
+    func testAgentDisplayRestoreGeometryUsesATolerance() {
+        let original = CGPoint(x: 200, y: 300)
+        XCTAssertTrue(AgentDisplay.isRestored(frame: CGRect(x: 200.5, y: 299.5, width: 600, height: 420), to: original))
+        XCTAssertFalse(AgentDisplay.isRestored(frame: CGRect(x: 202, y: 300, width: 600, height: 420), to: original))
+    }
+
+    func testOcclusionKeepAliveRestoresPriorStateAndCanRetryFailures() {
+        final class FakeOcclusionSPI: WindowOcclusionControlling {
+            let occlusionCapability = SkyLightSPICapability(missingSymbols: [], feature: "occlusion")
+            var states: [CGWindowID: Bool] = [101: true, 102: false]
+            var failedRestores: Set<CGWindowID> = [101]
+            var calls: [CGWindowID: Int] = [:]
+
+            func setWindowOcclusionNotificationsEnabled(_ enabled: Bool, windowID: CGWindowID) throws -> Bool {
+                calls[windowID, default: 0] += 1
+                let previous = states[windowID] ?? true
+                if calls[windowID, default: 0] > 1, failedRestores.remove(windowID) != nil {
+                    throw ComputerUseError.message("injected restore failure")
+                }
+                states[windowID] = enabled
+                return previous
+            }
+        }
+
+        let keepAlive = WindowOcclusionKeepAlive()
+        let spi = FakeOcclusionSPI()
+        let visibleBounds = CGRect(x: 10, y: 10, width: 100, height: 100)
+        XCTAssertTrue(keepAlive.keepVisible(windowID: 101, bounds: visibleBounds, spi: spi, coveringBounds: { _ in [] }))
+        XCTAssertTrue(keepAlive.keepVisible(windowID: 102, bounds: visibleBounds, spi: spi, coveringBounds: { _ in [] }))
+        XCTAssertEqual(spi.states[101], false)
+        XCTAssertEqual(spi.states[102], false)
+
+        keepAlive.releaseAll(spi: spi)
+        XCTAssertTrue(keepAlive.isPinned(windowID: 101), "failed restores must remain retryable")
+        XCTAssertFalse(keepAlive.isPinned(windowID: 102))
+        XCTAssertEqual(spi.states[102], false, "restore the original disabled state, not always true")
+
+        keepAlive.releaseAll(spi: spi)
+        XCTAssertFalse(keepAlive.isPinned(windowID: 101))
+        XCTAssertEqual(spi.states[101], true)
+    }
+
+    func testKeyMethodParsingAndPolicy() throws {
+        XCTAssertEqual(try parseKeyMethod(nil), .auto)
+        XCTAssertEqual(try parseKeyMethod(" SKY_KEY "), .skyKey)
+        XCTAssertThrowsError(try parseKeyMethod("global")) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "Invalid key_method 'global'. Expected one of: auto, sky_key"
+            )
+        }
+        XCTAssertEqual(keyActionSnapshotRecoveryPolicy(for: .skyKey), .readOnly)
+        XCTAssertEqual(keyActionSnapshotRecoveryPolicy(for: .auto), .allowActivation)
+    }
+
+    func testKeyboardToolSchemasExposeKeyMethod() {
+        for name in ["type_text", "press_key"] {
+            let tool = ToolDefinitions.all.first { $0.name == name }
+            let properties = tool?.inputSchema["properties"] as? [String: Any]
+            let keyMethod = properties?["key_method"] as? [String: Any]
+            XCTAssertEqual(keyMethod?["enum"] as? [String], ["auto", "sky_key"], name)
+        }
+    }
+
     func testSkyLightRuntimeSPIProbeCanStampEventWithoutPosting() throws {
         let spi = SkyLightSPI.shared
         guard spi.capability.isAvailable else {
@@ -1595,6 +2166,79 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         }
     }
 
+    func testClickSequenceNeverFallsBackAfterPartialDelivery() throws {
+        for outcomes: [AXError] in [[.success, .actionUnsupported], [.success, .cannotComplete], [.cannotComplete]] {
+            var calls = 0
+            XCTAssertThrowsError(try performClickActionSequence(action: "AXPress", repeatCount: 3, send: {
+                defer { calls += 1 }
+                return outcomes[calls]
+            }, pause: {}))
+            XCTAssertEqual(calls, outcomes.count)
+        }
+        var calls = 0
+        XCTAssertFalse(try performClickActionSequence(action: "AXPress", repeatCount: 2, send: {
+            calls += 1; return .actionUnsupported
+        }, pause: {}))
+        XCTAssertEqual(calls, 1)
+        calls = 0
+        XCTAssertTrue(try performClickActionSequence(action: "AXPress", repeatCount: 2, send: {
+            calls += 1; return .success
+        }, pause: {}))
+        XCTAssertEqual(calls, 2)
+        calls = 0
+        XCTAssertTrue(try performClickActionSequence(action: "AXOpen", repeatCount: 2, send: {
+            calls += 1; return .attributeUnsupported
+        }, pause: {}))
+        XCTAssertEqual(calls, 1, "Legacy AXOpen handling must not open twice")
+    }
+
+    func testClickChainTriesAnotherWayOnlyWhenTheAppRanNothing() throws {
+        func ran(_ result: AXError, _ action: String = kAXPressAction) -> String {
+            do { return try clickActionRan(result, action: action) ? "ran" : "refused" } catch { return "stop" }
+        }
+        func set(_ result: AXError) -> String {
+            do { return try clickAttributeWasSet(result, attribute: kAXSelectedChildrenAttribute) ? "set" : "refused" } catch { return "stop" }
+        }
+
+        XCTAssertEqual(ran(.success), "ran")
+        for refused: AXError in [.actionUnsupported, .illegalArgument, .notImplemented, .invalidUIElement] {
+            XCTAssertEqual(ran(refused), "refused", "\(refused.rawValue)")
+        }
+        // An app busy past the AX timeout answers cannotComplete while the press runs.
+        for mayHaveActed: AXError in [.failure, .cannotComplete, .attributeUnsupported, .noValue, .apiDisabled] {
+            XCTAssertEqual(ran(mayHaveActed), "stop", "\(mayHaveActed.rawValue)")
+        }
+        XCTAssertEqual(ran(.attributeUnsupported, "AXOpen"), "ran")
+
+        XCTAssertEqual(set(.success), "set")
+        for refused: AXError in [.attributeUnsupported, .actionUnsupported, .illegalArgument, .noValue, .notImplemented, .invalidUIElement] {
+            XCTAssertEqual(set(refused), "refused", "\(refused.rawValue)")
+        }
+        for mayHaveApplied: AXError in [.failure, .cannotComplete] {
+            XCTAssertEqual(set(mayHaveApplied), "stop", "\(mayHaveApplied.rawValue)")
+        }
+
+        XCTAssertThrowsError(try clickActionRan(.cannotComplete, action: kAXPressAction)) { error in
+            XCTAssertEqual(
+                (error as? ComputerUseError)?.errorDescription,
+                "click: AXPress went out and the app did not answer in time; it may have acted, so no other click method was tried. Read the app state before retrying; a repeat could act twice."
+            )
+        }
+    }
+
+    func testPressOnADisabledControlIsRefusedBeforeInput() {
+        XCTAssertEqual(
+            disabledControlRefusal(enabled: false, role: kAXButtonRole as String, elementIndex: "3"),
+            "element 3 is disabled, so nothing was sent. Wait for it to be enabled, or act on another element."
+        )
+        XCTAssertNil(disabledControlRefusal(enabled: true, role: kAXButtonRole as String, elementIndex: "3"))
+        // A window or group without AXEnabled is not refused.
+        XCTAssertNil(disabledControlRefusal(enabled: nil, role: kAXWindowRole as String, elementIndex: "0"))
+        // A closed menu reports its items as they were when it last opened.
+        XCTAssertNil(disabledControlRefusal(enabled: false, role: kAXMenuItemRole as String, elementIndex: "9"))
+        XCTAssertNil(disabledControlRefusal(enabled: false, role: kAXMenuBarItemRole as String, elementIndex: "8"))
+    }
+
     func testMakeVisualCursorTargetUsesWindowRelativeElementCenter() {
         let screenMappings = [
             VisualCursorScreenMapping(
@@ -1610,11 +2254,20 @@ final class UltraTermComputerUseKitTests: XCTestCase {
             screenMappings: screenMappings
         )
 
+        // The target also carries the anchor: the element centre relative to
+        // the window frame it was derived from, which is what lets the overlay
+        // follow the window if it moves before the action lands.
         XCTAssertEqual(
             target,
             VisualCursorTarget(
                 point: CGPoint(x: 484, y: 724),
-                window: CursorTargetWindow(windowID: 321, layer: 8)
+                window: CursorTargetWindow(windowID: 321, layer: 8),
+                anchor: CursorRestingAnchor(
+                    windowID: 321,
+                    layer: 8,
+                    windowLocalPoint: CGPoint(x: 84, y: 56),
+                    windowBounds: CGRect(x: 400, y: 220, width: 900, height: 640)
+                )
             )
         )
     }
@@ -1759,7 +2412,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         XCTAssertEqual(selected?.windowID, main.windowID)
     }
 
-    func testListTraversalPrefersVisibleChildrenAndReadsContents() {
+    func testListTraversalDoesNotReintroduceFullContentsAlongsideVisibleChildren() {
         let attributes = childTraversalAttributes(
             role: kAXListRole as String,
             hasRows: false,
@@ -1767,7 +2420,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
         )
 
         XCTAssertFalse(attributes.contains(kAXChildrenAttribute))
-        XCTAssertTrue(attributes.contains("AXContents"))
+        XCTAssertFalse(attributes.contains("AXContents"))
         XCTAssertTrue(attributes.contains("AXVisibleChildren"))
     }
 
@@ -2123,12 +2776,13 @@ final class UltraTermComputerUseKitTests: XCTestCase {
             windowBounds: nil,
             targetWindowID: nil,
             targetWindowLayer: nil,
-            screenshotPNGData: nil,
+            screenshotData: nil,
             mode: .accessibility,
             treeLines: treeLines,
             focusedSummary: focusedSummary,
             focusedElement: nil,
             selectedText: selectedText,
+            windowElement: nil,
             elements: [:]
         )
     }

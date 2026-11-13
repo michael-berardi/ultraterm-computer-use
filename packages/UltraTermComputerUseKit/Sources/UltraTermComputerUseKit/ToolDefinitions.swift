@@ -29,7 +29,23 @@ public struct ToolDefinition: @unchecked Sendable {
 }
 
 public enum ToolDefinitions {
-    public static let all: [ToolDefinition] = [
+    public static var all: [ToolDefinition] {
+        configured(virtualDisplayEnabled: VirtualDisplayConfig.current.enabled)
+    }
+
+    static func configured(virtualDisplayEnabled: Bool) -> [ToolDefinition] {
+        guard !virtualDisplayEnabled else { return definitions }
+        return definitions.map { tool in
+            guard tool.name == "get_app_state" else { return tool }
+            var schema = tool.inputSchema
+            var properties = schema["properties"] as? [String: Any] ?? [:]
+            properties.removeValue(forKey: "window_placement")
+            schema["properties"] = properties
+            return ToolDefinition(name: tool.name, description: tool.description, annotations: tool.annotations, inputSchema: schema)
+        }
+    }
+
+    private static let definitions: [ToolDefinition] = [
         ToolDefinition(
             name: "click",
             description: "Click an element by index or pixel coordinates from screenshot. This tool is part of plugin `Computer Use`.",
@@ -37,6 +53,7 @@ public enum ToolDefinitions {
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
                     "element_index": stringProperty(description: "Element index to click"),
                     "x": numberProperty(description: "X coordinate in screenshot pixel coordinates"),
                     "y": numberProperty(description: "Y coordinate in screenshot pixel coordinates"),
@@ -55,11 +72,12 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "drag",
-            description: "Drag from one point to another using pixel coordinates. This tool is part of plugin `Computer Use`.",
+            description: "Drag from one point to another using pixel coordinates. By default mouse events are posted directly to the target app and the system pointer does not move; that path cannot drive window-server drag sessions such as window moves, text selection, or Finder drag-and-drop. Those require ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 in the server process environment, which may move the real pointer. The result reports which path was used. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
                     "from_x": numberProperty(description: "Start X coordinate"),
                     "from_y": numberProperty(description: "Start Y coordinate"),
                     "to_x": numberProperty(description: "End X coordinate"),
@@ -69,15 +87,41 @@ public enum ToolDefinitions {
             )
         ),
         ToolDefinition(
-            name: "get_app_state",
-            description: "Start an app use session if needed, then get the state of the app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
+            name: "query",
+            description: "Targeted accessibility lookup: find controls in the app's current window using bounded AX traversal, with no full snapshot and no screenshot. Returns matches with truncated, stop_reason, visited_nodes and window_id metadata. Each match has a session-local `index` usable by the element actions (click, set_value, scroll, perform_secondary_action). Requires text and/or role. Only queries already-running apps; indexes expire after 120 seconds. This tool is part of plugin `Computer Use`.",
             annotations: readOnlyAnnotations(),
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "text": stringProperty(description: "Match text in the control's title, description or value (up to 1000 UTF-16 code units). Case-insensitive substring unless exact is true. Long fields are bounded and reported as truncated."),
+                    "role": stringProperty(description: "Match this accessibility role (the AX prefix is optional, e.g. button or AXButton)"),
+                    "exact": [
+                        "type": "boolean",
+                        "description": "Require a complete text match instead of a substring. Defaults to false. No substring retry.",
+                    ],
+                    "limit": positiveIntegerProperty(description: "Maximum matches to return. Defaults to 20; capped at 100."),
+                    "max_nodes": positiveIntegerProperty(description: "Node/queue cap for AX traversal. Defaults to 500; capped at 5000. Search has a 2-second cooperative deadline."),
+                    "window_id": positiveIntegerProperty(description: "Search this specific window (CGWindowID, 1–4294967295) instead of the app's current window."),
+                ],
+                required: ["app"]
+            )
+        ),
+        ToolDefinition(
+            name: "get_app_state",
+            description: "Start an app use session if needed, then get the state of the app's key window and return a screenshot and accessibility tree. This must be called once per assistant turn before interacting with the app. This tool is part of plugin `Computer Use`.",
+            annotations: defaultAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "include_ax": ["type": "boolean", "default": true, "description": "Include accessibility tree, focus and selection. False skips collection and invalidates previous element indexes; read AX again before element actions."],
+                    "include_screenshot": ["type": "boolean", "default": true, "description": "Capture and return a screenshot. False skips capture and encoding; screenshot-coordinate actions require a fresh screenshot."],
+                    "app": stringProperty(description: "App name or bundle identifier"),
                     "text_limit": textLimitProperty(description: "Maximum text characters to return. Use \"max\" for full text. Defaults to 500."),
                     "max_tree_nodes": positiveIntegerProperty(description: "Maximum accessibility tree nodes to render. Defaults to 1200."),
                     "max_tree_depth": positiveIntegerProperty(description: "Maximum accessibility tree depth to render. Defaults to 64."),
+                    "window_placement": stringProperty(
+                        description: "keep (default) leaves the window where it is. agent_display (macOS) parks the app's window on an invisible display owned by the agent so a covered or other-Space window renders, exposes its full tree and accepts input without touching the user's Space, focus or pointer; the window disappears from the user's desktop until restore or process exit. restore puts it back.",
+                        enumValues: WindowPlacement.allCases.map(\.rawValue)
+                    ),
                 ],
                 required: ["app"]
             )
@@ -95,6 +139,7 @@ public enum ToolDefinitions {
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
                     "element_index": stringProperty(description: "Element identifier"),
                     "action": stringProperty(description: "Secondary accessibility action name"),
                 ],
@@ -108,7 +153,9 @@ public enum ToolDefinitions {
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
                     "key": stringProperty(description: "Key or key combination to press"),
+                    "key_method": keyMethodProperty(),
                 ],
                 required: ["app", "key"]
             )
@@ -120,6 +167,7 @@ public enum ToolDefinitions {
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
                     "direction": stringProperty(description: "Scroll direction: up, down, left, or right"),
                     "element_index": stringProperty(description: "Element identifier"),
                     "pages": numberProperty(description: "Number of pages to scroll. Fractional values are supported. Defaults to 1"),
@@ -129,15 +177,36 @@ public enum ToolDefinitions {
         ),
         ToolDefinition(
             name: "set_value",
-            description: "Set the value of a settable accessibility element. This tool is part of plugin `Computer Use`.",
+            description: "Set the value of a settable accessibility element and verify the actual value. Text is compared exactly, including whitespace; an empty string clears it. Unverified writes return an error, even when full action read-back is disabled. This tool is part of plugin `Computer Use`.",
             annotations: defaultAnnotations(),
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
                     "element_index": stringProperty(description: "Element identifier"),
                     "value": stringProperty(description: "Value to assign"),
                 ],
                 required: ["app", "element_index", "value"]
+            )
+        ),
+        ToolDefinition(
+            name: "select_text",
+            description: "Select text inside a text element, or place the text cursor before or after it. Provide text exactly as it appears in the accessibility tree, including any Markdown formatting. If the text is not unique, provide surrounding prefix or suffix text to disambiguate it. This tool is part of plugin `Computer Use`.",
+            annotations: defaultAnnotations(),
+            inputSchema: objectSchema(
+                properties: [
+                    "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
+                    "element_index": stringProperty(description: "Text element identifier"),
+                    "text": stringProperty(description: "Target text as shown in the accessibility tree"),
+                    "prefix": stringProperty(description: "Optional text immediately before the target, used to disambiguate repeated matches"),
+                    "suffix": stringProperty(description: "Optional text immediately after the target, used to disambiguate repeated matches"),
+                    "selection": stringProperty(
+                        description: "Whether to select the text or place the cursor before or after it. Defaults to text.",
+                        enumValues: TextSelectionMode.allCases.map(\.rawValue)
+                    ),
+                ],
+                required: ["app", "element_index", "text"]
             )
         ),
         ToolDefinition(
@@ -147,7 +216,9 @@ public enum ToolDefinitions {
             inputSchema: objectSchema(
                 properties: [
                     "app": stringProperty(description: "App name or bundle identifier"),
+                    "state_id": stringProperty(description: stateIDArgumentDescription),
                     "text": stringProperty(description: "Literal text to type"),
+                    "key_method": keyMethodProperty(),
                 ],
                 required: ["app", "text"]
             )
@@ -183,6 +254,13 @@ private func readOnlyAnnotations() -> [String: Any] {
         "openWorldHint": false,
         "readOnlyHint": true,
     ]
+}
+
+private func keyMethodProperty() -> [String: Any] {
+    stringProperty(
+        description: "Keyboard delivery: auto (default) or sky_key. sky_key posts authenticated keyboard events through the macOS SkyLight background-window path to the current target window without changing foreground focus. Requires a current on-screen target window from get_app_state.",
+        enumValues: KeyMethod.allCases.map(\.rawValue)
+    )
 }
 
 private func stringProperty(description: String, enumValues: [String]? = nil) -> [String: Any] {

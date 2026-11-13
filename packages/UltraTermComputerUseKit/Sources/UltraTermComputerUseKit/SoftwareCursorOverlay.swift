@@ -68,6 +68,29 @@ func visualCursorScreenStateVelocity(
     CGVector(dx: velocity.dx, dy: velocity.dy * yAxisMultiplier)
 }
 
+let visualCursorMoveDurationEnvironmentKey = "ULTRATERM_COMPUTER_USE_VISUAL_CURSOR_MOVE_DURATION"
+let defaultVisualCursorMoveDuration: TimeInterval = 0.18
+let maximumVisualCursorMoveDuration: TimeInterval = 2
+
+/// How long one visual cursor move may take. The action waits for the move, so this bounds
+/// the time every click spends on animation. 0 jumps straight to the target.
+func visualCursorMoveDuration(environment: [String: String]) -> TimeInterval {
+    guard
+        let rawValue = environment[visualCursorMoveDurationEnvironmentKey]?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let parsed = Double(rawValue), parsed.isFinite
+    else {
+        return defaultVisualCursorMoveDuration
+    }
+
+    return min(max(parsed, 0), maximumVisualCursorMoveDuration)
+}
+
+/// Idle sway refresh rate and the phase it advances per tick (the same visual speed as the
+/// earlier 60 Hz loop at 0.05 per tick, at a third of the wakeups).
+let visualCursorIdleUpdateInterval: TimeInterval = 1.0 / 20.0
+let visualCursorIdlePhaseStep: CGFloat = 0.15
+let visualCursorIdleOrderingRefreshTicks = 2
+
 func visualCursorPostInteractionIdleTimeout() -> TimeInterval {
     30
 }
@@ -192,13 +215,22 @@ enum SoftwareCursorOverlay {
     private static var restingTipPosition: CGPoint?
     private static var displayedTipPosition: CGPoint?
     private static var activeTargetWindow: CursorTargetWindow?
+    /// Window frame the current target point was derived from; lets a move
+    /// under the cursor be detected and re-derived instead of ignored.
+    private static var restingAnchor: CursorRestingAnchor?
+    private static var lastAnchorFrame: CGRect?
     private static var visualDynamicsState: CursorVisualDynamicsState?
     private static var idleTimer: Timer?
     private static var hideTimer: Timer?
     private static var idlePhase: CGFloat = 0
+    private static var idleTicks = 0
     private static var observationPhase = "hidden"
 
-    static func moveCursor(to targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
+    static func moveCursor(
+        to targetPoint: CGPoint,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
             return
         }
@@ -208,7 +240,9 @@ enum SoftwareCursorOverlay {
         cancelPendingHide()
         configureOrdering(relativeTo: targetWindow)
 
-        let constrainedTarget = clampTipPosition(targetPoint)
+        adoptAnchor(anchor)
+        lastAnchorFrame = anchor.flatMap { CursorWindowFrameTracker.liveFrame(for: $0.windowID) } ?? anchor?.windowBounds
+        let constrainedTarget = clampTipPosition(liveTargetPoint(targetPoint, anchor: anchor))
         let isFreshStart = displayedTipPosition == nil
         let startPoint = displayedTipPosition ?? defaultInitialTipPosition()
         let now = CACurrentMediaTime()
@@ -234,13 +268,22 @@ enum SoftwareCursorOverlay {
         }
     }
 
-    static func pulseClick(at targetPoint: CGPoint, clickCount: Int, mouseButton: MouseButtonKind, in targetWindow: CursorTargetWindow?) {
+    static func pulseClick(
+        at targetPoint: CGPoint,
+        clickCount: Int,
+        mouseButton: MouseButtonKind,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
             return
         }
 
         configureOrdering(relativeTo: targetWindow)
-        let constrainedTarget = clampTipPosition(targetPoint)
+        stopIdleAnimation()
+        adoptAnchor(anchor)
+        _ = reanchorIfWindowMoved()
+        let constrainedTarget = clampTipPosition(liveTargetPoint(targetPoint, anchor: anchor))
         let now = CACurrentMediaTime()
         seedVisualDynamicsIfNeeded(at: constrainedTarget, time: now)
         restingTipPosition = constrainedTarget
@@ -250,13 +293,19 @@ enum SoftwareCursorOverlay {
         scheduleHide(after: visualCursorPostInteractionIdleTimeout())
     }
 
-    static func settle(at targetPoint: CGPoint, in targetWindow: CursorTargetWindow?) {
+    static func settle(
+        at targetPoint: CGPoint,
+        in targetWindow: CursorTargetWindow?,
+        anchor: CursorRestingAnchor? = nil
+    ) {
         guard VisualCursorSupport.isEnabled, canPresentOverlay else {
             return
         }
 
         configureOrdering(relativeTo: targetWindow)
-        let constrainedTarget = clampTipPosition(targetPoint)
+        adoptAnchor(anchor)
+        _ = reanchorIfWindowMoved()
+        let constrainedTarget = clampTipPosition(liveTargetPoint(targetPoint, anchor: anchor))
         restingTipPosition = constrainedTarget
         observationPhase = "settling"
         placeCursor(
@@ -276,10 +325,67 @@ enum SoftwareCursorOverlay {
         displayedTipPosition = nil
         restingTipPosition = nil
         activeTargetWindow = nil
+        restingAnchor = nil
+        lastAnchorFrame = nil
+        CursorWindowFrameTracker.forgetAll()
         visualDynamicsState = nil
         observationPhase = "hidden"
         writeObservationSnapshot(tipPosition: nil, rotation: nil)
         panel?.orderOut(nil)
+    }
+
+    /// Re-derive a target point that was computed from a snapshot taken before
+    /// the window moved. Element frames are window-relative, so the anchored
+    /// point follows the window instead of staying on the display it just left.
+    private static func liveTargetPoint(_ targetPoint: CGPoint, anchor: CursorRestingAnchor?) -> CGPoint {
+        guard let anchor,
+              let liveFrame = CursorWindowFrameTracker.liveFrame(for: anchor.windowID),
+              let screenStatePoint = anchor.screenStatePoint(liveFrame: liveFrame)
+        else {
+            return targetPoint
+        }
+
+        return screenStatePointToAppKitGlobalPoint(
+            fromScreenStatePoint: screenStatePoint,
+            screenMappings: currentVisualCursorScreenMappings()
+        )
+    }
+
+    private static func adoptAnchor(_ anchor: CursorRestingAnchor?) {
+        if restingAnchor != anchor {
+            restingAnchor = anchor
+            lastAnchorFrame = anchor?.windowBounds
+        }
+        if anchor == nil { CursorWindowFrameTracker.forgetAll() }
+    }
+
+    /// Relocate the visible tip, not just its spring target. Otherwise an old
+    /// travel velocity can leave it on the previous display after reanchoring.
+    @discardableResult
+    private static func reanchorIfWindowMoved() -> Bool {
+        guard let anchor = restingAnchor,
+              let liveFrame = CursorWindowFrameTracker.liveFrame(for: anchor.windowID),
+              liveFrame != lastAnchorFrame,
+              let screenStatePoint = anchor.screenStatePoint(liveFrame: liveFrame)
+        else {
+            return false
+        }
+
+        let constrainedTarget = clampTipPosition(
+            screenStatePointToAppKitGlobalPoint(
+                fromScreenStatePoint: screenStatePoint,
+                screenMappings: currentVisualCursorScreenMappings()
+            )
+        )
+        lastAnchorFrame = liveFrame
+        restingTipPosition = constrainedTarget
+        visualDynamicsState = CursorVisualDynamicsAnimator.state(at: constrainedTarget, time: CGFloat(CACurrentMediaTime()))
+        observationPhase = "reanchored"
+        placeCursor(
+            using: initialRenderState(at: constrainedTarget),
+            clickProgress: 0
+        )
+        return true
     }
 
     private static var canPresentOverlay: Bool {
@@ -351,10 +457,14 @@ enum SoftwareCursorOverlay {
         // Use the recovered official progress spring timing instead of the older
         // distance-compressed local duration, otherwise medium and long moves feel
         // noticeably faster than the bundled app.
-        let duration = OfficialCursorMotionModel.calibratedTravelDuration(
-            distance: distanceBetween(start, end),
-            measurement: candidate.measurement
-        )
+        // The spring shape is kept; the wall-clock window is the configured move duration, so
+        // an action is never held for the 1.43 s of the recovered reference timing.
+        let moveDuration = visualCursorMoveDuration(environment: ProcessInfo.processInfo.environment)
+        guard moveDuration > 0 else {
+            placeCursor(using: advanceVisualDynamics(toward: end, at: CACurrentMediaTime()), clickProgress: 0)
+            return
+        }
+        let duration = CGFloat(moveDuration)
         let springTargetDuration = OfficialCursorMotionModel.closeEnoughTime
         let startTime = CACurrentMediaTime()
         var progress: CGFloat = 0
@@ -362,6 +472,10 @@ enum SoftwareCursorOverlay {
 
         while true {
             refreshActiveOrderingIfNeeded()
+
+            if reanchorIfWindowMoved() {
+                return
+            }
 
             let elapsed = CGFloat(CACurrentMediaTime() - startTime)
             let normalizedElapsed = (elapsed / max(duration, 0.001)).clamped(to: 0...1)
@@ -552,13 +666,14 @@ enum SoftwareCursorOverlay {
             let startTime = CACurrentMediaTime()
 
             while true {
+                _ = reanchorIfWindowMoved()
                 let elapsed = CACurrentMediaTime() - startTime
                 let rawProgress = min(max(elapsed / duration, 0), 1)
                 let clickProgress = sin(rawProgress * .pi) * pulseBias
 
                 placeCursor(
                     using: advanceVisualDynamics(
-                        toward: point,
+                        toward: restingTipPosition ?? point,
                         at: CACurrentMediaTime()
                     ),
                     clickProgress: clickProgress
@@ -578,7 +693,7 @@ enum SoftwareCursorOverlay {
 
         placeCursor(
             using: advanceVisualDynamics(
-                toward: point,
+                toward: restingTipPosition ?? point,
                 at: CACurrentMediaTime()
             ),
             clickProgress: 0
@@ -586,24 +701,34 @@ enum SoftwareCursorOverlay {
     }
 
     private static func startIdleAnimation() {
+        stopIdleAnimation()
         guard canPresentOverlay, let restingTipPosition else {
             return
         }
 
         observationPhase = "idle"
         idlePhase = 0
-        let timer = Timer(timeInterval: 1 / 60, repeats: true) { _ in
+        idleTicks = 0
+        let timer = Timer(timeInterval: visualCursorIdleUpdateInterval, repeats: true) { _ in
             MainActor.assumeIsolated {
                 guard panel != nil, cursorView != nil else {
                     return
                 }
 
-                refreshActiveOrderingIfNeeded()
+                // A refresh is three window-server round trips; every frame they were most of
+                // the sway's cost. At 10 Hz the cursor is back above a raised target window
+                // within 0.1 s.
+                idleTicks += 1
+                if idleTicks % visualCursorIdleOrderingRefreshTicks == 0 {
+                    refreshActiveOrderingIfNeeded()
+                }
+                _ = reanchorIfWindowMoved()
+                guard let currentTipPosition = self.restingTipPosition else { return }
 
                 observationPhase = "idle"
-                idlePhase += 0.05
+                idlePhase += visualCursorIdlePhaseStep
                 let idlePose = visualCursorIdlePose(
-                    restingTipPosition: restingTipPosition,
+                    restingTipPosition: currentTipPosition,
                     phase: idlePhase
                 )
 
@@ -670,6 +795,9 @@ enum SoftwareCursorOverlay {
                 displayedTipPosition = nil
                 restingTipPosition = nil
                 activeTargetWindow = nil
+                restingAnchor = nil
+                lastAnchorFrame = nil
+                CursorWindowFrameTracker.forgetAll()
                 visualDynamicsState = nil
                 observationPhase = "hidden"
                 writeObservationSnapshot(tipPosition: nil, rotation: nil)
@@ -747,7 +875,9 @@ enum SoftwareCursorOverlay {
     }
 
     private static func writeObservationSnapshot(tipPosition: CGPoint?, rotation: CGFloat?) {
+        // Every frame: copying the whole environment only to find the variable unset was not free.
         guard
+            getenv("ULTRATERM_COMPUTER_USE_VISUAL_CURSOR_OBSERVATION_FILE") != nil,
             let url = visualCursorObservationFileURL(environment: ProcessInfo.processInfo.environment)
         else {
             return

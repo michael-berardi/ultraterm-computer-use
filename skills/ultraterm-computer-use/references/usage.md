@@ -7,9 +7,9 @@ Read this reference when the task requires direct Computer Use tool calls, MCP c
 For MCP clients that support stdio servers:
 
 ```toml
-[mcp_servers.overseer_computer_use]
-command = "overseer"
-args = ["computer-use", "mcp"]
+[mcp_servers.ultraterm_computer_use]
+command = "ultraterm-computer-use"
+args = ["mcp"]
 ```
 
 Equivalent JSON shape:
@@ -18,8 +18,8 @@ Equivalent JSON shape:
 {
   "mcpServers": {
     "ultraterm-computer-use": {
-      "command": "overseer",
-      "args": ["computer-use", "mcp"]
+      "command": "ultraterm-computer-use",
+      "args": ["mcp"]
     }
   }
 }
@@ -37,7 +37,76 @@ drag
 type_text
 press_key
 set_value
+select_text   (macOS runtime only)
 ```
+
+macOS also exposes `query` for targeted AX lookup. These nine core tools remain the cross-platform compatibility surface. The bundled Codex plugin uses a
+code-first adapter instead and advertises only `js` and `js_reset`. In that
+surface, bind an app and compose actions with asynchronous JavaScript:
+
+```js
+var app = await cua.getApp("TextEdit");
+await app.typeText("Hello");
+await app.getAXState();
+```
+
+### Selective observation (opt-in)
+
+The native `get_app_state` tool on macOS, Windows and Linux accepts `include_ax` and
+`include_screenshot`. Both default to `true`; at least one must remain true.
+The REPL forwards the corresponding optional `includeAX` / `includeScreenshot`
+booleans:
+
+```js
+var editor = await cua.getApp("gedit", { initialState: false });
+await editor.getScreenshot({ includeAX: false }); // no AX, focus or selection walk
+await editor.click([100, 100]);                   // window-relative coordinates
+await editor.getAXState({ includeScreenshot: false }); // no capture or PNG encoding
+// Use newly observed element indexes only after inspecting the AX result.
+```
+
+Screenshot-only observation invalidates prior element indexes and cached query
+aliases for that app, even if the window title is unchanged. Its result explicitly
+reports this. Coordinate actions use the newly observed window bounds; element
+actions require a fresh AX observation. Existing calls without these options keep
+their full native observation behavior. These flags are implemented on all three native platforms; action read-back is unchanged.
+
+These options select collection, not image deduplication. An unchanged screenshot
+is still returned when requested. macOS/Linux JS actions already disable automatic
+read-back, and getAXState does not emit images; includeScreenshot:false additionally skips
+native capture on all three platforms. See `docs/selective-observation.md` for real GTK
+and Worker JS validation.
+
+The code-first surface also forwards macOS background-operation options:
+
+```js
+var chrome = await cua.getApp("Google Chrome");
+await chrome.getAXState({ windowPlacement: "agent_display" });
+await chrome.typeText("hello", { keyMethod: "sky_key" });
+await chrome.pressKey("cmd+a", { keyMethod: "sky_key" });
+await chrome.getAXState({ windowPlacement: "restore" });
+```
+
+Bindings persist across `js` calls until `js_reset`. Run
+`ultraterm-computer-use help js` for the full API.
+
+The npm CLI can use the same code-first runtime without an MCP host:
+
+```sh
+ultraterm-computer-use capabilities
+ultraterm-computer-use js 'var apps = await cua.listApps({ emit: false }); nodeRepl.write(apps)'
+printf '%s' 'nodeRepl.write(6 * 7)' | ultraterm-computer-use js -
+ultraterm-computer-use js --file ./automation.mjs
+ultraterm-computer-use repl
+```
+
+`ultraterm-computer-use js` owns one short-lived Worker/native MCP session. `ultraterm-computer-use repl` keeps the
+session and top-level bindings for the current terminal until `.exit`, Ctrl-D,
+or termination; `.editor` / `.end` accepts multiline input and `.reset`
+discards JavaScript bindings. Use `nodeRepl.write(value)` for explicit output.
+The native `ultraterm-computer-use mcp` surface exposes the nine core tools above, plus `query` on macOS. Run
+`ultraterm-computer-use capabilities --json` to inspect component availability instead of
+inferring support from a command being present in help.
 
 ## Direct CLI Tool Calls
 
@@ -49,6 +118,13 @@ ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
 ultraterm-computer-use call set_value --args '{"app":"TextEdit","element_index":"1","value":"Draft"}'
 ```
 
+`set_value` verifies the actual value on macOS, Windows and Linux, including when
+full action read-back is disabled. Text is exact: whitespace, case and leading
+zeros matter; `""` clears the field. Numeric/boolean comparison is used only for
+native attributes of that type. Verification polls for up to 0.6 seconds without
+repeating the write. If it fails, observe the control before deciding to retry:
+the write may already have changed it.
+
 Use `--calls` for short action sequences that need to reuse the same process state:
 
 ```sh
@@ -58,6 +134,8 @@ ultraterm-computer-use call --calls '[
   {"tool":"type_text","args":{"app":"TextEdit","text":"Hello"}}
 ]'
 ```
+
+A sequence waits 0.2 seconds between successful steps. `--sleep <seconds>` changes that.
 
 Use `--calls-file` when the sequence is too large for a readable shell command:
 
@@ -95,12 +173,38 @@ ultraterm-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Googl
 
 `max_tree_nodes` and `max_tree_depth` must be positive integers. They only affect explicit `get_app_state` and `snapshot` calls; action tools still return refreshed state with the default tree budget.
 
+## State ids
+
+Every `get_app_state` result and every action result that includes a state carries a `state_id`. It is a `State-ID:` text line and a `state_id` field.
+
+Pass it as `state_id` on `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, `set_value` and `select_text`. If the app was captured again since, the call fails with `stale_state` and nothing is sent. Call `get_app_state` and retry with the new id.
+
+`get_app_state` with `include_ax=false` returns no id and makes earlier ids stale. With `ULTRATERM_COMPUTER_USE_ACTION_READ_BACK=0` on macOS or Linux, actions return `ok` and no new id, so the old id stays valid. See [state ids](../../../docs/state-id.md).
+
+## Background switches
+
+By default the runtime works in the background. Two switches in the server environment relax that. Set them only when the user asks.
+
+- `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1` (macOS): the runtime may activate an app, raise a window, unminimize a window and unhide an app. Without it, a hidden or minimized app fails with `The app has no window that can be read in the background` and nothing is changed.
+- `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` (all platforms): the runtime may move the real pointer and send real keys.
+
+On Linux, without the second switch these are refused with "Nothing was sent": coordinate clicks, `drag`, `click_method=global`, and keys (or `type_text` that cannot insert into a focused field) for a window that is not active. Prefer `element_index`. See [background operation](../../../docs/background-operation.md).
+
 ## Choosing Targets
 
 - Prefer app names or bundle identifiers returned by `list_apps`.
 - Run `get_app_state` immediately before element-targeted actions.
 - Re-run `get_app_state` after navigation, modal changes, page reloads, or failed actions.
 - Use coordinate actions only when the rendered tree does not expose the target as an element.
+- On macOS, use `app.query` when you know the control's text or role. Bind with
+  `await cua.getApp("Safari", { initialState: false })` to skip the initial snapshot.
+  Query returns `{ matches, truncated, stop_reason, visited_nodes, window_id, limit, max_nodes }`.
+  An empty result only means no matching exposed control was found when `truncated` is false.
+  `exact: true` never retries substring matching. Query does not launch or activate the app.
+- Query indexes last up to 120 seconds in the same native session (5000 retained handles).
+  Use persistent MCP or `ultraterm-computer-use repl` for query then action; separate CLI calls cannot share indexes.
+  Actions revalidate the process/window/control and current geometry. On failure, query again.
+  See [targeted query](../../../docs/targeted-query.md) for options and examples.
 
 ## Choosing a Click Method
 
@@ -109,7 +213,7 @@ ultraterm-computer-use snapshot --max-tree-nodes 3000 --max-tree-depth 96 "Googl
 - `accessibility`: only invoke the element's accessibility action and require `element_index`.
 - `app_post`: bypass accessibility and post a mouse event directly to the target app/window without moving the system pointer. Supported on macOS and Windows.
 - `sky_click`: use the macOS private SkyLight background-window path with target-only synthetic focus and a Chromium primer click. It supports left single/double click on a current, on-screen window in the same Space and does not move the system pointer, deactivate the foreground app, change its key/first-responder state, or raise the target window. Its action-result snapshot refresh is read-only. Supported on macOS only.
-- `global`: bypass accessibility and use the desktop's global pointer path. Supported on macOS and Linux, and requires `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` because it may move the real pointer or change foreground focus.
+- `global`: bypass accessibility and use the desktop's global pointer path. Supported on macOS, Windows and Linux, and requires `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` because it may move the real pointer or change foreground focus.
 
 Use `app_post` for an exact blank-area or overlay click that must not be redirected to an accessibility descendant:
 
@@ -134,22 +238,118 @@ ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1 ultraterm-computer-use c
 
 Keep the environment override scoped as narrowly as possible. While it remains enabled, the existing `auto` route may also choose the global pointer path after accessibility cannot handle a click.
 
-Windows returns an unsupported error for `sky_click` and `global`; Linux returns an unsupported error for `app_post` and `sky_click`. An unsupported or failed explicit method does not fall back to `auto`.
+Windows returns an unsupported error for `sky_click`; Linux returns an unsupported error for `app_post` and `sky_click`. An unsupported or failed explicit method does not fall back to `auto`.
+
+## Choosing a Keyboard Method
+
+`key_method` on `type_text` and `press_key` is optional. Omitting it uses `auto`, which keeps the existing accessibility-first typing and app-posted key events. Explicit methods never fall back:
+
+- `sky_key`: use the macOS private SkyLight background-window path. It makes the current target window the key window inside its own app (without raising it, moving the pointer, switching Spaces, or deactivating the foreground app), delivers the keys, and releases that state again. Command chords such as `cmd+a`, `cmd+c` or `cmd+v` are performed through the target's own menu bar. Supported on macOS only.
+- `global`: Windows press_key only. Requires `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` and sends checked physical keys to the verified foreground target. Auto keys keep window-message delivery even when that flag is enabled. It does not apply to type_text.
+
+Use `sky_key` when a Chromium or Electron window is covered by another window or lives on another Space and `auto` typing does not reach it:
+
+```sh
+ultraterm-computer-use call get_app_state --args '{"app":"Google Chrome"}'
+ultraterm-computer-use call click --args '{"app":"Google Chrome","x":420,"y":260,"click_method":"sky_click"}'
+ultraterm-computer-use call type_text --args '{"app":"Google Chrome","text":"hello","key_method":"sky_key"}'
+ultraterm-computer-use call press_key --args '{"app":"Google Chrome","key":"cmd+a","key_method":"sky_key"}'
+```
+
+Covered windows and windows on other Spaces: `get_app_state` never activates or raises a window that is off-screen, and it pins the visibility of every window it captures while that window is unoccluded, so covering it or switching Spaces afterwards keeps Chromium/Electron content in the tree and screenshots live. If the tree ends with a note that the window is covered, the app had already hidden its content before the first snapshot. Either bring the window into view once and snapshot again, or park it on the agent's own invisible display:
+
+```sh
+ultraterm-computer-use call --calls '[
+  {"tool":"get_app_state","args":{"app":"Google Chrome","window_placement":"agent_display"}},
+  {"tool":"get_app_state","args":{"app":"Google Chrome","window_placement":"restore"}}
+]'
+```
+
+Virtual displays are disabled by default. The host must explicitly set
+`virtualDisplay.enabled=true` with `ultraterm-computer-use config`, or
+`ULTRATERM_COMPUTER_USE_VIRTUAL_DISPLAY_ENABLED=true`, before using the examples above.
+While disabled, MCP omits `window_placement`, JS guidance omits `windowPlacement`,
+and stale `agent_display` calls fail before creating a display. The agent must not
+enable this setting on the user's behalf without their request: it adds a system
+monitor and can change the user's display arrangement. Existing `restore` and
+turn/connection cleanup remain available when disabled.
+
+`agent_display` moves the window's frame onto a virtual display the user never sees (macOS only): the app renders it, exposes its full tree and accepts `sky_click` / `sky_key`, while the user's Space, focus and pointer stay untouched. The window is gone from the user's desktop until `restore`, the assistant turn ends, the MCP/REPL connection closes, or the runtime exits, so treat it as a deliberate, temporary step. `restore` restores every window parked by the runtime for that app. Keep park/action/restore calls in one `js`, REPL, MCP, or `call --calls` session; a one-shot CLI connection restores its background state when it closes. `sky_click` and `sky_key` accept covered and other-Space windows.
+
+`sky_key` types into whatever element the target window has focused, so click or AX-focus the field first. It fails closed for hidden apps (`cmd+h`), stale window ids, and missing private symbols; Windows and Linux return an unsupported error.
+
+## Drag Delivery
+
+`drag` has no method parameter. On macOS the path it takes is decided by the same process-level gate that authorizes `click_method: "global"`:
+
+- Gate unset (default): mouse move / down / dragged / up events are posted directly to the target process with `CGEvent.postToPid`. The system pointer does not move and foreground focus is unchanged. Because the events never pass through the window server, this path cannot start a window-server drag session: window moves, drag-selecting text, and Finder drag-and-drop return without error but have no visible effect.
+- `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` set for the server process: the drag uses the global pointer path, which drives window-server drag sessions but may move the real pointer and change foreground focus.
+
+Every non-fixture `drag` result includes a text item that begins `Drag delivered via app_post` or `Drag delivered via global pointer path`, so a default drag that did nothing is legible instead of looking like success. For an MCP server the variable belongs in the server entry's `env`, not in the calling shell, and the server must be restarted afterwards.
+
+When the gate is not enabled, treat window-server drags as unavailable and reach the same outcome another way: copy or move files with a shell command instead of a Finder drag, use `set_value` or keyboard selection instead of drag-selecting text, and use the app's own window controls instead of dragging a title bar.
+
+## Text Selection (macOS)
+
+Use `await app.selectText(elementIndex, text, options?)` with a snapshot or `query`
+index from the current session. The native CLI/MCP tool is `select_text`.
+
+| Argument | Meaning |
+| --- | --- |
+| `elementIndex` | The text element's current index. |
+| `text` | Exact target text, including whitespace and Unicode spelling. |
+| `options.prefix` / `options.suffix` | Text immediately before / after the target, for repeated matches. |
+| `options.selection` | `text` (default), `cursor_before` or `cursor_after`. |
+
+Ambiguous or missing text, unsupported selection, text changes and unverified ranges
+return errors. The action verifies the applied UTF-16 range even when full action
+read-back is off; use `getAXState()` for the next UI observation. It does not activate
+the app or fall back to keyboard/pointer input. Linux and Windows do not implement
+`select_text` yet.
+
+## Software Cursor
+
+The software cursor keeps a window-relative anchor for its target point. During travel, settle, click
+feedback and idle, it follows changes to the target window's frame. If the window moves during travel,
+the visible tip lands at the new position immediately, without continuing toward the old position.
+
+Window frames are read on a background worker at up to 30 Hz, with at most one read in flight. Rendering
+uses the latest cached frame, so a slow Accessibility response does not block the cursor. The snapshot's
+AX window element is preferred; `CGWindowListCopyWindowInfo` is used only when no AX element is available,
+because it can report an old origin after a move. A failed read keeps the last usable frame. Tracking is
+released when the cursor is cleared or its idle timeout expires.
+
+This follows the window's position, not layout changes inside it. Refresh app state after a layout change
+before choosing another target. Input delivery continues to use the existing action paths.
 
 ## Platform Notes
 
 ### macOS
 
-The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and an explicit private-SkyLight `sky_click` route. It normally avoids moving the user's real pointer. The visual cursor overlay is part of the UltraTerm Computer Use experience and can be disabled by the surrounding runtime only when needed. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` after macOS upgrades.
+The macOS runtime uses Accessibility, ScreenCaptureKit, app-posted input events, and explicit private-SkyLight `sky_click` / `sky_key` routes. It normally avoids moving the user's real pointer. The visual cursor overlay is a drawn window, never the real pointer. A move takes at most 0.18 seconds by default (`ULTRATERM_COMPUTER_USE_VISUAL_CURSOR_MOVE_DURATION`, in seconds), and `ULTRATERM_COMPUTER_USE_VISUAL_CURSOR=0` turns it off. The runtime never activates an app, raises a window or unhides an app unless `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1` is set. Private SkyLight symbols and raw event fields are not API-stable; re-validate `sky_click` after macOS upgrades.
 
 ### Windows
 
 The Windows runtime uses UI Automation and Win32 message fallbacks. It must run in a logged-in desktop session. A detached SSH or service context may start the CLI but fail to see top-level windows.
 
+With `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`, Windows also supports
+explicit global clicks, auto click/scroll fallbacks and physical drags. Real
+keyboard input additionally requires an explicit call such as
+`await app.pressKey("ctrl+a", {keyMethod:"global"})`; auto key delivery stays on
+window messages. Explicit app_post/accessibility clicks keep their selected path.
+Global input can move the pointer and activate the target. Stale window geometry,
+occluded points and foreground failures are refused; observe again or make the
+target visible. The runtime does not synthesize Alt to force activation.
+
+
 ### Linux
 
-The Linux runtime uses AT-SPI2 through the desktop session bus. It must run in a logged-in graphical session with usable accessibility services. Wayland screenshot and coordinate input support is compositor-dependent and best-effort.
+The Linux runtime uses AT-SPI2 through the desktop session bus. It must run in a logged-in graphical session with usable accessibility services. Wayland screenshot and coordinate input support is compositor-dependent and best-effort. Coordinate clicks, drags and keys for a window that is not active are refused unless `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`. A click on a field with no click action focuses it through accessibility.
 
 ## Safety
 
 Pause and ask the user before actions that affect external systems or sensitive local state, including sending messages, submitting forms, deleting files, approving prompts, uploading files, or interacting with password managers.
+
+## Persisted screenshot settings
+
+Use `ultraterm-computer-use config` to inspect effective values and their sources. `ultraterm-computer-use config set image.format jpg` or `ultraterm-computer-use config set image.maxLongEdgePixels 1024` persists macOS screenshot preferences in the user config file. ENV overrides take precedence; `ultraterm-computer-use config reset KEY` removes a saved preference. Windows/Linux screenshot behavior is unchanged.

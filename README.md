@@ -16,10 +16,26 @@
   <a href="https://github.com/michael-berardi/ultraterm-computer-use/releases/latest"><img src="https://img.shields.io/github/v/release/michael-berardi/ultraterm-computer-use?label=release" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/michael-berardi/ultraterm-computer-use" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="macOS, Linux and Windows" />
-  <img src="https://img.shields.io/badge/MCP-9%20tools-8A2BE2" alt="Nine MCP tools" />
+  <img src="https://img.shields.io/badge/MCP-9%20to%2011%20tools-8A2BE2" alt="Nine to eleven MCP tools" />
 </p>
 
-UltraTerm Computer Use is an MIT-licensed Computer Use runtime for macOS, Linux, and Windows. Screenshots, accessibility trees, and input actions stay on the machine. The runtime works with Codex, Claude, Gemini, OpenCode, and other MCP-capable agents.
+UltraTerm Computer Use lets an agent operate desktop apps on macOS, Linux and Windows while you keep using the computer. It is MIT licensed, runs locally, and works with any MCP-capable agent. Screenshots, accessibility trees and input never leave the machine.
+
+## It stays out of your way
+
+An agent that takes over the screen is an agent you have to sit and watch. By default this runtime:
+
+- never activates an app, raises a window, unminimizes one or unhides an app. When a window cannot be read where it is, the error says so and names the switch that allows bringing it forward;
+- never moves your pointer. Clicks, keys, scrolls and drags are delivered to the target app or window directly;
+- reads and drives windows that are covered or on another Space (macOS);
+- launches a missing app without giving it the keyboard;
+- never returns the contents of a password field.
+
+Anything that would break those rules is refused with an error naming the switch that enables it: `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1` to bring apps forward (macOS), `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` for real-pointer input. Linux has no per-app input channel, so there coordinate clicks, drags, and keys or scrolling for a window that is not active need the second switch; accessibility actions work without it. The full table is in [`docs/background-operation.md`](./docs/background-operation.md).
+
+## It does not act on a stale screen
+
+Every state and action result carries a `state_id`. Pass it with the next action: if the app's state was captured again in between, the action is refused with `stale_state` before anything is sent. Element indexes are also checked against what the snapshot showed (role, name, identifier), disabled controls are not pressed, an uncertain click is not retried a second way, and `set_value` reads the value back before reporting success.
 
 ## Supported platforms
 
@@ -29,7 +45,7 @@ UltraTerm Computer Use is an MIT-licensed Computer Use runtime for macOS, Linux,
 | Linux | Logged-in graphical desktop; AT-SPI2 and D-Bus accessibility |
 | Windows | Logged-in desktop; UI Automation |
 
-All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, and `set_value`.
+All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, and `set_value`. macOS adds `query`, which finds controls by text or role without a screenshot or a full tree, and `select_text`. `get_app_state` takes `include_ax` and `include_screenshot`, so an agent pays only for what it reads.
 
 ## Install
 
@@ -62,17 +78,17 @@ Real app control still needs a logged-in desktop session: Accessibility and Scre
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.7.3/ultraterm-computer-use-0.7.3.tgz
+npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.8.0/ultraterm-computer-use-0.8.0.tgz
 ultraterm-computer-use --version
 ```
 
-The package includes native arm64 and x86-64 runtimes and selects the current platform at launch. Each release lists a `.sha256` checksum next to the package.
+The package includes native arm64 and x86-64 runtimes and selects the current platform at launch. Each release's `SHA256SUMS` covers the package.
 
 ### Manual: signed macOS installer
 
 ```bash
 curl -fsSLo /tmp/install-ultraterm-computer-use.sh \
-  https://raw.githubusercontent.com/michael-berardi/ultraterm-computer-use/main/scripts/install-ultraterm-computer-use.sh
+  https://github.com/michael-berardi/ultraterm-computer-use/releases/latest/download/install-ultraterm-computer-use.sh
 bash /tmp/install-ultraterm-computer-use.sh
 rm /tmp/install-ultraterm-computer-use.sh
 ```
@@ -119,17 +135,16 @@ On macOS, run `ultraterm-computer-use doctor` once and approve the requested per
 ultraterm-computer-use --help
 ultraterm-computer-use doctor
 ultraterm-computer-use list-apps
-ultraterm-computer-use tools
 ultraterm-computer-use snapshot TextEdit
 ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
 ultraterm-computer-use mcp
 ```
 
-Capture fresh state before using an element index. Prefer semantic actions over coordinate input. Coordinate actions may move the system pointer or require the target app to be visible, depending on the platform.
+Capture fresh state before using an element index and pass its `state_id` with the action. Prefer element actions over coordinates. `call --calls '<json-array>'` runs several steps in one process and stops at the first error. Design notes for each behaviour are in [`docs/`](./docs/ARCHITECTURE.md).
 
 ## UltraTerm Computer Use Pro
 
-The open-source edition includes the complete standard Computer Use tool surface. A separate Pro edition adds advanced visual capture and recording, multi-step automation sessions, and native UltraTerm integration.
+The open-source edition includes the complete standard Computer Use tool surface. A separate Pro edition adds live window preview, bounded screen recording and native UltraTerm integration.
 
 ## Safety and privacy
 

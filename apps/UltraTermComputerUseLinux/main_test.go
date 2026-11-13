@@ -3,16 +3,347 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 )
 
+func mcpOutputLines(t *testing.T, input string) []map[string]any {
+	t.Helper()
+	var out bytes.Buffer
+	if err := runMCP(strings.NewReader(input), &out); err != nil {
+		t.Fatal(err)
+	}
+	var lines []map[string]any
+	for _, raw := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if raw == "" {
+			continue
+		}
+		var line map[string]any
+		if err := json.Unmarshal([]byte(raw), &line); err != nil {
+			t.Fatalf("bad output %q: %v", raw, err)
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+func TestMCPMalformedLineGetsOneErrorAndServingContinues(t *testing.T) {
+	input := "{not json\n{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n[1,2\n{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"ping\"}"
+	lines := mcpOutputLines(t, input)
+	if len(lines) != 4 {
+		t.Fatalf("got %d responses: %#v", len(lines), lines)
+	}
+	for _, i := range []int{0, 2} {
+		errObj, _ := lines[i]["error"].(map[string]any)
+		if errObj == nil || errObj["code"] != float64(-32700) {
+			t.Fatalf("line %d = %#v", i, lines[i])
+		}
+	}
+	if lines[1]["id"] != float64(1) || lines[3]["id"] != float64(2) {
+		t.Fatalf("pings not answered: %#v", lines)
+	}
+}
+
+func TestMCPAcceptsVeryLongLine(t *testing.T) {
+	big := strings.Repeat("a", 5*1024*1024)
+	input := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"pad":"` + big + `"}}` + "\n"
+	lines := mcpOutputLines(t, input)
+	if len(lines) != 1 || lines[0]["id"] != float64(1) {
+		t.Fatalf("long line not served: %d lines", len(lines))
+	}
+}
+
+func TestTypeTextAndSetValuePreserveWhitespace(t *testing.T) {
+	// The fake bridge answers without a snapshot, as the runtime does with read-back off.
+	t.Setenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK", "0")
+	for _, text := range []string{" ", "\n", "  a\n", "\t"} {
+		requestPath := fakePythonResponse(t, `{"ok":true}`)
+		s := newService()
+		s.rememberSnapshot("Editor", &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, Elements: []elementRecord{{Index: 1}}})
+		if r := s.callTool("type_text", map[string]any{"app": "Editor", "text": text}); r.IsError {
+			t.Fatalf("type_text %q: %#v", text, r)
+		}
+		data, _ := os.ReadFile(requestPath)
+		var request linuxRequest
+		if err := json.Unmarshal(data, &request); err != nil || request.Text != text {
+			t.Fatalf("type_text sent %q, want %q (%v)", request.Text, text, err)
+		}
+		if r := s.callTool("set_value", map[string]any{"app": "Editor", "element_index": "1", "value": text}); r.IsError {
+			t.Fatalf("set_value %q: %#v", text, r)
+		}
+		data, _ = os.ReadFile(requestPath)
+		request = linuxRequest{}
+		if err := json.Unmarshal(data, &request); err != nil || request.Value != text {
+			t.Fatalf("set_value sent %q, want %q (%v)", request.Value, text, err)
+		}
+	}
+	s := newService()
+	if r := s.callTool("type_text", map[string]any{"app": "Editor"}); !r.IsError {
+		t.Fatal("missing text must be an error")
+	}
+	if r := s.callTool("type_text", map[string]any{"app": "Editor", "text": 5}); !r.IsError {
+		t.Fatal("non-string text must be an error")
+	}
+}
+
 func TestToolDefinitionCount(t *testing.T) {
 	if got := len(toolDefinitions()); got != 9 {
 		t.Fatalf("toolDefinitions() count = %d, want 9", got)
+	}
+}
+
+func TestActionReadBackEnabled(t *testing.T) {
+	for _, value := range []string{"", "1", "true", "yes", "on", "unexpected"} {
+		t.Setenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK", value)
+		if !actionReadBackEnabled() {
+			t.Errorf("read-back should be enabled for %q", value)
+		}
+	}
+	for _, value := range []string{"0", "false", "no", "off", " OFF ", "False"} {
+		t.Setenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK", value)
+		if actionReadBackEnabled() {
+			t.Errorf("read-back should be disabled for %q", value)
+		}
+	}
+}
+
+// Exercise the Go/bridge JSON boundary without requiring a live AT-SPI desktop.
+func fakePythonResponse(t *testing.T, response string) string {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("runPython only runs the runtime on Linux")
+	}
+	dir := t.TempDir()
+	requestPath := filepath.Join(dir, "request.json")
+	script := "#!/bin/sh\ncat \"$2\" > \"$OCU_TEST_REQUEST\"\nprintf '%s\\n' \"$OCU_TEST_PYTHON_RESPONSE\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "python3"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("OCU_TEST_REQUEST", requestPath)
+	t.Setenv("OCU_TEST_PYTHON_RESPONSE", response)
+	return requestPath
+}
+
+func TestActionWithoutReadBackPreservesObservedSnapshot(t *testing.T) {
+	t.Setenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK", "0")
+	requestPath := fakePythonResponse(t, `{"ok":true}`)
+	s := newService()
+	observed := &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, Elements: []elementRecord{{Index: 7}}}
+	s.rememberSnapshot("Editor", observed)
+	result := s.pressKey("Editor", "Return", "auto")
+	if result.IsError || len(result.Content) != 1 || result.Content[0].Text != "ok" {
+		t.Fatalf("action result = %#v", result)
+	}
+	for _, alias := range []string{"Editor", "42"} {
+		if s.currentSnapshot(alias) != observed {
+			t.Fatalf("action replaced the observed snapshot for %s", alias)
+		}
+	}
+	data, err := os.ReadFile(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var request linuxRequest
+	if err := json.Unmarshal(data, &request); err != nil {
+		t.Fatal(err)
+	}
+	if !request.SkipReadBack || request.Tool != "press_key" || request.Key != "Return" {
+		t.Fatalf("bridge request = %#v", request)
+	}
+}
+
+func TestActionReadBackStillRefreshesSnapshotByDefault(t *testing.T) {
+	t.Setenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK", "")
+	requestPath := fakePythonResponse(t, `{"ok":true,"snapshot":{"app":{"name":"Editor","pid":42},"treeLines":["updated"],"screenshotPngBase64":"aW1hZ2U="}}`)
+	s := newService()
+	s.rememberSnapshot("Editor", &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}})
+	result := s.pressKey("Editor", "Return", "auto")
+	if result.IsError || len(result.Content) != 3 || !strings.HasPrefix(result.Content[1].Text, "State-ID: ") || result.Content[2].Type != "image" {
+		t.Fatalf("default action result = %#v", result)
+	}
+	if result.StateID == "" || result.StateID != s.currentSnapshot("Editor").StateID {
+		t.Fatalf("read-back did not issue a new state id: %#v", result)
+	}
+	if got := s.currentSnapshot("Editor").TreeLines; len(got) != 1 || got[0] != "updated" {
+		t.Fatalf("snapshot was not refreshed: %#v", got)
+	}
+	data, err := os.ReadFile(requestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "skip_read_back") {
+		t.Fatalf("default action unexpectedly requested no read-back: %s", data)
+	}
+}
+
+func TestReadBackFlagDoesNotSuppressExplicitObservation(t *testing.T) {
+	t.Setenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK", "0")
+	fakePythonResponse(t, `{"ok":true,"snapshot":{"app":{"name":"Editor","pid":42}}}`)
+	s := newService()
+	_, result := s.refreshSnapshot("Editor", linuxRequest{Tool: "get_app_state", App: "Editor"})
+	if result.IsError || s.currentSnapshot("Editor") == nil {
+		t.Fatalf("explicit observation failed: %#v", result)
+	}
+}
+
+func TestActionWithoutReadBackPropagatesBridgeErrors(t *testing.T) {
+	for _, response := range []string{`{"ok":false,"error":"input failed"}`, `not json`} {
+		t.Run(response, func(t *testing.T) {
+			t.Setenv("ULTRATERM_COMPUTER_USE_ACTION_READ_BACK", "0")
+			fakePythonResponse(t, response)
+			s := newService()
+			if result := s.actionResult("Editor", linuxRequest{Tool: "press_key"}); !result.IsError {
+				t.Fatalf("bridge failure reported as success: %#v", result)
+			}
+		})
+	}
+}
+
+func observationPythonResponse(t *testing.T, response string) string {
+	t.Helper()
+	if runtime.GOOS != "linux" {
+		t.Skip("runPython only runs the runtime on Linux")
+	}
+	dir := t.TempDir()
+	requestPath := filepath.Join(dir, "request.json")
+	script := "#!/bin/sh\ncat \"$2\" > \"$OCU_TEST_OBSERVATION_REQUEST\"\nprintf '%s\\n' \"$OCU_TEST_OBSERVATION_RESPONSE\"\n"
+	if err := os.WriteFile(filepath.Join(dir, "python3"), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("OCU_TEST_OBSERVATION_REQUEST", requestPath)
+	t.Setenv("OCU_TEST_OBSERVATION_RESPONSE", response)
+	return requestPath
+}
+
+func TestSelectiveObservationRequestAndDefaultCompatibility(t *testing.T) {
+	for _, flags := range []map[string]any{{}, {"include_ax": false}, {"include_screenshot": false}, {"include_ax": true, "include_screenshot": true}} {
+		t.Run(fmt.Sprint(flags), func(t *testing.T) {
+			path := observationPythonResponse(t, `{"ok":true,"snapshot":{"app":{"name":"Editor","pid":42}}}`)
+			args := map[string]any{"app": "Editor"}
+			for key, value := range flags {
+				args[key] = value
+			}
+			if result := newService().callTool("get_app_state", args); result.IsError {
+				t.Fatalf("observation failed: %#v", result)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var request map[string]any
+			if err := json.Unmarshal(data, &request); err != nil {
+				t.Fatal(err)
+			}
+			for _, key := range []string{"include_ax", "include_screenshot"} {
+				want, present := flags[key]
+				got, sent := request[key]
+				if present != sent || got != want {
+					t.Fatalf("%s serialized as %#v (%v), want %#v (%v)", key, got, sent, want, present)
+				}
+			}
+		})
+	}
+}
+
+func TestSelectiveObservationRejectsInvalidOptions(t *testing.T) {
+	for _, args := range []map[string]any{
+		{"app": "Editor", "include_ax": "false"},
+		{"app": "Editor", "include_screenshot": nil},
+		{"app": "Editor", "include_ax": false, "include_screenshot": false},
+	} {
+		if result := newService().callTool("get_app_state", args); !result.IsError {
+			t.Fatalf("invalid options accepted: %#v", args)
+		}
+	}
+}
+
+func TestSelectiveObservationSchemaKeepsFullDefaults(t *testing.T) {
+	tool := findToolDefinition(t, "get_app_state")
+	properties := tool.InputSchema["properties"].(map[string]any)
+	for _, name := range []string{"include_ax", "include_screenshot"} {
+		property := properties[name].(map[string]any)
+		if property["type"] != "boolean" || property["default"] != true {
+			t.Fatalf("%s schema = %#v", name, property)
+		}
+	}
+	if required := tool.InputSchema["required"].([]string); len(required) != 1 || required[0] != "app" {
+		t.Fatalf("observation options should be optional: %#v", required)
+	}
+}
+
+func TestScreenshotOnlyInvalidatesIndexesAcrossWindowAndProcessChanges(t *testing.T) {
+	for _, pid := range []int{42, 43} {
+		t.Run(strconv.Itoa(pid), func(t *testing.T) {
+			path := observationPythonResponse(t, fmt.Sprintf(`{"ok":true,"snapshot":{"app":{"name":"Editor","pid":%d},"windowTitle":"New Window","windowBounds":{"width":300,"height":200},"screenshotPngBase64":"cG5n"}}`, pid))
+			s := newService()
+			old := &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, WindowTitle: "Old Window", Elements: []elementRecord{{Index: 7}}}
+			s.rememberSnapshot("old-window-query", old)
+			s.snapshots["editor"] = old
+			other := &appSnapshot{App: appDescriptor{Name: "Other", PID: 99}}
+			s.rememberSnapshot("Other", other)
+			result := s.callTool("get_app_state", map[string]any{"app": "Editor", "include_ax": false})
+			if result.IsError || len(result.Content) != 2 || !strings.Contains(result.Content[0].Text, "indexes invalidated") {
+				t.Fatalf("screenshot-only result = %#v", result)
+			}
+			if s.currentSnapshot("old-window-query") != nil || s.currentSnapshot("Other") != other {
+				t.Fatal("old alias retained or unrelated app modified")
+			}
+			if pid != 42 && s.currentSnapshot("42") != nil {
+				t.Fatal("old PID alias retained across process change")
+			}
+			if _, err := lookupElement(s.currentSnapshot("Editor"), "7"); err == nil {
+				t.Fatal("stale index remains usable")
+			}
+			if result := s.setValue("Editor", "7", "bad"); !result.IsError {
+				t.Fatal("stale element action accepted")
+			}
+			x, y := 10.0, 20.0
+			if result := s.click("Editor", "", &x, &y, 1, "left", "auto"); result.IsError {
+				t.Fatalf("coordinate action unavailable: %#v", result)
+			}
+			data, err := os.ReadFile(path)
+			if err != nil || !strings.Contains(string(data), `"tool":"click"`) {
+				t.Fatalf("coordinate click not sent: %s, %v", data, err)
+			}
+			t.Setenv("OCU_TEST_OBSERVATION_RESPONSE", fmt.Sprintf(`{"ok":true,"snapshot":{"app":{"name":"Editor","pid":%d},"elements":[{"index":8}]}}`, pid))
+			if result := s.callTool("get_app_state", map[string]any{"app": "Editor"}); result.IsError {
+				t.Fatalf("AX refresh failed: %#v", result)
+			}
+			if _, err := lookupElement(s.currentSnapshot("Editor"), "8"); err != nil {
+				t.Fatal("explicit AX did not restore indexes")
+			}
+		})
+	}
+}
+
+func TestScreenshotOnlyInvalidatesOlderAliasesWhenProcessChanges(t *testing.T) {
+	observationPythonResponse(t, `{"ok":true,"snapshot":{"app":{"name":"Editor","pid":43},"windowBounds":{"width":300,"height":200},"screenshotPngBase64":"cG5n"}}`)
+	s := newService()
+	older := &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, Elements: []elementRecord{{Index: 6}}}
+	s.rememberSnapshot("older-query", older)
+	s.rememberSnapshot("Editor", &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, Elements: []elementRecord{{Index: 7}}})
+	unrelated := &appSnapshot{App: appDescriptor{Name: "Other", PID: 99}}
+	s.rememberSnapshot("Other", unrelated)
+	result := s.callTool("get_app_state", map[string]any{"app": "Editor", "include_ax": false})
+	if result.IsError {
+		t.Fatalf("screenshot-only observation failed: %#v", result)
+	}
+	for _, alias := range []string{"older-query", "42"} {
+		if s.currentSnapshot(alias) != nil {
+			t.Fatalf("stale AX alias %q survived process replacement", alias)
+		}
+	}
+	if s.currentSnapshot("Other") != unrelated {
+		t.Fatal("unrelated app observation invalidated")
 	}
 }
 
@@ -262,7 +593,7 @@ func TestLinuxRuntimeDocumentsATSPIAndFallbackBoundary(t *testing.T) {
 	if !strings.Contains(linuxRuntimeScript, "generate_mouse_event") {
 		t.Fatal("Linux runtime should keep coordinate input explicit and visible in the bridge")
 	}
-	if !strings.Contains(serverInstructions, "not a universal Wayland background input model") {
+	if !strings.Contains(serverInstructions, "ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS") {
 		t.Fatal("MCP instructions must document the Linux background-input boundary")
 	}
 }
@@ -382,4 +713,205 @@ func shortTempDir(t *testing.T) string {
 		_ = os.RemoveAll(path)
 	})
 	return path
+}
+
+func TestLinuxKeyMethodSchemaAndUnsupportedSkyKey(t *testing.T) {
+	for _, name := range []string{"type_text", "press_key"} {
+		tool := findToolDefinition(t, name)
+		properties := tool.InputSchema["properties"].(map[string]any)
+		method := properties["key_method"].(map[string]any)
+		values := method["enum"].([]string)
+		if strings.Join(values, ",") != "auto,sky_key" {
+			t.Fatalf("%s key_method enum = %#v", name, values)
+		}
+	}
+
+	for input, want := range map[string]string{"": "auto", " SKY_KEY ": "sky_key"} {
+		got, err := parseKeyMethod(input)
+		if err != nil || got != want {
+			t.Fatalf("parseKeyMethod(%q) = %q, %v", input, got, err)
+		}
+	}
+	if _, err := parseKeyMethod("global"); err == nil || !strings.Contains(err.Error(), "Expected one of: auto, sky_key") {
+		t.Fatalf("parseKeyMethod(global) error = %v", err)
+	}
+
+	service := newService()
+	result := service.typeText("Text Editor", "hello", "sky_key")
+	if !result.IsError || result.Content[0].Text != "key_method 'sky_key' is not supported on Linux" {
+		t.Fatalf("type_text sky_key result = %#v", result)
+	}
+	result = service.pressKey("Text Editor", "Return", "sky_key")
+	if !result.IsError || result.Content[0].Text != "key_method 'sky_key' is not supported on Linux" {
+		t.Fatalf("press_key sky_key result = %#v", result)
+	}
+}
+
+func TestLinuxWindowPlacementSchemaAndUnsupportedAgentDisplay(t *testing.T) {
+	tool := findToolDefinition(t, "get_app_state")
+	properties := tool.InputSchema["properties"].(map[string]any)
+	if _, exposed := properties["window_placement"]; exposed {
+		t.Fatal("unsupported window_placement must not be advertised")
+	}
+
+	if got, err := parseWindowPlacement(" AGENT_DISPLAY "); err != nil || got != "agent_display" {
+		t.Fatalf("parseWindowPlacement = %q, %v", got, err)
+	}
+	if _, err := parseWindowPlacement("park"); err == nil {
+		t.Fatal("parseWindowPlacement(park) should fail")
+	}
+	result := newService().callTool("get_app_state", map[string]any{"app": "Text Editor", "window_placement": "agent_display"})
+	if !result.IsError || result.Content[0].Text != "window_placement 'agent_display' is not supported on Linux" {
+		t.Fatalf("agent_display result = %#v", result)
+	}
+}
+
+func TestDoctorJSONRejectsUnsupportedPermissionDiagnostics(t *testing.T) {
+	var out bytes.Buffer
+	if err := runCLI([]string{"doctor", "--json"}, &out); err == nil {
+		t.Fatal("expected unsupported permission diagnostics error")
+	}
+	if out.Len() != 0 {
+		t.Fatal("unsupported JSON mode must not emit text on stdout")
+	}
+}
+
+func TestAccessibilityBusDiscoveryNeverImportsAnotherProcessOverride(t *testing.T) {
+	dir := shortTempDir(t)
+	socket := filepath.Join(dir, "a11y.sock")
+	listenUnixSocket(t, socket)
+	for _, address := range []string{"unix:path=/run/flatpak/at-spi-bus", "unix:path=" + socket, "unix:abstract=private-sandbox", "tcp:host=localhost,port=1234"} {
+		env := envSliceToMap(linuxRuntimeEnvironmentFrom([]string{"PATH=/usr/bin"}, os.Getuid(), []map[string]string{{"AT_SPI_BUS_ADDRESS": address}}))
+		if got := env["AT_SPI_BUS_ADDRESS"]; got != "" {
+			t.Fatalf("Imported another process bus %q", got)
+		}
+		explicit := envSliceToMap(linuxRuntimeEnvironmentFrom([]string{"AT_SPI_BUS_ADDRESS=" + address}, os.Getuid(), nil))
+		if explicit["AT_SPI_BUS_ADDRESS"] != address {
+			t.Fatal("Explicit caller address changed")
+		}
+	}
+}
+
+func TestSandboxSessionVariablesDoNotWinDiscovery(t *testing.T) {
+	for _, marker := range []string{"FLATPAK_ID", "container"} {
+		env := envSliceToMap(linuxRuntimeEnvironmentFrom(nil, os.Getuid(), []map[string]string{
+			{marker: "sandbox", "DISPLAY": ":99", "XAUTHORITY": "/private/auth", "AT_SPI_BUS_ADDRESS": "unix:path=/private/bus"},
+			{"DISPLAY": ":1", "XAUTHORITY": "/host/auth"},
+		}))
+		if env["DISPLAY"] != ":1" || env["XAUTHORITY"] != "/host/auth" || env["AT_SPI_BUS_ADDRESS"] != "" {
+			t.Fatalf("Sandbox environment leaked into desktop discovery: %#v", env)
+		}
+	}
+}
+
+func TestProcessRankingIgnoresDesktopNamesInArguments(t *testing.T) {
+	dir := t.TempDir()
+	write := func(comm, cmdline string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, "comm"), []byte(comm), 0600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "cmdline"), []byte(cmdline), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("WebKitNetworkPr\n", "/usr/libexec/WebKitNetworkProcess\x00--env=XAUTHORITY=/run/user/1000/.mutter-Xwaylandauth\x00gnome-shell\x00")
+	if rank := desktopProcessRank(processSearchText(dir)); rank != 0 {
+		t.Fatalf("Sandbox argv ranked as desktop: %d", rank)
+	}
+	write("gnome-shell\n", "/usr/bin/gnome-shell\x00--mode=user\x00")
+	if rank := desktopProcessRank(processSearchText(dir)); rank != 95 {
+		t.Fatalf("Host desktop rank = %d", rank)
+	}
+	write("gnome-terminal-\n", "/usr/libexec/gnome-terminal-server\x00--gapplication-service\x00")
+	if rank := desktopProcessRank(processSearchText(dir)); rank != 65 {
+		t.Fatalf("Truncated comm lost argv[0] identity: %d", rank)
+	}
+}
+
+func stateIDService() (*service, *appSnapshot) {
+	s := newService()
+	snapshot := &appSnapshot{App: appDescriptor{Name: "Editor", PID: 42}, TreeLines: []string{"0 window"}, StateID: newStateID(), ScreenshotPNGBase64: "aW1hZ2U="}
+	s.rememberSnapshot("Editor", snapshot)
+	return s, snapshot
+}
+
+func TestStateIDIsReturnedAsFieldAndTextBeforeTheImage(t *testing.T) {
+	_, snapshot := stateIDService()
+	if matched, _ := regexp.MatchString(`^[0-9a-f]{12}$`, snapshot.StateID); !matched {
+		t.Fatalf("state id %q is not 12 lowercase hex characters", snapshot.StateID)
+	}
+	if other := newStateID(); other == snapshot.StateID {
+		t.Fatal("state ids must not repeat")
+	}
+	result := snapshot.result()
+	if result.StateID != snapshot.StateID {
+		t.Fatalf("top-level state_id = %q", result.StateID)
+	}
+	if len(result.Content) != 3 || result.Content[1].Text != "State-ID: "+snapshot.StateID || result.Content[2].Type != "image" {
+		t.Fatalf("content = %#v", result.Content)
+	}
+	encoded, err := json.Marshal(result)
+	if err != nil || !strings.Contains(string(encoded), `"state_id":"`+snapshot.StateID+`"`) {
+		t.Fatalf("encoded result = %s (%v)", encoded, err)
+	}
+	if without := (&appSnapshot{App: appDescriptor{Name: "Editor"}}).result(); without.StateID != "" || len(without.Content) != 1 {
+		t.Fatalf("a snapshot without an id must not report one: %#v", without)
+	}
+}
+
+func TestStaleStateIDIsRefusedBeforeAnythingIsSent(t *testing.T) {
+	// A bridge call would need python3 with AT-SPI; pointing PATH at an empty folder makes any
+	// attempt fail with a different message, so a stale_state result proves nothing was sent.
+	t.Setenv("PATH", t.TempDir())
+	s, snapshot := stateIDService()
+	for _, tool := range []string{"click", "perform_secondary_action", "scroll", "drag", "type_text", "press_key", "set_value"} {
+		for _, alias := range []string{"Editor", "42"} {
+			result := s.callTool(tool, map[string]any{"app": alias, "state_id": "000000000000", "element_index": "0", "text": "x", "key": "a", "value": "v"})
+			if !result.IsError || !strings.HasPrefix(result.Content[0].Text, "stale_state: ") || !strings.Contains(result.Content[0].Text, "get_app_state") {
+				t.Fatalf("%s via %s with a stale id = %#v", tool, alias, result)
+			}
+		}
+		if result := s.callTool(tool, map[string]any{"app": "Unknown", "state_id": snapshot.StateID}); !result.IsError || !strings.HasPrefix(result.Content[0].Text, "stale_state: ") {
+			t.Fatalf("%s with no cached state = %#v", tool, result)
+		}
+		if result := s.callTool(tool, map[string]any{"app": "Editor", "state_id": 7}); !result.IsError || !strings.Contains(result.Content[0].Text, "state_id must be a string") {
+			t.Fatalf("%s with a non-string id = %#v", tool, result)
+		}
+	}
+	if s.currentSnapshot("Editor") != snapshot {
+		t.Fatal("a refused action must leave the cached state alone")
+	}
+}
+
+func TestMatchingOrOmittedStateIDIsNotRefused(t *testing.T) {
+	s, snapshot := stateIDService()
+	for _, args := range []map[string]any{{"app": "Editor", "state_id": snapshot.StateID}, {"app": "Editor"}, {"app": "42", "state_id": snapshot.StateID}} {
+		if refused := s.checkStateID("click", requiredString(args, "app"), args); refused != nil {
+			t.Fatalf("args %v were refused: %#v", args, refused)
+		}
+	}
+	if refused := s.checkStateID("get_app_state", "Editor", map[string]any{"state_id": "000000000000"}); refused != nil {
+		t.Fatal("get_app_state takes no state_id check")
+	}
+}
+
+func TestStateIDSchemaIsOnActionToolsOnly(t *testing.T) {
+	actions := map[string]bool{"click": true, "perform_secondary_action": true, "scroll": true, "drag": true, "type_text": true, "press_key": true, "set_value": true}
+	seen := 0
+	for _, tool := range toolDefinitions() {
+		property, has := tool.InputSchema["properties"].(map[string]any)["state_id"]
+		if has != actions[tool.Name] {
+			t.Fatalf("%s: state_id declared = %v", tool.Name, has)
+		}
+		if has {
+			seen++
+			if description, _ := property.(map[string]any)["description"].(string); description != stateIDDescription {
+				t.Fatalf("%s: state_id description = %q", tool.Name, description)
+			}
+		}
+	}
+	if seen != len(actions) {
+		t.Fatalf("state_id declared on %d tools, want %d", seen, len(actions))
+	}
 }

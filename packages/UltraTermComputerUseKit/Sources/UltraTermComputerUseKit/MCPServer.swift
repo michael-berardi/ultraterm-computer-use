@@ -5,11 +5,13 @@ Computer Use tools let you interact with macOS apps by performing UI actions.
 
 Some apps might have a separate dedicated plugin or skill. You may want to use that plugin or skill instead of Computer Use when it seems like a good fit for the task. While the separate plugin or skill may not expose every feature in the app, if the plugin can perform the task with its available features, prefer it. If the needed capability is not exposed there, use Computer Use may be appropriate for the missing interaction.
 
-Begin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. Codex will automatically stop the session after each assistant turn, so this step is required before interacting with apps in a new assistant turn.
+Begin by calling `get_app_state` every turn you want to use Computer Use to get the latest state before acting. Some hosts stop the session after each assistant turn, so this step is required before interacting with apps in a new assistant turn.
 
-The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, and set_value. If any of these are not available in your environment, use tool_search to surface one before calling any Computer Use action tools.
+Every state and action result carries a `state_id`. Pass it to the next action: if the app's state was captured again in between, the action is refused with `stale_state` before anything is sent, and you refresh and retry.
 
-Computer Use tools allow you to use the user's apps in the background, so while you're using an app, the user can continue to use other apps on their computer. Avoid doing anything that would disrupt the user's active session, such as overwriting the contents of their clipboard, unless they asked you to!
+The available tools are list_apps, get_app_state, click, perform_secondary_action, scroll, drag, type_text, press_key, set_value, select_text, and query. If any of these are not available in your environment, use tool_search to surface one before calling any Computer Use action tools.
+
+Computer Use works in the background: it does not activate apps, raise or unminimize windows, or move the real pointer, so the user keeps working while you use an app. An app that is hidden or minimized is reported as unavailable instead of being brought forward; tell the user, or ask them to set ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1 if the task needs it. Avoid anything else that would disrupt the user's session, such as overwriting their clipboard, unless they asked for it.
 
 After each action, use the action result or fetch the latest state to verify the UI changed as expected.
 Prefer element-targeted interactions over coordinate clicks when an index for the targeted element is available. Note that element indices are the sequential integers from the app state's accessibility tree.
@@ -18,20 +20,32 @@ Ask the user before taking destructive or externally visible actions such as sen
 """
 
 public final class StdioMCPServer {
+    private let service: ComputerUseService
     private let dispatcher: ComputerUseToolDispatcher
+    private let backgroundStateReset: () -> Void
 
-    public init(service: ComputerUseService = ComputerUseService()) {
+    public init(
+        service: ComputerUseService = ComputerUseService(),
+        backgroundStateReset: @escaping () -> Void = resetUltraTermComputerUseBackgroundWindowState
+    ) {
+        self.service = service
         self.dispatcher = ComputerUseToolDispatcher(service: service)
+        self.backgroundStateReset = backgroundStateReset
     }
 
     public func run() throws {
+        defer { endSession() }
         while let line = readLine(strippingNewline: true) {
             guard !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
                 continue
             }
 
-            if let response = handle(line: line) {
-                FileHandle.standardOutput.write((response + "\n").data(using: .utf8)!)
+            // This thread's autorelease pool never drains on its own: each response's encoded
+            // bytes (a screenshot's base64 among them) stayed alive for the whole session.
+            autoreleasepool {
+                if let response = handle(line: line) {
+                    FileHandle.standardOutput.write((response + "\n").data(using: .utf8)!)
+                }
             }
         }
     }
@@ -67,9 +81,7 @@ public final class StdioMCPServer {
             case "notifications/initialized":
                 return nil
             case "notifications/turn-ended":
-                VisualCursorSupport.performOnMain {
-                    SoftwareCursorOverlay.reset()
-                }
+                endSession()
                 return nil
             case "ping":
                 return try encodeJSONRPCResult(id: id, result: [:])
@@ -117,6 +129,17 @@ public final class StdioMCPServer {
                 ]
             )
         }
+    }
+
+    /// Release state that is scoped to one MCP client session. App-hosted MCP
+    /// connections call this explicitly because they use `handle(line:)`
+    /// instead of the stdio `run()` loop.
+    public func endSession() {
+        service.clearQueryIndexes()
+        VisualCursorSupport.performOnMain {
+            SoftwareCursorOverlay.reset()
+        }
+        backgroundStateReset()
     }
 
     private func encodeJSONRPCResult(id: Any?, result: [String: Any]) throws -> String {

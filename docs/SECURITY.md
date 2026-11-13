@@ -1,43 +1,46 @@
-# 安全默认约束
+# Security Default Constraints
 
-## 当前实现边界
+## Current implementation boundaries
 
-- 对 MCP host 暴露的接口仍是本地 `stdio`；macOS CLI 与 `.app` app agent 之间会使用用户临时目录下的 Unix domain socket，socket 创建后会收紧为当前用户读写，且不对外监听 TCP/HTTP 端口。
-- 所有动作都必须显式带 `app` 参数；当前不会在后台自动扫描并控制任意 app。
-- macOS 真实 app 路径依赖 `UltraTerm Computer Use.app` 已获得 `Accessibility` 与 `Screen Recording` 权限；终端里的 CLI / Node launcher 会把 `mcp`、`doctor`、`call`、`snapshot` 和 `list-apps` 转发给由 LaunchServices 启动的本地 app agent，避免把权限要求落到 iTerm / Terminal 身上。
-- 实验性 Linux runtime 依赖已登录桌面用户的 AT-SPI2 / D-Bus session；coordinate mouse、drag、keyboard synthesis 只是 best-effort fallback，不应被视为跨 Wayland compositor 的通用后台输入授权。
+- The interface exposed to the MCP host is still a local `stdio`. Between the macOS CLI and the `.app` app agent, a Unix domain socket under the user's temporary directory is used. After creation the socket is restricted to read/write for the current user, and no TCP/HTTP port is listened on. When `ULTRATERM_COMPUTER_USE_AGENT_SOCKET_NAMESPACE` is not set, the legacy socket continues to be used. When it is set, only a digest of the namespace is used to derive a private file name; neither the host directory nor the raw namespace is written into the socket path.
+- The Codex plugin places a local Node.js REPL in front of the native MCP by default, and the npm CLI's `ultraterm-computer-use js` / `ultraterm-computer-use repl` use the same runtime directly. `js` is arbitrary local JavaScript execution, not a restricted expression language: code can read files, environment variables, modules and the network with the permissions of the launching process. Enable it only inside a trust boundary where the host already has and allows model-code execution. Hosts that do not accept this boundary should keep connecting directly to the discrete native tools of `ultraterm-computer-use mcp`.
+- Computer Use calls made from the REPL still go through native MCP, so the password-manager denylist, `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS` and other native safety gates cannot be bypassed by the JavaScript adapter. The JS kernel runs in a Worker; a timeout terminates the whole Worker and clears its bindings.
+- Every action must explicitly pass an `app` parameter. The runtime does not currently scan and control arbitrary apps in the background.
+- The macOS real-app path depends on `UltraTerm Computer Use.app` having been granted `Accessibility` and `Screen Recording`. The CLI and Node launcher in the terminal forward `mcp`, `doctor`, `call`, `snapshot` and `list-apps` to the local app agent started by LaunchServices, so the permission requirement does not fall on the terminal app (iTerm / Terminal).
+- The experimental Linux runtime depends on the logged-in desktop user's AT-SPI2 / D-Bus session. Coordinate mouse, drag and keyboard synthesis are only best-effort fallbacks and should not be treated as general background input authorization across Wayland compositors.
 
-## 数据处理
+## Data handling
 
-- 普通 app 的 screenshot 默认只在内存中编码成 PNG，并通过 MCP `image` content block 直接回传；默认不长期持久化。
-- Linux runtime 的 screenshot 是 best-effort；如果 GNOME Wayland 返回黑图，bridge 会省略 image block，避免把无效截图误当成真实画面。
-- fixture app 的合成状态只写到本地临时 JSON 文件，目的是支撑 deterministic smoke test；当前写入走原子替换，减少测试期间的读写竞争。
-- 当前仓库不引入第三方服务，也不上传截图、AX tree 或输入内容。
+- By default, app screenshots are encoded to PNG only in memory (configurable to JPG or lossless WebP) and returned directly through the MCP `image` content block. They are not persisted long-term by default.
+- The Windows runtime fails closed for hidden, minimized, DWM-cloaked, off-screen or degenerate small windows. It keeps the readable UI Automation tree but returns no image block, and does not allow coordinate click / drag without a valid screenshot. It never fabricates a usable screenshot by upscaling, padding or using placeholder images.
+- The Linux runtime's screenshot is best-effort. If GNOME Wayland returns a black image, the bridge treats it as invalid and omits the image block, so an invalid screenshot is not mistaken for the real screen.
+- The synthetic state of the fixture app is written only to a local temporary JSON file, to support deterministic smoke tests. Writes use atomic replacement to reduce read/write races during tests.
+- The repository does not introduce third-party services and does not upload screenshots, AX trees or input content.
 
-## 授权与最小权限
+## Authorization and least privilege
 
-- 当前只保留一层密码管理器 bundle denylist / bundle-id gate：
-  - 会阻止对 1Password、Bitwarden、Dashlane、LastPass、NordPass 和 Proton Pass 做直接 `get_app_state` / action 调用。
-  - 终端类 app、Chrome / Atlas 和系统组件不再属于内置阻止目标。
-  - 对 bundle identifier 直传时返回 safety denial；对 app name 查询时默认不把这些密码管理器暴露成可解析目标。
-- 但当前仍然没有官方闭源实现里的 session approval / 动态 app policy。
-- 这意味着开源版当前的安全边界主要由：
-  - 明确的 tool 调用参数
-  - 内置密码管理器 denylist
-  - `UltraTerm Computer Use.app` 的系统权限
-  - 本地使用场景
-  共同提供。
-- `click_method=global` 是显式的系统级指针路径，可能移动真实鼠标、改变前台焦点或命中坐标处的其他窗口。调用参数本身不视为足够授权；macOS 和支持该模式的 Linux runtime 还要求进程环境中设置 `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`。未设置时必须在任何可见 cursor 移动或真实输入事件之前拒绝请求。
-- `click_method=app_post`、`sky_click` 与 `accessibility` 不允许静默切换到 `global`。这保证调用方选择的非侵入边界在失败时仍然成立。
-- `click_method=sky_click` 是显式 macOS 私有 SPI 能力，不进入 `auto`。它不移动系统指针、不改变 WindowServer frontmost app，也不 raise 或切换目标窗口；内部只让目标应用短暂进入 synthetic-active 状态，绝不向真实前台应用发送 defocus record，renderer settle 后也只撤销目标的合成状态。点击后的 action-result snapshot 禁止 activate / `AXRaise` 恢复。它仍会向指定 PID/window 注入真实输入语义，因此只允许使用当前 snapshot 的 on-screen、同 PID 窗口，并在窗口身份不匹配、target-focus record 失败或私有符号缺失时 fail closed。第一版仅支持同一 Space 内的左键单击/双击。
-- SkyLight ABI、raw event field 和 Chromium 接收行为都不受 Apple 公共兼容性承诺保护。系统升级后的失败不得触发静默 global fallback；应先重新验证符号和受控目标，再决定是否更新实现。
-- 下一阶段应优先补：
-  - session 级审批
-  - 更清楚的敏感 app / 系统设置防护策略
+- Only one layer is currently kept: the password-manager bundle denylist / bundle-id gate.
+  - Direct `get_app_state` and action calls to 1Password, Bitwarden, Dashlane, LastPass, NordPass and Proton Pass are blocked.
+  - Terminal apps, Chrome / Atlas and system components are no longer built-in blocked targets.
+  - Passing a bundle identifier directly returns a safety denial. Looking up these password managers by app name does not expose them as resolvable targets by default.
+- There is still no session approval or dynamic app policy like the one in the official closed-source implementation.
+- As a result, the security boundary of the open-source version is currently provided mainly by:
+  - explicit tool call parameters
+  - the built-in password-manager denylist
+  - the system permissions of `UltraTerm Computer Use.app`
+  - the local usage scenario
+- `click_method=global` is an explicit system-level pointer path. It can move the real mouse, change foreground focus, or hit other windows at the coordinate. The call parameters alone are not considered sufficient authorization. On macOS, Windows, and Linux runtimes that support this mode, the process environment must also set `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`. On Windows, once enabled, auto clicks and scroll allow fallback when UIA fails, and drag uses the real pointer. Real keyboard input additionally requires an explicit `press_key.key_method=global`; auto key presses keep using window messages. Windows physical input checks the observed PID / HWND, the current geometry, the foreground window and the window hit at the coordinate, and rejects occluded targets or targets that cannot be brought to the foreground normally. It does not obtain focus by simulating Alt. On error, a `finally` block releases the keys or buttons pressed by this call, and a SendInput failure is reported as an error. If the variable is not set, the request must be rejected before any visible cursor movement or real input event.
+- `click_method=app_post`, `sky_click` and `accessibility` must not silently switch to `global`. This keeps the non-intrusive boundary chosen by the caller intact when a failure occurs.
+- `click_method=sky_click` is an explicit macOS private SPI capability and is not part of `auto`. It does not move the system pointer, change the WindowServer frontmost app, or raise or switch the target window. Internally it only briefly puts the target app into synthetic-active state. It never sends a defocus record to the real foreground app, and after renderer settle it revokes only the target's synthetic state. The action-result snapshot after a click forbids activate / `AXRaise` restoration. It still injects real input semantics into the specified PID and window, so it only allows on-screen windows of the same PID from the current snapshot. It fails closed on a window identity mismatch, a target-focus record failure, or missing private symbols. The first version supports only left single and double clicks within the same Space.
+- `key_method=sky_key` shares the same boundary as `sky_click`: it is an explicit macOS private SPI capability, is not part of `auto`, and does not fall back on failure. It only briefly puts the target app into synthetic-active state and makes the target window the key window within its process. It never sends any record to the real foreground app, does not move the pointer, does not raise, and does not switch Spaces. It injects real keyboard semantics into the target PID and may press a target menu item through AX (for example, `cmd+q` quits the target app). Therefore it only allows windows of the same PID from the current snapshot, and it fails closed for hidden apps and missing private symbols.
+- The occlusion keep-alive of `get_app_state` turns off the WindowServer occlusion notifications of the target window, so the app keeps rendering and exposing content while occluded. For this reason the macOS tool definition does not declare it as read-only, even though the default `keep` does not move windows. It does not change window visibility, z-order, Space or focus, and it only affects the windows of the current snapshot. The runtime saves the original notification state and restores it on turn-ended, MCP/REPL connection close, normal server shutdown or process exit. Items that fail to restore are kept for retry. A side effect is that occluded windows keep consuming rendering resources for the session. A forced termination that cannot be caught still gives no in-process cleanup opportunity.
+- `virtualDisplay.enabled` defaults to off. When off, `window_placement` is not exposed to the model, and old calls cannot create displays either. It can only be enabled after the host explicitly turns on the configuration or environment variable. Restore and cleanup are not limited by the switch. `window_placement=agent_display` is the only explicit mode that changes user-visible state. It creates a virtual display the user cannot see (the display arrangement gains one more screen, and the mouse may slide into it), and moves the target window there. While parked, the window is not on the user's desktop. It does not activate, raise, switch Spaces or move the pointer. An explicit `restore` restores all windows that the app has parked in the current runtime. Turn-ended, MCP/REPL connection close, normal server shutdown or process exit also restore all windows and destroy the display. If a restore cannot be confirmed, the record and the display are kept for retry, and the failure is never reported as success. A forced termination that cannot be caught still gives no in-process cleanup opportunity. The default `keep` does not move windows, and Windows / Linux reject any value other than `keep`.
+- The SkyLight ABI, raw event fields, the `CGVirtualDisplay` KVC/selector surface and Chromium's input handling are not covered by Apple's public compatibility promise. A private virtual-display call that fails after a system upgrade is caught by the shim and reported as capability unavailable. Failures of other private capabilities must also never trigger a silent global fallback. Re-verify the symbols and the controlled target before deciding whether to update the implementation.
+- Next-stage priorities:
+  - session-level approval
+  - a clearer protection policy for sensitive apps and system settings
 
-## Fixture Bridge 约束
+## Fixture Bridge constraints
 
-- `FixtureBridge` 只用于仓库内测试夹具，不是给第三方 app 的控制平面。
-- 任何面向真实 app 的能力新增，都不应该复用这条测试专用通道。
-
-仓库级的依赖、SBOM 和 provenance 默认能力，统一写在 `docs/SUPPLY_CHAIN_SECURITY.md`。
+- `FixtureBridge` is used only for test fixtures inside the repository. It is not a control plane for third-party apps.
+- Any new capability for real apps must not reuse this test-only channel.
