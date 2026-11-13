@@ -170,11 +170,11 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
           list-apps            Print running or recently used apps.
           targets              Print targetable apps (JSON-capable, running-only filter).
           tools [name]         Print tool definitions or one tool's schema.
-          inspect <app>        Print a non-disruptive accessibility snapshot of a running app.
+          inspect <app>        Print the accessibility snapshot and a screenshot of a running app (no launch or activation).
           snapshot <app>       Print the current accessibility snapshot for an app.
           call <tool>           Call one tool, or run a JSON array of tool calls.
-          preview <app>        Write a live JPEG preview (latest.jpg + manifest.json) of an app's window.
-          record <app>         Record an app's window to a bounded H.264 MP4.
+          preview <app>        Write a live JPEG preview (latest.jpg + manifest.json) of an app's window. Needs Screen Recording.
+          record <app>         Record an app's window to a bounded H.264 MP4. Needs Screen Recording.
           turn-ended           Notify the running MCP process that the host turn ended.
           help [command]       Show general or command-specific help.
           version              Print the CLI version.
@@ -216,8 +216,10 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
 
         Options:
           --running-only       Only include apps that are currently running.
-          --json               Print targets as a JSON array with name, bundle_id,
-                               pid, running, and frontmost fields.
+          --json               Print targets as a JSON array. Every entry has name,
+                               running, and frontmost. With --running-only entries
+                               also carry pid; without it they carry last_used and
+                               uses when known. bundle_id is present when known.
 
         Print targetable apps. Read-only: never launches, activates, or prompts.
         """
@@ -246,15 +248,17 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
 
         Options:
           --window <title>     Target the window whose title contains <title>.
-          --media-dir <path>   Write the screenshot to <path> as a PNG file and
-                               reference it with an image_path content item instead
-                               of embedding base64.
+          --media-dir <path>   Write the screenshot into the directory <path> (created if
+                               missing) and reference it with an image_path content
+                               item instead of embedding base64. This is the only
+                               place inspect writes.
           --json               Print the full tool-result JSON.
           --no-launch          Do not launch the app (always guaranteed).
           --no-activate        Do not activate the app (always guaranteed).
 
-        Print the accessibility snapshot of a running app without launching,
-        activating, prompting, or mutating anything.
+        Print the accessibility snapshot and a screenshot of a running app without
+        launching, activating, prompting, or mutating anything. The screenshot needs
+        Screen Recording permission (see `doctor`). Nothing is uploaded.
         """
     case "locked-use":
         return """
@@ -315,6 +319,14 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
         can reuse the app state and element indices captured by get_app_state.
         Sequence execution stops after the first tool result with isError=true.
         Sequence runs sleep \(formatUltraTermComputerUseDelay(ultraTermComputerUseDefaultInterCallDelay)) between successful operations by default.
+
+        Arguments are checked against each tool's input schema before it runs. For a
+        sequence, every call is checked first, so an invalid later call stops the run
+        before any earlier call acts. A failed result carries an `error` object with
+        code, phase, call_index, retryable, hint, candidates, and message. The exit
+        status is 0 on success, 1 for other failures, 2 for usage or invalid arguments,
+        3 for permission denied, 4 for app not found, 5 for an ambiguous app, 6 when
+        state is unavailable, and 7 when the state is stale.
         """
     case "preview":
         return """
@@ -337,6 +349,12 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
         the requested fps and manifest.json tracks dimensions, timestamps, and
         frame/drop counters. Prints a machine-readable JSON summary and never
         opens a viewer.
+
+        Captures the screen contents of one window of the app, so it needs Screen
+        Recording permission (see `doctor`). It is bounded: at most 3600 seconds,
+        1 to 60 fps, widths of 64 to 16384 pixels. It writes only into --output-dir
+        (created if missing), and nothing is uploaded or sent anywhere. Ctrl-C or
+        SIGTERM stops it cleanly.
         """
     case "record":
         return """
@@ -359,6 +377,12 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
         output is hard-capped at 600 seconds and 300 MB; partial outputs are
         removed on failure. Prints a machine-readable JSON summary and never
         opens a viewer.
+
+        Captures the screen contents of one window of the app, so it needs Screen
+        Recording permission (see `doctor`). It is bounded: 1 to 60 fps, widths of 64
+        to 16384 pixels, bitrates of 100000 to 200000000. It writes only to the --output
+        path (an existing file there is replaced), and nothing is uploaded or sent
+        anywhere. Ctrl-C or SIGTERM stops it cleanly.
         """
     case "turn-ended":
         return """

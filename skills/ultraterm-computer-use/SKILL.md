@@ -53,6 +53,10 @@ Tools on every platform: `list_apps`, `get_app_state`, `click`, `perform_seconda
 ```sh
 ultraterm-computer-use --version
 ultraterm-computer-use doctor
+ultraterm-computer-use doctor --status-only
+ultraterm-computer-use targets --running-only --json
+ultraterm-computer-use tools click
+ultraterm-computer-use inspect TextEdit
 ultraterm-computer-use call list_apps
 ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
 ultraterm-computer-use call get_app_state --args '{"app":"TextEdit","include_screenshot":false,"text_limit":1000}'
@@ -73,6 +77,12 @@ MCP configuration:
   }
 }
 ```
+
+## Read-only and capture commands (macOS)
+
+- `doctor --status-only` prints permissions without launching onboarding. `targets`, `tools` and `inspect <app>` read only: they never launch or activate an app. `inspect` includes a screenshot and needs Screen Recording permission.
+- `preview --output-dir <dir> <app>` and `record --output <file.mp4> <app>` capture one window of a running app. They need Screen Recording permission, are bounded (preview up to 3600 seconds; record up to 600 seconds and 300 MB), write only to the path given, and never upload. Ask the user before capturing windows that may show private content.
+- A failed `call` adds an `error` object (`code`, `phase`, `retryable`, `hint`, `candidates`) and exits with 2 usage, 3 permission denied, 4 app not found, 5 ambiguous app, 6 state unavailable, or 7 stale state (1 for other failures). App targets can be `pid:<pid>`.
 
 ## References
 

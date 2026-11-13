@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.0
+
+The commands and checks that were previously kept in a separate edition are now part of the open-source project, with no licence check, update service or telemetry. They are macOS features except where noted.
+
+- `preview` and `record` commands for bounded window capture. They need Screen Recording permission and write only to the path you give.
+- `targets`, `tools` and `inspect` commands, and `doctor --status-only`.
+- Structured `error` objects on error results, stable exit statuses, and schema checks for `call` that run before any step of a sequence.
+- `--media-dir` for `inspect`, which writes screenshots to files.
+- A buffered channel for the app-agent socket.
+- Stricter `click` argument checks (`mouse_button`, `click_count`, booleans).
+- `pid:<pid>` app targets and a stricter password-manager safety check.
+- A visit budget for the accessibility tree walk, and fewer redundant cursor observation writes.
+- `grave`, `backquote` and `backtick` key names.
+- Contract tests for the above.
+
 ## 0.8.1
 
 Fixed: on macOS, `doctor` printed nine lines about Locked Use, a feature this build does not bundle, ending with an instruction to enable it. `doctor` now prints the Locked Use report only when the build bundles it or it is installed. `locked-use status` is unchanged.

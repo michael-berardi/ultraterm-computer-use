@@ -143,6 +143,32 @@ Use `--calls-file` when the sequence is too large for a readable shell command:
 ultraterm-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 ```
 
+## Read-only commands and screen capture (macOS)
+
+These commands are in the macOS runtime. The Linux and Windows runtimes do not have them.
+
+```sh
+ultraterm-computer-use doctor --status-only
+ultraterm-computer-use targets --running-only --json
+ultraterm-computer-use tools
+ultraterm-computer-use tools click --json
+ultraterm-computer-use inspect --json --media-dir /tmp/shots TextEdit
+ultraterm-computer-use preview --output-dir /tmp/preview --duration 20 TextEdit
+ultraterm-computer-use record --output /tmp/textedit.mp4 --duration 30 TextEdit
+```
+
+- `doctor --status-only` prints the permission state and never launches the onboarding app or prompts. `doctor --json` prints it as JSON, also without launching anything.
+- `targets` lists targetable apps (`--running-only` keeps only running ones; JSON entries have `name`, `running`, `frontmost`, and `bundle_id` when known, plus `pid` with `--running-only`). `tools` prints the tool catalog or one tool's input schema. Neither launches, activates or prompts.
+- `inspect <app>` prints the accessibility snapshot and a screenshot of a running app without launching or activating it, and it does not register state for later actions. The screenshot needs Screen Recording permission. `--window <title>` picks the window whose title contains the text. `--media-dir <path>` writes the screenshot into that directory and returns an `image_path` item with the file path instead of base64 data.
+- `preview` and `record` capture the screen contents of one window of an already running app, so they need Screen Recording permission. They never launch, activate or unhide the app, never open a viewer, never upload anything, and write only to the path you give: `preview` to `latest.jpg` and `manifest.json` inside `--output-dir`, `record` to the `--output` file. Both are bounded: `preview` runs up to 3600 seconds (default 30) at 1 to 60 fps (default 8) with widths of 64 to 16384 px (default 960) and JPEG quality 0.05 to 1 (default 0.8). `record` is cut at 600 seconds (default 60) and 300 MB, at 1 to 60 fps (default 15), widths of 64 to 16384 px (default 1920) and 100000 to 200000000 bps (default 4000000), with no audio. The cursor is left out unless `--include-cursor` is given. Both print a JSON summary and stop cleanly on Ctrl-C or SIGTERM. They accept an app name or bundle identifier.
+- App targets for `inspect`, `snapshot` and `call` can also be `pid:<pid>` or a bare pid, which addresses exactly one process. An ambiguous name is refused with its candidates.
+
+### Errors and exit statuses
+
+`call` checks every call's arguments against the tool's input schema before it runs. For `--calls`, all calls are checked first, so an invalid later call stops the run before any earlier call acts (an unknown tool name is reported when the sequence reaches it). A failed result keeps its text and adds an `error` object with `code`, `phase` (`parse`, `preflight`, `resolve` or `execute`), `call_index`, `retryable`, `hint`, `candidates` and `message`. The process exit status is 0 on success, 1 for other failures, 2 for usage or invalid arguments, 3 for permission denied, 4 for app not found, 5 for an ambiguous app, 6 when state is unavailable and 7 when the state is stale.
+
+`click` rejects a `mouse_button` other than `left`, `right` or `middle`, a `click_count` below 1, and JSON booleans where a number or element index is expected.
+
 ## Text Limits
 
 Snapshot text is truncated to 500 characters by default and ends with `...` when truncation happens. This keeps normal UI state compact for agent planning and element-targeted actions.
