@@ -38,4 +38,21 @@ final class ElementIdentityTests: XCTestCase {
         XCTAssertEqual(ElementIdentity(role: "AXButton", subrole: nil, title: " ", description: "Close", identifier: nil, value: nil).name, "Close",
                        "the name is the title, else the description")
     }
+
+    func testAGenericFailureOnANamingAttributeCountsAsAbsentButNeverOnTheRole() {
+        let naming = [kAXSubroleAttribute, kAXTitleAttribute, kAXDescriptionAttribute, kAXIdentifierAttribute] as [String]
+        for name in naming + [kAXRoleAttribute as String] {
+            XCTAssertTrue(ElementIdentity.attributeCountsAsAbsent(name: name, error: .attributeUnsupported), name)
+            XCTAssertTrue(ElementIdentity.attributeCountsAsAbsent(name: name, error: .noValue), name)
+            // The app or the element is gone: the identity cannot be checked.
+            for gone in [AXError.cannotComplete, .invalidUIElement, .apiDisabled, .notImplemented] {
+                XCTAssertFalse(ElementIdentity.attributeCountsAsAbsent(name: name, error: gone), "\(name) \(gone.rawValue)")
+            }
+        }
+        // A text view on macOS 27 lists AXDescription and then fails every read of it.
+        for name in naming {
+            XCTAssertTrue(ElementIdentity.attributeCountsAsAbsent(name: name, error: .failure), name)
+        }
+        XCTAssertFalse(ElementIdentity.attributeCountsAsAbsent(name: kAXRoleAttribute as String, error: .failure))
+    }
 }

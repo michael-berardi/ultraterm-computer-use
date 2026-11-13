@@ -22,6 +22,7 @@ final class BackgroundAndStateIDTests: XCTestCase {
     func testBackgroundRefusalNamesItsCauseAndTheSwitch() {
         let message = noWindowFoundMessage(for: .readOnly)
         XCTAssertTrue(message.contains("hidden, minimized"), message)
+        XCTAssertTrue(message.contains("Call get_app_state again"), message)
         XCTAssertTrue(message.contains("Nothing was changed"), message)
         XCTAssertTrue(message.contains("\(foregroundActivationEnvironmentKey)=1"), message)
         XCTAssertEqual(noWindowFoundMessage(for: .allowActivation), computerUseNoWindowFoundMessage)
@@ -53,6 +54,32 @@ final class BackgroundAndStateIDTests: XCTestCase {
             XCTAssertEqual(diagnostics.doctorSummary, diagnostics.summary)
         }
         XCTAssertTrue(diagnostics.summary.hasPrefix("Locked Use:"))
+    }
+
+    func testABackgroundReadIsRetriedBeforeItIsReportedAsNoWindow() {
+        var calls = 0
+        var slept: [TimeInterval] = []
+        // Fails twice (a busy app timing out), then answers.
+        let value: String? = retryingBackgroundRead(delays: [0.1, 0.25, 0.4], sleep: { slept.append($0) }) {
+            calls += 1
+            return calls < 3 ? nil : "window"
+        }
+        XCTAssertEqual(value, "window")
+        XCTAssertEqual(calls, 3)
+        XCTAssertEqual(slept, [0.1, 0.25])
+
+        // An app that really has no window is asked once per delay and no more.
+        calls = 0; slept = []
+        let none: String? = retryingBackgroundRead(delays: [0.1, 0.25, 0.4], sleep: { slept.append($0) }) { calls += 1; return nil }
+        XCTAssertNil(none)
+        XCTAssertEqual(calls, 4)
+        XCTAssertLessThanOrEqual(slept.reduce(0, +), 0.8)
+
+        // A first answer costs no wait.
+        slept = []
+        XCTAssertEqual(retryingBackgroundRead(sleep: { slept.append($0) }) { 1 }, 1)
+        XCTAssertEqual(slept, [])
+        XCTAssertTrue(computerUseBackgroundWindowUnavailableMessage.contains("did not answer in time"))
     }
 
     func testVisualCursorMoveIsShortAndBounded() {

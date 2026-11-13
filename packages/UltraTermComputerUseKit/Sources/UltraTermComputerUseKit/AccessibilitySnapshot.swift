@@ -252,6 +252,12 @@ enum SnapshotBuilder {
         let systemWide = AXUIElementCreateSystemWide()
         var focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
         var focusedWindow = preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+        if focusedWindow == nil, recoveryPolicy == .readOnly {
+            focusedWindow = retryingBackgroundRead(delays: backgroundReadRetryDelays) {
+                focusedApplication = copyElement(systemWide, attribute: kAXFocusedApplicationAttribute)
+                return preferredFocusedWindow(appElement: appElement, appPID: app.pid, focusedApplication: focusedApplication, systemWide: systemWide)
+            }
+        }
         if focusedWindow == nil,
            recoveryPolicy == .allowActivation,
            recoverVisibleWindow(for: app, appElement: appElement, preferredWindow: nil) {
@@ -278,6 +284,12 @@ enum SnapshotBuilder {
         var windowCapture = TimingLog.measure("snapshot.window_capture") {
             WindowCapture.resolve(for: app.pid, exactWindowID: SkyLightSPI.shared.windowID(for: rootWindow), capture: observation.includeScreenshot)
                 ?? WindowCapture.resolve(for: app.pid, titleHint: windowTitle, capture: observation.includeScreenshot)
+        }
+        if windowCapture == nil, recoveryPolicy == .readOnly {
+            windowCapture = retryingBackgroundRead(delays: backgroundReadRetryDelays) {
+                WindowCapture.resolve(for: app.pid, exactWindowID: SkyLightSPI.shared.windowID(for: rootWindow), capture: observation.includeScreenshot)
+                    ?? WindowCapture.resolve(for: app.pid, titleHint: windowTitle, capture: observation.includeScreenshot)
+            }
         }
         if windowCapture == nil,
            recoveryPolicy == .allowActivation,

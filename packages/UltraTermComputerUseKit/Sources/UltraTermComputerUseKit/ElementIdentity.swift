@@ -37,6 +37,16 @@ struct ElementIdentity: Equatable {
         }
     }
 
+    /// Whether a failed read of one identity attribute means "this control has no such value".
+    /// Some controls list a naming attribute and then answer a generic failure for it every
+    /// time (a text view's description on macOS 27), so that failure is treated as absent for
+    /// the optional naming attributes. The role must always be readable, and an answer that
+    /// says the app or element is gone (cannotComplete, invalidUIElement) is never absent.
+    static func attributeCountsAsAbsent(name: String, error: AXError) -> Bool {
+        if error == .attributeUnsupported || error == .noValue { return true }
+        return error == .failure && name != (kAXRoleAttribute as String)
+    }
+
     /// Read identity without walking or rebinding to a different, same-named control.
     /// Read the current role/subrole before requesting any value, preserving password protection.
     static func read(_ element: AXUIElement) throws -> ElementIdentity? {
@@ -48,7 +58,8 @@ struct ElementIdentity: Equatable {
         for (name, value) in zip(names, list) {
             if CFGetTypeID(value) == AXValueGetTypeID(), AXValueGetType(value as! AXValue) == .axError {
                 var error = AXError.failure
-                guard AXValueGetValue(value as! AXValue, .axError, &error), error == .attributeUnsupported || error == .noValue else { return nil }
+                guard AXValueGetValue(value as! AXValue, .axError, &error),
+                      Self.attributeCountsAsAbsent(name: name, error: error) else { return nil }
             } else if let text = value as? String { read[name] = text }
             else if !(value is NSNull) { return nil }
         }

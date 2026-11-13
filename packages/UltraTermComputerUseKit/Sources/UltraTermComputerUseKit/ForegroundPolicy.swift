@@ -26,8 +26,27 @@ func effectiveSnapshotRecoveryPolicy(
 }
 
 let computerUseBackgroundWindowUnavailableMessage =
-    "The app has no window that can be read in the background (it is hidden, minimized or has no open window). "
-    + "Nothing was changed. Set \(foregroundActivationEnvironmentKey)=1 to let the runtime unhide, unminimize and raise it."
+    "The app has no window that can be read in the background (it is hidden, minimized, has no open window, "
+    + "or did not answer in time). Nothing was changed. Call get_app_state again; if it keeps failing, set "
+    + "\(foregroundActivationEnvironmentKey)=1 to let the runtime unhide, unminimize and raise it."
+
+/// Background reads never activate the app to recover, so one accessibility call that times
+/// out on a busy machine would otherwise be reported as "no window". Read again a few times
+/// first: this only reads, and gives up after about 0.75 s.
+let backgroundReadRetryDelays: [TimeInterval] = [0.1, 0.25, 0.4]
+
+func retryingBackgroundRead<T>(
+    delays: [TimeInterval] = backgroundReadRetryDelays,
+    sleep: (TimeInterval) -> Void = { Thread.sleep(forTimeInterval: $0) },
+    _ read: () -> T?
+) -> T? {
+    if let value = read() { return value }
+    for delay in delays {
+        sleep(delay)
+        if let value = read() { return value }
+    }
+    return nil
+}
 
 /// The message for a snapshot that found no usable window, by what the policy allowed.
 func noWindowFoundMessage(for policy: SnapshotRecoveryPolicy) -> String {

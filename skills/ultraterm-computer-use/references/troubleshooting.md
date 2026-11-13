@@ -47,7 +47,7 @@ Common causes:
 
 Ask the user to bring the target app/window into a visible state when automation cannot do so safely.
 
-On macOS, a hidden app, a minimized window or an app with no open window fails with `The app has no window that can be read in the background`. Nothing was changed. Fix: ask the user to show the window, or, if they agree, set `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1` in the server environment so the runtime may unhide, unminimize and raise it.
+On macOS, a hidden app, a minimized window or an app with no open window fails with `The app has no window that can be read in the background`. Nothing was changed. On a busy machine the app may simply not have answered in time, so call `get_app_state` again first. Fix if it keeps failing: ask the user to show the window, or, if they agree, set `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1` in the server environment so the runtime may unhide, unminimize and raise it.
 
 On Windows, `get_app_state` may intentionally return the accessibility tree without an image when the main window is hidden, minimized, DWM-cloaked, off-screen, or too small to be a trustworthy Computer Use screenshot. Do not synthesize, upscale, or pad an image. Use `element_index` actions when the returned tree is sufficient; screenshot-coordinate click and drag require a later state result that contains a usable image.
 

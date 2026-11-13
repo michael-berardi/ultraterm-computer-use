@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1
+
+Two macOS fixes, both found while recording a real demo against TextEdit.
+
+- `set_value`, `click` and other element actions were refused on a text view with "element no longer has the identity the snapshot showed". The text view lists a description attribute and then fails every read of it, and the identity check treated that failure as "cannot be checked". A failed read of an optional naming attribute now counts as absent. The role must still be readable, and an answer that says the app or element is gone is still a refusal.
+- On a busy machine a single accessibility read could time out and `get_app_state` reported the app as hidden or minimized. Background reads no longer activate the app to recover, so nothing retried. The window lookup is now read again up to three times over about 0.75 seconds before it gives up, and the message says the app may not have answered in time.
+
 ## 0.9.0
 
 The commands and checks that were previously kept in a separate edition are now part of the open-source project, with no licence check, update service or telemetry. They are macOS features except where noted.
