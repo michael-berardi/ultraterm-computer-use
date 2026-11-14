@@ -282,6 +282,19 @@ extension UltraTermComputerUseCallInvocation {
 
 // MARK: - Agent-held state for one-shot calls
 
+/// What the app agent runs for a proxied `cli` request whose arguments parse to `call`.
+/// Every request goes through the agent's one shared service, so separate one-shot CLI
+/// invocations see each other's captured state. Kept here, not in the app target, so a test
+/// can drive two requests through it without a desktop.
+public func runUltraTermComputerUseAgentCall(
+    _ invocation: UltraTermComputerUseCallInvocation,
+    shared: UltraTermComputerUseSharedCallService
+) throws -> UltraTermComputerUseCallResponse {
+    try shared.perform { service in
+        try runUltraTermComputerUseCallCommand(invocation, service: service)
+    }
+}
+
 /// One `ComputerUseService` that outlives a single `call`. The app agent keeps it, so a
 /// `state_id` and the element indexes from one `call get_app_state` are still valid in the
 /// next `call click` without an MCP session. Calls are serialized (the service is not

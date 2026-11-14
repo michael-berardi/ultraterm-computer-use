@@ -1,6 +1,6 @@
 {
   "name": "ultraterm-computer-use",
-  "version": "0.10.0",
+  "version": "0.10.1",
   "description": "Local desktop control for agents, driven by a skill and the ultraterm-computer-use CLI. Works in the background.",
   "author": {
     "name": "UltraTerm Computer Use contributors",

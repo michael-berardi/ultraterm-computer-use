@@ -2,7 +2,7 @@
 
 An agent that uses Computer Use through MCP has the server's tool schemas and instructions in its context for the whole session, used or not. An agent that uses the skill and the CLI has only the skill's one-paragraph description until the task needs it, then the skill body, then the help of the one or two tools it calls.
 
-Measured with `node scripts/measure-context-cost.mjs` (it only runs `tools --json` and `help <tool>`, which are offline) on version 0.10.0, 11 tools (macOS runtime). Tokens are bytes divided by 4, an estimate; the byte counts are exact.
+Measured with `node scripts/measure-context-cost.mjs` (it only runs `tools --json` and `help <tool>`, which are offline) on version 0.10.1, 11 tools (macOS runtime). Tokens are bytes divided by 4, an estimate; the byte counts are exact.
 
 | What is loaded | When | Bytes | About tokens |
 | --- | --- | ---: | ---: |

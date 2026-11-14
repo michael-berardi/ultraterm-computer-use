@@ -122,9 +122,26 @@ public struct PermissionDiagnostics: Sendable {
 
 public enum PermissionSupport {
     public static let bundleDisplayName = "UltraTerm Computer Use"
-    public static let bundleIdentifier = "com.example.ultraterm-computer-use"
+    /// The source default. A release build is stamped with the publisher's own identifier
+    /// (ULTRATERM_COMPUTER_USE_BUNDLE_ID), so the running bundle's Info.plist is the truth:
+    /// comparing against this constant alone rejected every released app bundle, which silently
+    /// disabled the app-agent proxy (no shared state) and the Locked Use identity check.
+    public static let sourceDefaultBundleIdentifier = "com.example.ultraterm-computer-use"
+    public static let bundleIdentifier = canonicalBundleIdentifier(
+        mainBundleIdentifier: Bundle.main.bundleIdentifier,
+        mainBundleVariant: Bundle.main.object(forInfoDictionaryKey: "UltraTermComputerUseAppVariant") as? String
+    )
     public static let developmentBundleDisplayName = "UltraTerm Computer Use (Dev)"
-    public static let developmentBundleIdentifier = "com.example.ultraterm-computer-use.dev"
+    public static let developmentBundleIdentifier = bundleIdentifier + ".dev"
+
+    /// The release identifier for a process: the running bundle's own identifier (minus the
+    /// `.dev` suffix) when it is an UltraTerm Computer Use app bundle, else the source default.
+    public static func canonicalBundleIdentifier(mainBundleIdentifier: String?, mainBundleVariant: String?) -> String {
+        guard mainBundleVariant != nil, let id = mainBundleIdentifier, !id.isEmpty else {
+            return sourceDefaultBundleIdentifier
+        }
+        return id.hasSuffix(".dev") ? String(id.dropLast(4)) : id
+    }
     private static let releaseAppBundleName = "\(bundleDisplayName).app"
     private static let developmentAppBundleName = "\(developmentBundleDisplayName).app"
     private static let appVariantInfoKey = "UltraTermComputerUseAppVariant"

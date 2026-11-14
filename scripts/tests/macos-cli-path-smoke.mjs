@@ -4,6 +4,8 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdtempSync,mkdirSync,writeFileSync,rmSync,existsSync} from 'node:fs';
+import {spawn} from 'node:child_process';
+import {fileURLToPath} from 'node:url';
 import {createConnection} from 'node:net';
 import {tmpdir} from 'node:os';
 import path from 'node:path';
@@ -32,6 +34,31 @@ try {
   assert.ok(missing.stderr.includes(path.join(cwd,'missing.json')),missing.stderr);
   // Resolving paths must not change the caller's or agent's global cwd.
   run(['call','list_apps','--args-file','args 中文.json']);
+  // Cross-invocation state (0.10.1): needs a desktop with the app's grants and builds a
+  // fixture window, so it is gated like the other live smokes (ULTRATERM_COMPUTER_USE_LIVE_SMOKE=1).
+  if(process.env.ULTRATERM_COMPUTER_USE_LIVE_SMOKE==='1') {
+    const fixtureSource=fileURLToPath(new URL('./fixtures/MacOSObservationFixture.swift',import.meta.url));
+    const fixtureBinary=path.join(root,'OCUObservationFixture');
+    const stateFile=path.join(root,'fixture-state.json');
+    const built=spawnSync('swiftc',[fixtureSource,'-o',fixtureBinary],{encoding:'utf8'});
+    assert.equal(built.status,0,built.stderr);
+    const fixture=spawn(fixtureBinary,[stateFile],{stdio:'ignore'});
+    try {
+      for(let i=0;i<200&&!existsSync(stateFile);i++) await new Promise(r=>setTimeout(r,30));
+      assert.ok(existsSync(stateFile),'fixture did not start');
+      const state=run(['get_app_state','--app','OCUObservationFixture','--include-screenshot','false']).stdout;
+      const stateId=(state.match(/State-ID:\s*([0-9a-f]+)/i)||[])[1];
+      const index=(state.match(/^\s*(\d+)\s+[^\n]*Read-back input(?:[\s,]|$)/m)||[])[1];
+      assert.ok(stateId&&index,`no State-ID or input index in:\n${state}`);
+      // A second, separate process must still know the first one's state: its own id is
+      // accepted and a wrong id is refused with status 7 (stale_state).
+      const stale=run(['click','--app','OCUObservationFixture','--element-index',index,'--state-id','00000000'],7);
+      assert.match(stale.stderr,/stale_state/);
+      const fresh=spawnSync(binary,['click','--app','OCUObservationFixture','--element-index',index,'--state-id',stateId],{cwd,env,encoding:'utf8',timeout:30000});
+      assert.doesNotMatch(fresh.stderr,/stale_state/,`state was not shared across invocations:\n${fresh.stderr}`);
+      console.log('Real app-agent CLI: state_id shared across separate invocations.');
+    } finally { fixture.kill(); }
+  }
   console.log('Real app-agent CLI: relative, absolute, parent, Unicode/space paths and missing-file diagnostics passed.');
 } finally {
   if(existsSync(socketPath)) await new Promise(resolve=>{

@@ -757,9 +757,7 @@ private final class AppAgentConnection: @unchecked Sendable {
             case let .call(invocation):
                 // One service for the agent's lifetime (idle-expiring): a state_id and the
                 // element indexes from one `call` stay valid for the next `call`.
-                let response = try appAgentSharedCallService.perform { service in
-                    try runUltraTermComputerUseCallCommand(invocation, service: service)
-                }
+                let response = try runUltraTermComputerUseAgentCall(invocation, shared: appAgentSharedCallService)
                 return CLIProxyResponse(stdout: response.stdout, stderr: response.stderr, exitCode: response.exitCode)
 
             default:

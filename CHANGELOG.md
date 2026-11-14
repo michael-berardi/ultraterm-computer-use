@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.10.1
+
+Fixes 0.10.0, where separate one-shot `call` invocations did not share state in a released build (`click --state-id <id>` after `get_app_state` failed with `stale_state`).
+
+- **Cause.** The source compared the running app bundle's identifier with a built-in placeholder. A released app is stamped with the publisher's own identifier at build time, so the installed app was never recognised: the CLI judged "no app available" and ran every command in its own process instead of through the app agent that holds the shared state. The Locked Use signing-identity check had the same comparison.
+- **Fix.** The canonical identifier now comes from the running bundle's own Info.plist (an UltraTerm Computer Use bundle, release or `.dev`); the placeholder remains the default for source and test runs.
+- **Tests.** Contract tests that every automation invocation (flag syntax, `call`, `--calls`, `query`, `doctor`) takes the proxy decision, that the release identifier follows the bundle, and that two CLI requests through one agent service share a `state_id`. `scripts/tests/macos-cli-path-smoke.mjs` now also asserts cross-invocation state on the observation fixture when `ULTRATERM_COMPUTER_USE_LIVE_SMOKE=1`.
+
 ## 0.10.0
 
 The skill and the CLI are now the documented way to drive Computer Use. The MCP server stays as an optional command (`ultraterm-computer-use mcp`). Changes below are in the macOS runtime; the Linux and Windows `call` is unchanged.

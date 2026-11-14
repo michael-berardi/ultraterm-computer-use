@@ -347,3 +347,81 @@ final class CLICallAgentContractTests: XCTestCase {
         XCTAssertTrue(ultraTermComputerUseHelpText().contains("Optional: start the stdio MCP server"))
     }
 }
+
+// MARK: proxy decision for every real argument vector
+
+final class CLIProxyDecisionContractTests: XCTestCase {
+    private func decision(_ argv: [String]) throws -> Bool {
+        let arguments = normalizedUltraTermComputerUseArguments(argv)
+        return shouldUseMacOSAppAgentProxy(
+            command: try parseUltraTermComputerUseCLI(arguments: arguments),
+            proxyDisabled: false,
+            appBundleAvailable: true,
+            runningFromLaunchServicesAppInstance: false
+        )
+    }
+
+    func testEveryAutomationInvocationTakesTheProxy() throws {
+        for argv in [
+            ["call", "list_apps"],
+            ["list_apps"],
+            ["list-apps"],
+            ["call", "get_app_state", "--app", "X", "--include-screenshot", "false"],
+            ["get_app_state", "--app", "X", "--include-screenshot", "false"],
+            ["click", "--app", "X", "--element-index", "3", "--state-id", "abc"],
+            ["call", "click", "--args", #"{"app":"X"}"#],
+            ["call", "--calls", #"[{"tool":"list_apps","args":{}}]"#],
+            ["query", "--app", "X"],
+            ["snapshot", "X"],
+            ["inspect", "X"],
+            ["targets"],
+            ["doctor", "--json"],
+        ] {
+            XCTAssertTrue(try decision(argv), "\(argv) must be served by the app agent")
+        }
+    }
+}
+
+// MARK: identity and the agent request path
+
+final class CLIAgentRequestPathContractTests: XCTestCase {
+    /// The bug in 0.10.0: a release app bundle carries the publisher's identifier, the source
+    /// compared against its placeholder, so no installed app was ever "available" for the proxy.
+    func testReleaseBundleIdentifierComesFromTheRunningBundle() {
+        XCTAssertEqual(
+            PermissionSupport.canonicalBundleIdentifier(mainBundleIdentifier: "org.acme.computer-use", mainBundleVariant: "release"),
+            "org.acme.computer-use"
+        )
+        XCTAssertEqual(
+            PermissionSupport.canonicalBundleIdentifier(mainBundleIdentifier: "org.acme.computer-use.dev", mainBundleVariant: "dev"),
+            "org.acme.computer-use"
+        )
+        // Not an UltraTerm Computer Use bundle (test runner, other tool): the source default.
+        XCTAssertEqual(
+            PermissionSupport.canonicalBundleIdentifier(mainBundleIdentifier: "com.apple.dt.xctest", mainBundleVariant: nil),
+            PermissionSupport.sourceDefaultBundleIdentifier
+        )
+        XCTAssertEqual(PermissionSupport.developmentBundleIdentifier, PermissionSupport.bundleIdentifier + ".dev")
+    }
+
+    /// Two separate CLI requests (as the agent receives them) on the agent's one service:
+    /// the id captured by the first is accepted by the second, a wrong id is stale.
+    func testTwoCLIRequestsThroughOneAgentShareState() throws {
+        let shared = UltraTermComputerUseSharedCallService()
+        var snapshot = makeContractSnapshot(stateID: "feedc0de")
+        snapshot.observation = SnapshotObservationOptions(includeAX: true, includeScreenshot: false)
+        shared.perform { $0.rememberSnapshot(snapshot, for: "ContractApp") }
+
+        func request(_ argv: [String]) throws -> UltraTermComputerUseCallResponse {
+            let command = try parseUltraTermComputerUseCLI(arguments: normalizedUltraTermComputerUseArguments(argv))
+            guard case let .call(invocation) = command else { throw XCTSkip("not a call") }
+            return try runUltraTermComputerUseAgentCall(invocation, shared: shared)
+        }
+
+        let accepted = try request(["click", "--app", "ContractApp", "--state-id", "feedc0de"])
+        XCTAssertFalse(accepted.stderr.contains("stale_state"), accepted.stderr)
+        let refused = try request(["click", "--app", "ContractApp", "--state-id", "00000000"])
+        XCTAssertTrue(refused.stderr.contains("stale_state"), refused.stderr)
+        XCTAssertEqual(refused.exitCode, 7)
+    }
+}
