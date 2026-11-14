@@ -482,7 +482,16 @@ public func runUltraTermComputerUseCall(
             )
         }
 
-        let result = try externalizedCallResult(
+        if let mediaError = prepareUltraTermComputerUseMediaDirectory(options.mediaDir) {
+            return UltraTermComputerUseCallOutput(
+                jsonObject: ["error": mediaError.asDictionary, "calls_executed": 0],
+                hasToolError: true,
+                errorInfo: mediaError,
+                preflightError: mediaError
+            )
+        }
+
+        let result = externalizedCallResult(
             dispatcher.callValidatedToolAsResult(name: toolName, arguments: arguments, callIndex: nil),
             tool: toolName, arguments: arguments, index: 0, options: options
         )
@@ -508,13 +517,22 @@ public func runUltraTermComputerUseCall(
             )
         }
 
+        if let mediaError = prepareUltraTermComputerUseMediaDirectory(options.mediaDir) {
+            return UltraTermComputerUseCallOutput(
+                jsonObject: ["error": mediaError.asDictionary, "calls_executed": 0],
+                hasToolError: true,
+                errorInfo: mediaError,
+                preflightError: mediaError
+            )
+        }
+
         var steps: [UltraTermComputerUseCallStep] = []
         var outputs: [[String: Any]] = []
         var hasToolError = false
         var firstErrorInfo: ComputerUseErrorInfo?
 
         for (index, call) in calls.enumerated() {
-            let result = try externalizedCallResult(
+            let result = externalizedCallResult(
                 dispatcher.callValidatedToolAsResult(name: call.tool, arguments: call.arguments, callIndex: index),
                 tool: call.tool, arguments: call.arguments, index: index, options: options
             )
@@ -545,19 +563,54 @@ public func runUltraTermComputerUseCall(
     }
 }
 
+/// `--media-dir` is created and checked before the first call runs, so an unusable folder is a
+/// usage error (exit 2) and no action has happened yet. Returns nil when there is nothing to fix.
+func prepareUltraTermComputerUseMediaDirectory(
+    _ mediaDir: String?,
+    fileManager: FileManager = .default
+) -> ComputerUseErrorInfo? {
+    guard let mediaDir else { return nil }
+    do {
+        try fileManager.createDirectory(atPath: mediaDir, withIntermediateDirectories: true)
+        guard fileManager.isWritableFile(atPath: mediaDir) else {
+            throw CocoaError(.fileWriteNoPermission)
+        }
+        return nil
+    } catch {
+        return ComputerUseErrorInfo(
+            code: "usage",
+            phase: .preflight,
+            retryable: false,
+            hint: "Pass a --media-dir this user can write to. No call was run.",
+            message: "--media-dir \(mediaDir) cannot be used: \(error.localizedDescription)"
+        )
+    }
+}
+
 /// With `--media-dir`, screenshots are written to files and the result carries `image_path`
 /// items instead of base64. File names are unique per call so nothing is overwritten.
-private func externalizedCallResult(
+/// The action has already run when this is called, so a failed write never discards the result
+/// (and its new state_id): the result is kept with an `image not saved: <reason>` line.
+func externalizedCallResult(
     _ result: ToolCallResult,
     tool: String,
     arguments: [String: Any],
     index: Int,
     options: UltraTermComputerUseCallOptions
-) throws -> ToolCallResult {
+) -> ToolCallResult {
     guard let mediaDir = options.mediaDir else { return result }
     let app = (arguments["app"] as? String) ?? "app"
     let stamp = Int(Date().timeIntervalSince1970 * 1000)
-    return try externalizeToolResultImages(result, mediaDir: mediaDir, stem: "\(app)-\(tool)-\(stamp)-\(index + 1)")
+    do {
+        return try externalizeToolResultImages(result, mediaDir: mediaDir, stem: "\(app)-\(tool)-\(stamp)-\(index + 1)")
+    } catch {
+        return ToolCallResult(
+            content: result.content + [.text("image not saved: \(error.localizedDescription)")],
+            isError: result.isError,
+            errorInfo: result.errorInfo,
+            stateID: result.stateID
+        )
+    }
 }
 
 public func readUltraTermComputerUseToolArguments(

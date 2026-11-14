@@ -1,6 +1,7 @@
 import ApplicationServices
 import AppKit
 import Foundation
+import LockedUseNative
 import SQLite3
 
 public enum SystemPermissionKind: String, CaseIterable, Sendable {
@@ -122,26 +123,24 @@ public struct PermissionDiagnostics: Sendable {
 
 public enum PermissionSupport {
     public static let bundleDisplayName = "UltraTerm Computer Use"
-    /// The source default. A release build is stamped with the publisher's own identifier
-    /// (ULTRATERM_COMPUTER_USE_BUNDLE_ID), so the running bundle's Info.plist is the truth:
-    /// comparing against this constant alone rejected every released app bundle, which silently
-    /// disabled the app-agent proxy (no shared state) and the Locked Use identity check.
+    /// The publisher's bundle identifier. A release build stamps it in
+    /// (ULTRATERM_COMPUTER_USE_BUNDLE_ID, one value linked into the app, the CLI and the Locked
+    /// Use installer and broker); a source build keeps the placeholder. No process derives it from
+    /// the bundle it runs in: the installer is a bare binary with no bundle of its own, and a
+    /// re-signed copy would otherwise vouch for itself.
     public static let sourceDefaultBundleIdentifier = "com.example.ultraterm-computer-use"
-    public static let bundleIdentifier = canonicalBundleIdentifier(
-        mainBundleIdentifier: Bundle.main.bundleIdentifier,
-        mainBundleVariant: Bundle.main.object(forInfoDictionaryKey: "UltraTermComputerUseAppVariant") as? String
-    )
+    public static let bundleIdentifier = String(cString: ocu_publisher_bundle_identifier())
     public static let developmentBundleDisplayName = "UltraTerm Computer Use (Dev)"
     public static let developmentBundleIdentifier = bundleIdentifier + ".dev"
 
-    /// The release identifier for a process: the running bundle's own identifier (minus the
-    /// `.dev` suffix) when it is an UltraTerm Computer Use app bundle, else the source default.
-    public static func canonicalBundleIdentifier(mainBundleIdentifier: String?, mainBundleVariant: String?) -> String {
-        guard mainBundleVariant != nil, let id = mainBundleIdentifier, !id.isEmpty else {
-            return sourceDefaultBundleIdentifier
-        }
-        return id.hasSuffix(".dev") ? String(id.dropLast(4)) : id
+    /// True when `identifier` names this publisher's release or development app bundle.
+    public static func isPublisherAppIdentifier(
+        _ identifier: String?,
+        publisher: String = bundleIdentifier
+    ) -> Bool {
+        identifier == publisher || identifier == publisher + ".dev"
     }
+
     private static let releaseAppBundleName = "\(bundleDisplayName).app"
     private static let developmentAppBundleName = "\(developmentBundleDisplayName).app"
     private static let appVariantInfoKey = "UltraTermComputerUseAppVariant"
@@ -155,7 +154,7 @@ public enum PermissionSupport {
     }
 
     public static func isUltraTermComputerUseBundleIdentifier(_ bundleIdentifier: String?) -> Bool {
-        bundleIdentifier == Self.bundleIdentifier || bundleIdentifier == developmentBundleIdentifier
+        isPublisherAppIdentifier(bundleIdentifier)
     }
 
     public static func currentAppBundleURL() -> URL? {
@@ -462,7 +461,7 @@ public enum PermissionSupport {
         return bundleURL.lastPathComponent == developmentAppBundleName
     }
 
-    private static func isValidAppBundle(
+    static func isValidAppBundle(
         _ bundleURL: URL,
         acceptedBundleIdentifiers: Set<String> = [bundleIdentifier]
     ) -> Bool {

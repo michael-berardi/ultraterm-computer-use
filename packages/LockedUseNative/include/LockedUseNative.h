@@ -20,4 +20,8 @@ int ocu_remove_extended_acl(int file_fd);
 /* SCM_RIGHTS transfers a connected endpoint for kernel peer verification only. */
 int ocu_send_peer_socket(int channel_fd, int peer_fd);
 int ocu_receive_peer_socket(int channel_fd);
+/* The publisher's bundle identifier, stamped into the build (build flag
+ * -DOCU_PUBLISHER_BUNDLE_ID="..."). Every binary of one build (app, CLI, installer, broker)
+ * links this one value, so none of them derives it from the bundle it happens to run in. */
+const char *ocu_publisher_bundle_identifier(void);
 #endif

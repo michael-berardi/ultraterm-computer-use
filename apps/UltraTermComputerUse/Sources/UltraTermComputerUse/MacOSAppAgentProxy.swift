@@ -194,9 +194,12 @@ enum MacOSAppAgentProxy {
     }
 
     private static func sendCLIRequest(arguments: [String], client: AppAgentSocketClient) throws -> CLIProxyResponse {
+        let resolved = resolvingUltraTermComputerUseCallFilePaths(arguments)
+        // Bounded: a hung agent ends in a named error (exit 1) instead of a CLI that waits forever.
+        client.setControlTimeout(seconds: ultraTermComputerUseAgentReplyTimeout(arguments: resolved))
         let response = try client.request([
             "kind": "cli",
-            "arguments": resolvingUltraTermComputerUseCallFilePaths(arguments),
+            "arguments": resolved,
             "environment": proxiedEnvironment(),
         ])
 
@@ -355,11 +358,7 @@ private final class AppAgentSocketListener: @unchecked Sendable {
             }
         }
 
-        let bindResult = withUnsafePointer(to: &address) { pointer in
-            pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
-                bind(socketFD, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
-            }
-        }
+        let bindResult = appAgentBindPrivateSocket(fd: socketFD, address: address)
         guard bindResult == 0 else {
             close(socketFD)
             throw POSIXError(.init(rawValue: errno) ?? .EIO)
@@ -461,6 +460,12 @@ private final class AppAgentSocketListener: @unchecked Sendable {
                 if running {
                     Thread.sleep(forTimeInterval: 0.05)
                 }
+                continue
+            }
+
+            guard appAgentPeerIsCurrentUser(fd: clientFD) else {
+                appAgentLog("refused a connection from another user")
+                close(clientFD)
                 continue
             }
 
@@ -811,9 +816,12 @@ private final class AppAgentSocketClient: @unchecked Sendable {
         channel = LineDelimitedSocketChannel(fileDescriptor: fileDescriptor)
     }
 
-    /// Bound control requests (agentInfo, terminate) so a wedged agent cannot
-    /// hang the launcher; 0 restores blocking reads for MCP/CLI traffic.
+    private var controlTimeoutSeconds = 0
+
+    /// Bound control requests (agentInfo, terminate) and CLI replies so a wedged agent cannot
+    /// hang the caller; 0 restores blocking reads for MCP traffic.
     func setControlTimeout(seconds: Int) {
+        controlTimeoutSeconds = seconds
         var timeout = timeval(tv_sec: seconds, tv_usec: 0)
         let size = socklen_t(MemoryLayout<timeval>.size)
         setsockopt(channel.fileDescriptor, SOL_SOCKET, SO_RCVTIMEO, &timeout, size)
@@ -877,6 +885,9 @@ private final class AppAgentSocketClient: @unchecked Sendable {
         guard let responseLine = channel.readLine(),
               let response = try JSONSerialization.jsonObject(with: Data(responseLine.utf8)) as? [String: Any]
         else {
+            if channel.lastReadTimedOut {
+                throw ComputerUseError.message("agent did not answer within \(controlTimeoutSeconds) s: UltraTerm Computer Use.app is not responding. Quit it and retry.")
+            }
             throw ComputerUseError.message("UltraTerm Computer Use.app agent closed the connection.")
         }
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.10.2
+
+Fixes found in review of 0.10.0 and 0.10.1.
+
+- **Locked Use installs from a release build.** The installer is a bare binary with no bundle of its own, so it still compared the staged app against the placeholder identifier and refused every release app. The publisher's bundle identifier is now stamped into the build as one value that the app, the CLI and the installer all link, and the app, the installer and the identity check read that value instead of each process's own Info.plist. A release identifier that ends in `.dev` is no longer cut short, and the signing-identity check pins that identifier again.
+- **`--media-dir` never loses a result.** The folder is created and checked before the first call runs; an unusable one is a usage error (exit 2) with nothing executed. If a write fails after the action ran, the result and its new `state_id` are kept with an `image not saved: <reason>` line.
+- **Relative paths resolve after parsing.** `--args-file`, `--calls-file` and `--media-dir` are made absolute from the tokens the parser took as their values, so a tool flag whose value looks like one of those options (typed text `--media-dir`) is no longer misread or rewritten.
+- **A hung agent no longer hangs the CLI.** Proxied commands wait at most 120 s per call plus the `--sleep` pauses; then they exit 1 with `agent did not answer within N s`.
+- **Agent socket.** Created owner-only by `bind` itself (no window before a later `chmod`), and a connection from another user is refused.
+- **Tests.** A temporary `.app` with a non-placeholder identifier and the variant key through the real validity check, the installer's client check, the stamped value compiled with the build flags, and tests for each fix above.
+
 ## 0.10.1
 
 Fixes 0.10.0, where separate one-shot `call` invocations did not share state in a released build (`click --state-id <id>` after `get_app_state` failed with `stale_state`).

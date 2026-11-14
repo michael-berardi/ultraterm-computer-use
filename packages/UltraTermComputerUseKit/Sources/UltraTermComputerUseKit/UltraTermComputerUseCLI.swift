@@ -58,30 +58,26 @@ public func shouldUseMacOSAppAgentProxy(
 }
 
 /// The app agent is launched through LaunchServices and does not share the
-/// caller's working directory, so relative `--args-file` / `--calls-file`
-/// paths are resolved here before the arguments are proxied.
+/// caller's working directory, so relative `--args-file` / `--calls-file` /
+/// `--media-dir` paths are resolved here before the arguments are proxied.
+/// The call is parsed first and only the tokens the parser took as those options' values are
+/// rewritten, so a tool flag whose value looks like one of them (`--text --media-dir`) is left alone.
 public func resolvingUltraTermComputerUseCallFilePaths(
     _ arguments: [String],
     currentDirectory: String = FileManager.default.currentDirectoryPath
 ) -> [String] {
     guard arguments.first == "call" else { return arguments }
+    var valueIndices: [Int] = []
+    // A call that does not parse is reported by the agent with the same error.
+    guard (try? parseCall(arguments: Array(arguments.dropFirst()), onPathValue: { valueIndices.append($0 + 1) })) != nil else {
+        return arguments
+    }
     var resolved = arguments
-    var index = 1
-    while index < arguments.count {
-        let option = arguments[index]
-        if ["--args-file", "--calls-file", "--media-dir", "--args", "--calls", "--sleep"].contains(option) {
-            guard index + 1 < arguments.count else { break }
-            if option == "--args-file" || option == "--calls-file" || option == "--media-dir" {
-                resolved[index + 1] = URL(
-                    fileURLWithPath: arguments[index + 1],
-                    relativeTo: URL(fileURLWithPath: currentDirectory, isDirectory: true)
-                ).path
-            }
-            // Values are opaque, even when they happen to look like another option.
-            index += 2
-        } else {
-            index += 1
-        }
+    for index in valueIndices {
+        resolved[index] = URL(
+            fileURLWithPath: arguments[index],
+            relativeTo: URL(fileURLWithPath: currentDirectory, isDirectory: true)
+        ).path
     }
     return resolved
 }
@@ -884,7 +880,10 @@ private func parsePositiveIntegerOption(_ value: String, option: String) throws 
     return integer
 }
 
-private func parseCall(arguments: [String]) throws -> UltraTermComputerUseCLICommand {
+private func parseCall(
+    arguments: [String],
+    onPathValue: ((Int) -> Void)? = nil
+) throws -> UltraTermComputerUseCLICommand {
     if arguments.count == 1, let option = arguments.first, option == "-h" || option == "--help" {
         return .help(command: "call")
     }
@@ -913,16 +912,19 @@ private func parseCall(arguments: [String]) throws -> UltraTermComputerUseCLICom
             argumentsJSON = try parseOptionValue("--args", arguments: arguments, index: &index)
         case "--args-file":
             argumentsFile = try parseOptionValue("--args-file", arguments: arguments, index: &index)
+            onPathValue?(index)
         case "--calls":
             callsJSON = try parseOptionValue("--calls", arguments: arguments, index: &index)
         case "--calls-file":
             callsFile = try parseOptionValue("--calls-file", arguments: arguments, index: &index)
+            onPathValue?(index)
         case "--sleep":
             interCallDelay = try parseTimeIntervalOptionValue("--sleep", arguments: arguments, index: &index)
         case "--json":
             options.json = true
         case "--media-dir":
             options.mediaDir = try parseOptionValue("--media-dir", arguments: arguments, index: &index)
+            onPathValue?(index)
         case "-h", "--help":
             if let toolName, ToolSchemaValidator.isKnownTool(toolName) {
                 return .help(command: toolName)

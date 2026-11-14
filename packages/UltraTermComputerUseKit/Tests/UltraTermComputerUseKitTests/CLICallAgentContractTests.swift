@@ -1,5 +1,6 @@
 import XCTest
 @testable import UltraTermComputerUseKit
+import LockedUseNative
 
 /// The agent-facing `call` surface: direct tool commands, schema-driven flags, per-tool help,
 /// compact output, stable exit codes, and state shared between one-shot calls. No desktop,
@@ -387,21 +388,84 @@ final class CLIProxyDecisionContractTests: XCTestCase {
 final class CLIAgentRequestPathContractTests: XCTestCase {
     /// The bug in 0.10.0: a release app bundle carries the publisher's identifier, the source
     /// compared against its placeholder, so no installed app was ever "available" for the proxy.
-    func testReleaseBundleIdentifierComesFromTheRunningBundle() {
-        XCTAssertEqual(
-            PermissionSupport.canonicalBundleIdentifier(mainBundleIdentifier: "org.acme.computer-use", mainBundleVariant: "release"),
-            "org.acme.computer-use"
-        )
-        XCTAssertEqual(
-            PermissionSupport.canonicalBundleIdentifier(mainBundleIdentifier: "org.acme.computer-use.dev", mainBundleVariant: "dev"),
-            "org.acme.computer-use"
-        )
-        // Not an UltraTerm Computer Use bundle (test runner, other tool): the source default.
-        XCTAssertEqual(
-            PermissionSupport.canonicalBundleIdentifier(mainBundleIdentifier: "com.apple.dt.xctest", mainBundleVariant: nil),
-            PermissionSupport.sourceDefaultBundleIdentifier
-        )
+    /// The publisher identifier is one stamped value, not something each process derives.
+    func testPublisherIdentifierIsTheOneStampedValue() {
+        XCTAssertEqual(PermissionSupport.bundleIdentifier, String(cString: ocu_publisher_bundle_identifier()))
         XCTAssertEqual(PermissionSupport.developmentBundleIdentifier, PermissionSupport.bundleIdentifier + ".dev")
+        XCTAssertTrue(PermissionSupport.isPublisherAppIdentifier(PermissionSupport.bundleIdentifier))
+        XCTAssertTrue(PermissionSupport.isPublisherAppIdentifier(PermissionSupport.developmentBundleIdentifier))
+        XCTAssertFalse(PermissionSupport.isPublisherAppIdentifier("com.apple.dt.xctest"))
+        XCTAssertFalse(PermissionSupport.isPublisherAppIdentifier(nil))
+    }
+
+    /// A release identifier that itself ends in `.dev` is not cut short, and a re-signed copy
+    /// with another identifier is not accepted just because it carries the variant key.
+    func testPublisherCheckPinsTheStampedIdentifier() {
+        let publisher = "org.acme.computer-use"
+        XCTAssertTrue(PermissionSupport.isPublisherAppIdentifier(publisher, publisher: publisher))
+        XCTAssertTrue(PermissionSupport.isPublisherAppIdentifier(publisher + ".dev", publisher: publisher))
+        XCTAssertFalse(PermissionSupport.isPublisherAppIdentifier("org.acme.other", publisher: publisher))
+        XCTAssertFalse(PermissionSupport.isPublisherAppIdentifier(PermissionSupport.sourceDefaultBundleIdentifier, publisher: publisher))
+        let endingInDev = "org.acme.tool.dev"
+        XCTAssertTrue(PermissionSupport.isPublisherAppIdentifier(endingInDev, publisher: endingInDev))
+        XCTAssertTrue(PermissionSupport.isPublisherAppIdentifier(endingInDev + ".dev", publisher: endingInDev))
+        XCTAssertFalse(PermissionSupport.isPublisherAppIdentifier("org.acme.tool", publisher: endingInDev))
+    }
+
+    private func makeTemporaryApp(identifier: String, variant: String) throws -> (root: URL, app: URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let app = root.appendingPathComponent("UltraTerm Computer Use.app")
+        let macOS = app.appendingPathComponent("Contents/MacOS")
+        try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+        FileManager.default.createFile(atPath: macOS.appendingPathComponent("tool").path, contents: Data("#!/bin/sh\n".utf8))
+        let plist: [String: Any] = [
+            "CFBundleIdentifier": identifier,
+            "CFBundleExecutable": "tool",
+            "UltraTermComputerUseAppVariant": variant,
+        ]
+        try PropertyListSerialization.data(fromPropertyList: plist, format: .xml, options: 0)
+            .write(to: app.appendingPathComponent("Contents/Info.plist"))
+        return (root, app)
+    }
+
+    /// The 0.10.0 defect through the real validity check: an app bundle with the publisher's own
+    /// identifier and the variant key is valid for the stamped publisher, and only for it.
+    func testReleaseAppBundleWithPublisherIdentifierIsValid() throws {
+        let publisher = "org.acme.computer-use"
+        let release = try makeTemporaryApp(identifier: publisher, variant: "release")
+        let development = try makeTemporaryApp(identifier: publisher + ".dev", variant: "dev")
+        defer {
+            try? FileManager.default.removeItem(at: release.root)
+            try? FileManager.default.removeItem(at: development.root)
+        }
+        let accepted: Set = [publisher, publisher + ".dev"]
+        XCTAssertTrue(PermissionSupport.isValidAppBundle(release.app, acceptedBundleIdentifiers: accepted))
+        XCTAssertTrue(PermissionSupport.isValidAppBundle(development.app, acceptedBundleIdentifiers: accepted))
+        XCTAssertEqual(
+            PermissionSupport.preferredPermissionAppBundleURL(
+                preferredInstalledBundleURL: PermissionSupport.isValidAppBundle(release.app, acceptedBundleIdentifiers: accepted) ? release.app : nil,
+                runningBundleURL: nil,
+                fallbackDevelopmentBundleURL: nil
+            ),
+            release.app
+        )
+        // Another publisher's identifier (or the placeholder a missing stamp leaves) is refused.
+        XCTAssertFalse(PermissionSupport.isValidAppBundle(release.app, acceptedBundleIdentifiers: ["org.other.app"]))
+        XCTAssertFalse(PermissionSupport.isValidAppBundle(release.app, acceptedBundleIdentifiers: [PermissionSupport.sourceDefaultBundleIdentifier]))
+    }
+
+    /// The Locked Use installer's client check, the one that failed for every release build:
+    /// it reads the staged Client.app's identifier and compares it with the stamped publisher.
+    func testInstallerAcceptsOnlyTheStampedPublisherClient() throws {
+        let publisher = "org.acme.computer-use"
+        let release = try makeTemporaryApp(identifier: publisher, variant: "release")
+        let foreign = try makeTemporaryApp(identifier: "org.other.app", variant: "release")
+        defer {
+            try? FileManager.default.removeItem(at: release.root)
+            try? FileManager.default.removeItem(at: foreign.root)
+        }
+        XCTAssertTrue(PermissionSupport.isPublisherAppIdentifier(Bundle(url: release.app)?.bundleIdentifier, publisher: publisher))
+        XCTAssertFalse(PermissionSupport.isPublisherAppIdentifier(Bundle(url: foreign.app)?.bundleIdentifier, publisher: publisher))
     }
 
     /// Two separate CLI requests (as the agent receives them) on the agent's one service:

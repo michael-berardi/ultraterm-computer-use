@@ -8,7 +8,7 @@ import test from 'node:test';
 const repo=path.resolve(path.dirname(fileURLToPath(import.meta.url)),'../..');
 function sandbox(t) {
   const root=mkdtempSync(path.join(tmpdir(),'ocu-variant-'));t.after(()=>rmSync(root,{recursive:true,force:true}));
-  for(const file of ['scripts/build-ultraterm-computer-use-app.sh','scripts/release-package.sh','scripts/install-codex-plugin.sh','scripts/npm/build-packages.mjs']){
+  for(const file of ['scripts/build-ultraterm-computer-use-app.sh','scripts/publisher-identity.sh','scripts/release-package.sh','scripts/install-codex-plugin.sh','scripts/npm/build-packages.mjs']){
     const target=path.join(root,file);mkdirSync(path.dirname(target),{recursive:true});copyFileSync(path.join(repo,file),target);
   }
   const marker=path.join(root,'dist/release/keep');mkdirSync(path.dirname(marker),{recursive:true});writeFileSync(marker,'existing release');

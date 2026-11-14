@@ -338,3 +338,22 @@ public final class UltraTermComputerUseSharedCallService: @unchecked Sendable {
         lock.unlock()
     }
 }
+
+// MARK: - Bounded wait for the agent
+
+/// The longest one tool call may take before the CLI stops waiting for the app agent. A hung
+/// agent (a stuck accessibility read) must end in a named error, not a CLI that never returns.
+public let ultraTermComputerUseAgentCallLimit: TimeInterval = 120
+
+/// Whole seconds the CLI waits for the agent's reply to `arguments`: the limit for each call
+/// plus the `--sleep` pauses between the calls of a sequence.
+public func ultraTermComputerUseAgentReplyTimeout(arguments: [String]) -> Int {
+    var callCount = 1
+    var pauses: TimeInterval = 0
+    if case let .call(.sequence(callsJSON, callsFile, interCallDelay, _))? = try? parseUltraTermComputerUseCLI(arguments: arguments),
+       let calls = try? readUltraTermComputerUseCallSequence(json: callsJSON, file: callsFile) {
+        callCount = max(calls.count, 1)
+        pauses = interCallDelay * Double(callCount - 1)
+    }
+    return Int((ultraTermComputerUseAgentCallLimit * Double(callCount) + pauses).rounded(.up))
+}

@@ -12,6 +12,9 @@ public final class LineDelimitedSocketChannel {
     private let readChunkSize: Int
     private let maxBufferedBytes: Int
     private var pending = Data()
+    /// True when the last `readLine` returned nil because a receive timeout (SO_RCVTIMEO)
+    /// expired, not because the peer closed the stream.
+    public private(set) var lastReadTimedOut = false
 
     public init(
         fileDescriptor: Int32,
@@ -32,6 +35,7 @@ public final class LineDelimitedSocketChannel {
     /// exhausted (also on read errors, invalid UTF-8, or when a single line
     /// grows past `maxBufferedBytes` — callers should drop such a connection).
     public func readLine() -> String? {
+        lastReadTimedOut = false
         while true {
             if let newlineIndex = pending.firstIndex(of: 0x0A) {
                 let lineData = pending.subdata(in: pending.startIndex..<newlineIndex)
@@ -59,6 +63,11 @@ public final class LineDelimitedSocketChannel {
 
             if bytesRead < 0, errno == EINTR {
                 continue
+            }
+
+            if bytesRead < 0, errno == EAGAIN || errno == EWOULDBLOCK {
+                lastReadTimedOut = true
+                return nil
             }
 
             // EOF (0) or hard read error: flush any buffered partial line.

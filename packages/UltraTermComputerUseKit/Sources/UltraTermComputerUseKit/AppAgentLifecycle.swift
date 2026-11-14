@@ -223,3 +223,25 @@ public func appAgentSocketPath(
         : "ultraterm-computer-use-agent.sock"
     return temporaryDirectory.appendingPathComponent(name).standardizedFileURL.path
 }
+
+/// Binds `fd` to `address` under a 0177 umask, so the socket file is created owner-only. There is
+/// no moment between bind and a later chmod when another local user could connect. Returns the
+/// `bind` result (0 on success, -1 with `errno` set).
+public func appAgentBindPrivateSocket(fd: Int32, address: sockaddr_un) -> Int32 {
+    let previous = umask(0o177)
+    defer { umask(previous) }
+    var address = address
+    return withUnsafePointer(to: &address) { pointer in
+        pointer.withMemoryRebound(to: sockaddr.self, capacity: 1) {
+            bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size))
+        }
+    }
+}
+
+/// True when the process on the other end of the connected socket `fd` runs as this user. The
+/// socket's mode and its per-user folder already keep other users out; this refuses them anyway.
+public func appAgentPeerIsCurrentUser(fd: Int32) -> Bool {
+    var uid: uid_t = 0
+    var gid: gid_t = 0
+    return getpeereid(fd, &uid, &gid) == 0 && uid == geteuid()
+}

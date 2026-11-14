@@ -56,7 +56,7 @@ enum LockedUseSettings {
     private static func enable(recovering: Bool = false) throws {
         guard LockedUseSession.current().state == .unlocked else { throw UltraTermComputerUseCLIError(message: "Unlock the Mac normally before administrator installation or recovery.") }
         let identity = try LockedUseSigningIdentity.current()
-        guard identity.userID > 0, [PermissionSupport.bundleIdentifier, PermissionSupport.developmentBundleIdentifier].contains(identity.signingIdentifier),
+        guard identity.userID > 0, PermissionSupport.isPublisherAppIdentifier(identity.signingIdentifier),
               let team = identity.teamIdentifier else { throw UltraTermComputerUseCLIError(message: "Use the signed UltraTerm Computer Use app to enable Locked Use.") }
         let source = Bundle.main.bundleURL.appendingPathComponent("Contents/Resources/LockedUse")
         guard FileManager.default.fileExists(atPath: source.appendingPathComponent("OCULockInstaller").path) else {

@@ -3,6 +3,7 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "${repo_root}/scripts/publisher-identity.sh"
 configuration="debug"
 arch_mode="native"
 codesign_mode="${ULTRATERM_COMPUTER_USE_CODESIGN_MODE:-auto}"
@@ -114,8 +115,8 @@ build_binary() {
   fi
 
   local binary_dir
-  binary_dir="$(swift build "${args[@]}" --show-bin-path)"
-  swift build "${args[@]}" --product UltraTermComputerUse >&2
+  binary_dir="$(swift build "${args[@]}" ${publisher_build_flags[@]+"${publisher_build_flags[@]}"} --show-bin-path)"
+  swift build "${args[@]}" ${publisher_build_flags[@]+"${publisher_build_flags[@]}"} --product UltraTermComputerUse >&2
   printf '%s/UltraTermComputerUse\n' "${binary_dir}"
 }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Shared build helpers. Callers define repo_root, configuration and arch_mode.
+source "${repo_root}/scripts/publisher-identity.sh"
 locked_use_architectures() {
   case "$arch_mode" in
     native) architectures=("$(uname -m)") ;;
@@ -17,8 +18,8 @@ locked_use_build_product() {
     if [[ "$arch_mode" != native ]]; then
       args+=(--triple "${arch}-apple-macosx14.0" --scratch-path ".build/${arch}-${configuration}")
     fi
-    swift build "${args[@]}" --product "$product"
-    binary_dir="$(swift build "${args[@]}" --show-bin-path)"
+    swift build "${args[@]}" ${publisher_build_flags[@]+"${publisher_build_flags[@]}"} --product "$product"
+    binary_dir="$(swift build "${args[@]}" ${publisher_build_flags[@]+"${publisher_build_flags[@]}"} --show-bin-path)"
     binaries+=("$binary_dir/$product")
   done
   if [[ "${#binaries[@]}" == 1 ]]; then

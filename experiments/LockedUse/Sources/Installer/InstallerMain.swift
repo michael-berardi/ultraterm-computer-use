@@ -201,7 +201,7 @@ struct InstallerMain {
         _ = try verify(source.appendingPathComponent(pluginName), id: "dev.ultratermcomputeruse.locked-use.authorization", team: team)
         let client = source.appendingPathComponent("Client.app")
         guard let identifier = Bundle(url: client)?.bundleIdentifier,
-              [PermissionSupport.bundleIdentifier, PermissionSupport.developmentBundleIdentifier].contains(identifier) else { throw InstallError.untrusted }
+              PermissionSupport.isPublisherAppIdentifier(identifier) else { throw InstallError.untrusted }
         _ = try verify(client, id: identifier, team: team)
         guard !FileManager.default.fileExists(atPath: root.path), !FileManager.default.fileExists(atPath: plugin.path),
               !FileManager.default.fileExists(atPath: daemon.path),
