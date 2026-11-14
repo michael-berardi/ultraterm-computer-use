@@ -186,7 +186,7 @@ try {
   assert.equal(js.isError,false,text(js));
   await expectView('JS world');
   await reset();
-  const cli = spawnSync(nativePath,['call','type_text','--args',JSON.stringify({app:appName,text:'CLI'})],{env,encoding:'utf8',timeout:15000});
+  const cli = spawnSync(nativePath,['call','type_text','--json','--args',JSON.stringify({app:appName,text:'CLI'})],{env,encoding:'utf8',timeout:15000});
   assert.equal(cli.status,0,cli.stderr);
   assert.equal(!!JSON.parse(cli.stdout).isError,false,cli.stdout);
   await expectView('CLI world');

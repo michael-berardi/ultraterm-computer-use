@@ -10,6 +10,8 @@ private let appAgentDisableEnvironmentKey = "ULTRATERM_COMPUTER_USE_DISABLE_APP_
 private let appAgentProcessStartDate = Date(
     timeIntervalSince1970: AppAgentProcess.startTime(getpid()) ?? Date().timeIntervalSince1970
 )
+/// State shared by the agent's one-shot `call` requests (see UltraTermComputerUseSharedCallService).
+private let appAgentSharedCallService = UltraTermComputerUseSharedCallService()
 private let appAgentBuildIdentifier = Bundle.main.object(forInfoDictionaryKey: "UltraTermComputerUseBuildIdentifier") as? String ?? ""
 
 enum MacOSAppAgentProxy {
@@ -753,14 +755,12 @@ private final class AppAgentConnection: @unchecked Sendable {
                 return CLIProxyResponse(stdout: text + "\n", stderr: "", exitCode: EXIT_SUCCESS)
 
             case let .call(invocation):
-                let output = try runUltraTermComputerUseCall(invocation)
-                return CLIProxyResponse(
-                    stdout: try output.jsonText() + "\n",
-                    stderr: "",
-                    exitCode: output.hasToolError
-                        ? (output.errorInfo.map { ultraTermComputerUseExitStatus(forStructuredCode: $0.code).rawValue } ?? EXIT_FAILURE)
-                        : EXIT_SUCCESS
-                )
+                // One service for the agent's lifetime (idle-expiring): a state_id and the
+                // element indexes from one `call` stay valid for the next `call`.
+                let response = try appAgentSharedCallService.perform { service in
+                    try runUltraTermComputerUseCallCommand(invocation, service: service)
+                }
+                return CLIProxyResponse(stdout: response.stdout, stderr: response.stderr, exitCode: response.exitCode)
 
             default:
                 return CLIProxyResponse(stdout: "", stderr: "Unsupported proxied command.\n", exitCode: EXIT_FAILURE)

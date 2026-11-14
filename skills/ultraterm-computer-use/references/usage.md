@@ -2,130 +2,29 @@
 
 Read this reference when the task requires direct Computer Use tool calls, MCP configuration, or platform-specific behavior.
 
-## MCP Server
+## CLI tool calls (the default route)
 
-For MCP clients that support stdio servers:
-
-```toml
-[mcp_servers.ultraterm_computer_use]
-command = "ultraterm-computer-use"
-args = ["mcp"]
-```
-
-Equivalent JSON shape:
-
-```json
-{
-  "mcpServers": {
-    "ultraterm-computer-use": {
-      "command": "ultraterm-computer-use",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-The MCP server exposes:
-
-```text
-list_apps
-get_app_state
-click
-perform_secondary_action
-scroll
-drag
-type_text
-press_key
-set_value
-select_text   (macOS runtime only)
-```
-
-macOS also exposes `query` for targeted AX lookup. These nine core tools remain the cross-platform compatibility surface. The bundled Codex plugin uses a
-code-first adapter instead and advertises only `js` and `js_reset`. In that
-surface, bind an app and compose actions with asynchronous JavaScript:
-
-```js
-var app = await cua.getApp("TextEdit");
-await app.typeText("Hello");
-await app.getAXState();
-```
-
-### Selective observation (opt-in)
-
-The native `get_app_state` tool on macOS, Windows and Linux accepts `include_ax` and
-`include_screenshot`. Both default to `true`; at least one must remain true.
-The REPL forwards the corresponding optional `includeAX` / `includeScreenshot`
-booleans:
-
-```js
-var editor = await cua.getApp("gedit", { initialState: false });
-await editor.getScreenshot({ includeAX: false }); // no AX, focus or selection walk
-await editor.click([100, 100]);                   // window-relative coordinates
-await editor.getAXState({ includeScreenshot: false }); // no capture or PNG encoding
-// Use newly observed element indexes only after inspecting the AX result.
-```
-
-Screenshot-only observation invalidates prior element indexes and cached query
-aliases for that app, even if the window title is unchanged. Its result explicitly
-reports this. Coordinate actions use the newly observed window bounds; element
-actions require a fresh AX observation. Existing calls without these options keep
-their full native observation behavior. These flags are implemented on all three native platforms; action read-back is unchanged.
-
-These options select collection, not image deduplication. An unchanged screenshot
-is still returned when requested. macOS/Linux JS actions already disable automatic
-read-back, and getAXState does not emit images; includeScreenshot:false additionally skips
-native capture on all three platforms. See `docs/selective-observation.md` for real GTK
-and Worker JS validation.
-
-The code-first surface also forwards macOS background-operation options:
-
-```js
-var chrome = await cua.getApp("Google Chrome");
-await chrome.getAXState({ windowPlacement: "agent_display" });
-await chrome.typeText("hello", { keyMethod: "sky_key" });
-await chrome.pressKey("cmd+a", { keyMethod: "sky_key" });
-await chrome.getAXState({ windowPlacement: "restore" });
-```
-
-Bindings persist across `js` calls until `js_reset`. Run
-`ultraterm-computer-use help js` for the full API.
-
-The npm CLI can use the same code-first runtime without an MCP host:
-
-```sh
-ultraterm-computer-use capabilities
-ultraterm-computer-use js 'var apps = await cua.listApps({ emit: false }); nodeRepl.write(apps)'
-printf '%s' 'nodeRepl.write(6 * 7)' | ultraterm-computer-use js -
-ultraterm-computer-use js --file ./automation.mjs
-ultraterm-computer-use repl
-```
-
-`ultraterm-computer-use js` owns one short-lived Worker/native MCP session. `ultraterm-computer-use repl` keeps the
-session and top-level bindings for the current terminal until `.exit`, Ctrl-D,
-or termination; `.editor` / `.end` accepts multiline input and `.reset`
-discards JavaScript bindings. Use `nodeRepl.write(value)` for explicit output.
-The native `ultraterm-computer-use mcp` surface exposes the nine core tools above, plus `query` on macOS. Run
-`ultraterm-computer-use capabilities --json` to inspect component availability instead of
-inferring support from a command being present in help.
-
-## Direct CLI Tool Calls
-
-Use `call` for one-off checks:
+Every Computer Use tool is a CLI command. This section describes the macOS runtime. The Linux and Windows runtimes accept `call <tool> --args '<json>'` and `call --calls`, print the JSON envelope, exit 0 or 1, and keep state only inside one process; for read-then-act flows there use `call --calls`, or the optional MCP server below. Nothing needs an MCP server, so no tool schemas are loaded into the agent's context. Run `ultraterm-computer-use tools` for the list, and `ultraterm-computer-use help <tool>` (or `<tool> --help`) for one tool's arguments, which are generated from the same schema the MCP server lists.
 
 ```sh
 ultraterm-computer-use call list_apps
-ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
-ultraterm-computer-use call set_value --args '{"app":"TextEdit","element_index":"1","value":"Draft"}'
+ultraterm-computer-use call get_app_state --app TextEdit --media-dir /tmp/shots
+ultraterm-computer-use click --app TextEdit --element-index 3 --state-id 3f9a1c07b2d4
+ultraterm-computer-use set_value --app TextEdit --element-index 1 --value "Draft" --state-id 3f9a1c07b2d4
+ultraterm-computer-use call get_app_state --args '{"app":"TextEdit","text_limit":1000}'
 ```
 
-`set_value` verifies the actual value on macOS, Windows and Linux, including when
-full action read-back is disabled. Text is exact: whitespace, case and leading
-zeros matter; `""` clears the field. Numeric/boolean comparison is used only for
-native attributes of that type. Verification polls for up to 0.6 seconds without
-repeating the write. If it fails, observe the control before deciding to retry:
-the write may already have changed it.
+- A tool name works with or without `call`. Arguments are flags named after the schema properties (`--element-index` and `--element_index` both work, `--flag=value` too). A boolean flag alone means true. `--args '<json>'` and `--args-file <path>` still work, and flags win over `--args`.
+- Output is the tool's plain text, ending with the `State-ID:` line. A screenshot is saved with `--media-dir <dir>` and printed as `image: <path>` (read that file to see it). Without `--media-dir` it is only noted, never printed as base64. `--json` prints the full result envelope (`content`, `isError`, `error`, `state_id`) as before.
+- A failed call prints `error[code] (phase): message`, a `hint:` and `candidates:` on stderr and exits with a stable status: 2 usage or invalid arguments, 3 permission denied, 4 app not found, 5 ambiguous app, 6 state unavailable, 7 stale state, 1 anything else. With `--json` the same error is in the envelope on stdout.
 
-Use `--calls` for short action sequences that need to reuse the same process state:
+### State across separate calls
+
+The Computer Use app keeps the captured state, so the `state_id` and the element indexes from one `call` are valid in the next `call` (also `query` indexes, for their 120 seconds). The state is replaced when the app is captured again, and dropped after 10 minutes without a call. If the state is gone, the action is refused with `stale_state` (exit 7) before anything is sent: run `get_app_state` again.
+
+Two clients driving the same app share that one saved state, so the older client sees `stale_state` and refreshes. With `ULTRATERM_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1` (no app), every call starts empty; use `call --calls` there, which keeps all steps in one process.
+
+### Sequences
 
 ```sh
 ultraterm-computer-use call --calls '[
@@ -133,15 +32,12 @@ ultraterm-computer-use call --calls '[
   {"tool":"click","args":{"app":"TextEdit","element_index":"1"}},
   {"tool":"type_text","args":{"app":"TextEdit","text":"Hello"}}
 ]'
-```
-
-A sequence waits 0.2 seconds between successful steps. `--sleep <seconds>` changes that.
-
-Use `--calls-file` when the sequence is too large for a readable shell command:
-
-```sh
 ultraterm-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 ```
+
+Use a sequence for fixed steps you do not need to read in between. It checks every call's arguments first, stops at the first failure, and waits 0.2 seconds between successful steps (`--sleep <seconds>` changes that). Output is each step under a `== N. tool ==` line.
+
+`set_value` verifies the actual value on macOS, Windows and Linux, including when full action read-back is disabled. Text is exact: whitespace, case and leading zeros matter; `""` clears the field. Verification polls for up to 0.6 seconds without repeating the write. If it fails, observe the control before deciding to retry: the write may already have changed it.
 
 ## Read-only commands and screen capture (macOS)
 
@@ -165,7 +61,7 @@ ultraterm-computer-use record --output /tmp/textedit.mp4 --duration 30 TextEdit
 
 ### Errors and exit statuses
 
-`call` checks every call's arguments against the tool's input schema before it runs. For `--calls`, all calls are checked first, so an invalid later call stops the run before any earlier call acts (an unknown tool name is reported when the sequence reaches it). A failed result keeps its text and adds an `error` object with `code`, `phase` (`parse`, `preflight`, `resolve` or `execute`), `call_index`, `retryable`, `hint`, `candidates` and `message`. The process exit status is 0 on success, 1 for other failures, 2 for usage or invalid arguments, 3 for permission denied, 4 for app not found, 5 for an ambiguous app, 6 when state is unavailable and 7 when the state is stale.
+`call` checks every call's arguments against the tool's input schema before it runs. For `--calls`, all calls are checked first, so an invalid later call stops the run before any earlier call acts (an unknown tool name is reported when the sequence reaches it). A failed result keeps its text and adds an `error` object with `code`, `phase` (`parse`, `preflight`, `resolve` or `execute`), `call_index`, `retryable`, `hint`, `candidates` and `message`; the plain-text form prints the same fields (see above). Exit statuses: 0 success, 1 other failure, 2 usage or invalid arguments, 3 permission denied, 4 app not found, 5 ambiguous app, 6 state unavailable, 7 stale state.
 
 `click` rejects a `mouse_button` other than `left`, `right` or `middle`, a `click_count` below 1, and JSON booleans where a number or element index is expected.
 
@@ -228,7 +124,7 @@ On Linux, without the second switch these are refused with "Nothing was sent": c
   An empty result only means no matching exposed control was found when `truncated` is false.
   `exact: true` never retries substring matching. Query does not launch or activate the app.
 - Query indexes last up to 120 seconds in the same native session (5000 retained handles).
-  Use persistent MCP or `ultraterm-computer-use repl` for query then action; separate CLI calls cannot share indexes.
+  Separate CLI calls share these indexes through the app; `query` then `click --element-index <index>` works as two calls.
   Actions revalidate the process/window/control and current geometry. On failure, query again.
   See [targeted query](../../../docs/targeted-query.md) for options and examples.
 
@@ -300,7 +196,7 @@ enable this setting on the user's behalf without their request: it adds a system
 monitor and can change the user's display arrangement. Existing `restore` and
 turn/connection cleanup remain available when disabled.
 
-`agent_display` moves the window's frame onto a virtual display the user never sees (macOS only): the app renders it, exposes its full tree and accepts `sky_click` / `sky_key`, while the user's Space, focus and pointer stay untouched. The window is gone from the user's desktop until `restore`, the assistant turn ends, the MCP/REPL connection closes, or the runtime exits, so treat it as a deliberate, temporary step. `restore` restores every window parked by the runtime for that app. Keep park/action/restore calls in one `js`, REPL, MCP, or `call --calls` session; a one-shot CLI connection restores its background state when it closes. `sky_click` and `sky_key` accept covered and other-Space windows.
+`agent_display` moves the window's frame onto a virtual display the user never sees (macOS only): the app renders it, exposes its full tree and accepts `sky_click` / `sky_key`, while the user's Space, focus and pointer stay untouched. The window is gone from the user's desktop until `restore`, the assistant turn ends, the MCP/REPL connection closes, or the runtime exits, so treat it as a deliberate, temporary step. `restore` restores every window parked by the runtime for that app. Call `window_placement: restore` when done; the turn-ended hook and runtime exit also restore it. `sky_click` and `sky_key` accept covered and other-Space windows.
 
 `sky_key` types into whatever element the target window has focused, so click or AX-focus the field first. It fails closed for hidden apps (`cmd+h`), stale window ids, and missing private symbols; Windows and Linux return an unsupported error.
 
@@ -311,7 +207,7 @@ turn/connection cleanup remain available when disabled.
 - Gate unset (default): mouse move / down / dragged / up events are posted directly to the target process with `CGEvent.postToPid`. The system pointer does not move and foreground focus is unchanged. Because the events never pass through the window server, this path cannot start a window-server drag session: window moves, drag-selecting text, and Finder drag-and-drop return without error but have no visible effect.
 - `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` set for the server process: the drag uses the global pointer path, which drives window-server drag sessions but may move the real pointer and change foreground focus.
 
-Every non-fixture `drag` result includes a text item that begins `Drag delivered via app_post` or `Drag delivered via global pointer path`, so a default drag that did nothing is legible instead of looking like success. For an MCP server the variable belongs in the server entry's `env`, not in the calling shell, and the server must be restarted afterwards.
+Every non-fixture `drag` result includes a text item that begins `Drag delivered via app_post` or `Drag delivered via global pointer path`, so a default drag that did nothing is legible instead of looking like success. The variable is read by the running Computer Use app, so set it where the user starts the app (or in an MCP server entry's `env`) and restart the app afterwards.
 
 When the gate is not enabled, treat window-server drags as unavailable and reach the same outcome another way: copy or move files with a shell command instead of a Finder drag, use `set_value` or keyboard selection instead of drag-selecting text, and use the app's own window controls instead of dragging a title bar.
 
@@ -371,6 +267,86 @@ target visible. The runtime does not synthesize Alt to force activation.
 ### Linux
 
 The Linux runtime uses AT-SPI2 through the desktop session bus. It must run in a logged-in graphical session with usable accessibility services. Wayland screenshot and coordinate input support is compositor-dependent and best-effort. Coordinate clicks, drags and keys for a window that is not active are refused unless `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1`. A click on a field with no click action focuses it through accessibility.
+
+## Optional: MCP server and JavaScript mode
+
+The CLI above covers every tool, so use it by default. The MCP server is kept for hosts that can only use MCP tools:
+
+```json
+{
+  "mcpServers": {
+    "ultraterm-computer-use": { "command": "ultraterm-computer-use", "args": ["mcp"] }
+  }
+}
+```
+
+It serves the same tools as the CLI over stdio, with the state held for the session. `ultraterm-computer-use help mcp` has the details; the Codex plugin ships it as an opt-in file (see the README).
+
+The npm launcher also has a code-first JavaScript mode (`ultraterm-computer-use js`, `repl`, `capabilities`) that binds an app once and composes actions in one session:
+
+```js
+var app = await cua.getApp("TextEdit");
+await app.typeText("Hello");
+await app.getAXState();
+```
+
+### Selective observation (opt-in)
+
+The native `get_app_state` tool on macOS, Windows and Linux accepts `include_ax` and
+`include_screenshot`. Both default to `true`; at least one must remain true.
+The REPL forwards the corresponding optional `includeAX` / `includeScreenshot`
+booleans:
+
+```js
+var editor = await cua.getApp("gedit", { initialState: false });
+await editor.getScreenshot({ includeAX: false }); // no AX, focus or selection walk
+await editor.click([100, 100]);                   // window-relative coordinates
+await editor.getAXState({ includeScreenshot: false }); // no capture or PNG encoding
+// Use newly observed element indexes only after inspecting the AX result.
+```
+
+Screenshot-only observation invalidates prior element indexes and cached query
+aliases for that app, even if the window title is unchanged. Its result explicitly
+reports this. Coordinate actions use the newly observed window bounds; element
+actions require a fresh AX observation. Existing calls without these options keep
+their full native observation behavior. These flags are implemented on all three native platforms; action read-back is unchanged.
+
+These options select collection, not image deduplication. An unchanged screenshot
+is still returned when requested. macOS/Linux JS actions already disable automatic
+read-back, and getAXState does not emit images; includeScreenshot:false additionally skips
+native capture on all three platforms. See `docs/selective-observation.md` for real GTK
+and Worker JS validation.
+
+The code-first surface also forwards macOS background-operation options:
+
+```js
+var chrome = await cua.getApp("Google Chrome");
+await chrome.getAXState({ windowPlacement: "agent_display" });
+await chrome.typeText("hello", { keyMethod: "sky_key" });
+await chrome.pressKey("cmd+a", { keyMethod: "sky_key" });
+await chrome.getAXState({ windowPlacement: "restore" });
+```
+
+Bindings persist across `js` calls until `js_reset`. Run
+`ultraterm-computer-use help js` for the full API.
+
+The npm CLI can use the same code-first runtime without an MCP host:
+
+```sh
+ultraterm-computer-use capabilities
+ultraterm-computer-use js 'var apps = await cua.listApps({ emit: false }); nodeRepl.write(apps)'
+printf '%s' 'nodeRepl.write(6 * 7)' | ultraterm-computer-use js -
+ultraterm-computer-use js --file ./automation.mjs
+ultraterm-computer-use repl
+```
+
+`ultraterm-computer-use js` owns one short-lived Worker/native MCP session. `ultraterm-computer-use repl` keeps the
+session and top-level bindings for the current terminal until `.exit`, Ctrl-D,
+or termination; `.editor` / `.end` accepts multiline input and `.reset`
+discards JavaScript bindings. Use `nodeRepl.write(value)` for explicit output.
+The native `ultraterm-computer-use mcp` surface exposes the same tools as `call` (`query` and `select_text` on macOS only). Run
+`ultraterm-computer-use capabilities --json` to inspect component availability instead of
+inferring support from a command being present in help.
 
 ## Safety
 

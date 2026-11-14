@@ -77,7 +77,7 @@ try {
   await call("set_value", { element_index: indexOf(text(ax)), value: "native-live-中文🙂" });
   await waitFor(() => JSON.parse(readFileSync(stateFile, "utf8")).text === "native-live-中文🙂");
   for (const command of [["snapshot", "--include-screenshot", "false", appName],
-    ["call", "get_app_state", "--args", JSON.stringify({ app: appName, include_screenshot: false })]]) {
+    ["call", "get_app_state", "--json", "--args", JSON.stringify({ app: appName, include_screenshot: false })]]) {
     const cli = spawnSync(nativePath, command, { env, encoding: "utf8", timeout: 15000 });
     assert.equal(cli.status, 0, cli.stderr);
     assert.match(cli.stdout, /include_screenshot=false/);

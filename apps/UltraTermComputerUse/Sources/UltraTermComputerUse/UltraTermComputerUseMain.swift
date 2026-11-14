@@ -24,7 +24,7 @@ enum UltraTermComputerUseMain {
 
     @MainActor
     private static func run() throws {
-        let arguments = Array(CommandLine.arguments.dropFirst())
+        let arguments = normalizedUltraTermComputerUseArguments(Array(CommandLine.arguments.dropFirst()))
 
         if MacOSAppAgentProxy.isAgentInvocation(arguments: arguments) {
             try MacOSAppAgentProxy.runAgent(arguments: arguments)
@@ -100,10 +100,11 @@ enum UltraTermComputerUseMain {
             if VisualCursorSupport.isEnabled {
                 _ = NSApplication.shared.setActivationPolicy(.accessory)
             }
-            let output = try runUltraTermComputerUseCall(invocation)
-            print(try output.jsonText())
-            if output.hasToolError {
-                exit(output.errorInfo.map { ultraTermComputerUseExitStatus(forStructuredCode: $0.code).rawValue } ?? EXIT_FAILURE)
+            let response = try runUltraTermComputerUseCallCommand(invocation)
+            if !response.stdout.isEmpty { FileHandle.standardOutput.write(Data(response.stdout.utf8)) }
+            if !response.stderr.isEmpty { FileHandle.standardError.write(Data(response.stderr.utf8)) }
+            if response.exitCode != 0 {
+                exit(response.exitCode)
             }
         case let .preview(app, options):
             let summary = try PreviewCaptureCommand.run(app: app, options: options)

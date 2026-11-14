@@ -119,7 +119,7 @@ Usage:
   ultraterm-computer-use
 
 Commands:
-  mcp                  Start the native 9-tool stdio MCP server.
+  mcp                  Optional: start the stdio MCP server for hosts that only speak MCP.
   js <code>            Run JavaScript once with the asynchronous cua API.
   repl                 Start a persistent interactive JavaScript session.
   config               View or persist macOS screenshot settings.
@@ -128,7 +128,7 @@ Commands:
   locked-use           macOS status, settings, enable, disable, or recovery.
   list-apps            Print running or recently used apps.
   snapshot <app>       Print the current accessibility snapshot for an app.
-  call <tool>          Call one tool, or run a JSON array of tool calls.
+  call <tool> [flags]  Call one tool, or run a JSON array of tool calls. A tool name also works directly (macOS: click --app X); 'help <tool>' lists its flags.
   turn-ended           Notify the running MCP process that the host turn ended.
   install-claude-mcp   Install the MCP server into ~/.claude.json for this project.
   install-gemini-mcp   Install the MCP server into Gemini CLI config.
@@ -150,7 +150,7 @@ Notes:
   js creates one adapter/native session and exits after the evaluation.
   repl keeps one adapter/native session alive until .exit, Ctrl-D, or termination.
   The npm launcher requires Node.js 18 or newer to start; run 'ultraterm-computer-use capabilities --json' for component details.
-  'ultraterm-computer-use mcp' intentionally keeps the native 9-tool compatibility surface.
+  'ultraterm-computer-use mcp' is optional: the skill and the CLI cover the same tools without it.
   Use 'ultraterm-computer-use help <command>' for command-specific help.`;
 }
 

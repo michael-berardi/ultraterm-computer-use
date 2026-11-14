@@ -50,9 +50,42 @@ If permissions are missing, the onboarding UI opens. Ask the user to grant the r
 
 Windows and Linux do not use this macOS onboarding step, but they still need a logged-in desktop session.
 
-## Install Into Agent MCP Configs
+## Install This Skill (the default route)
 
-Use the built-in installers when they match the user's agent:
+The skill tells the agent to drive the CLI; it loads no tool schemas. Install it for Codex:
+
+```sh
+npx skills add your-org/ultraterm-computer-use -g -a codex --skill ultraterm-computer-use -y
+npx skills ls -g -a codex | grep 'ultraterm-computer-use'
+```
+
+Install the skill for Claude Code:
+
+```sh
+npx skills add your-org/ultraterm-computer-use -g -a claude-code --skill ultraterm-computer-use -y
+```
+
+Update an existing global skill install:
+
+```sh
+npx skills update ultraterm-computer-use -g -y
+npx skills upgrade ultraterm-computer-use -g -y
+```
+
+## Verification
+
+After the CLI and skill are installed:
+
+```sh
+ultraterm-computer-use call list_apps
+ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
+```
+
+If this fails, read [troubleshooting.md](troubleshooting.md).
+
+## Optional: install the MCP server into an agent config
+
+The skill and CLI are the default route and need no MCP entry. Use these only for a host that can run MCP tools but not shell commands. The built-in installers:
 
 ```sh
 ultraterm-computer-use install-codex-mcp
@@ -133,36 +166,3 @@ For any other MCP client, add a stdio server manually:
   }
 }
 ```
-
-## Install This Skill
-
-Install the skill for Codex:
-
-```sh
-npx skills add your-org/ultraterm-computer-use -g -a codex --skill ultraterm-computer-use -y
-npx skills ls -g -a codex | grep 'ultraterm-computer-use'
-```
-
-Install the skill for Claude Code:
-
-```sh
-npx skills add your-org/ultraterm-computer-use -g -a claude-code --skill ultraterm-computer-use -y
-```
-
-Update an existing global skill install:
-
-```sh
-npx skills update ultraterm-computer-use -g -y
-npx skills upgrade ultraterm-computer-use -g -y
-```
-
-## Verification
-
-After CLI and MCP setup:
-
-```sh
-ultraterm-computer-use call list_apps
-ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
-```
-
-If this fails, read [troubleshooting.md](troubleshooting.md).

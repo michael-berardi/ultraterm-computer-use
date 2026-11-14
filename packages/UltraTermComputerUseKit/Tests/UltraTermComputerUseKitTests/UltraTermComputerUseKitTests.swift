@@ -443,7 +443,7 @@ final class UltraTermComputerUseKitTests: XCTestCase {
             currentDirectory: directory.path
         )
         XCTAssertEqual(arguments, ["call", "--calls-file", directory.appendingPathComponent("calls.json").path, "--sleep", "0"])
-        guard case let .call(.sequence(_, callsFile, _)) = try parseUltraTermComputerUseCLI(arguments: arguments) else {
+        guard case let .call(.sequence(_, callsFile, _, _)) = try parseUltraTermComputerUseCLI(arguments: arguments) else {
             return XCTFail("expected a call sequence")
         }
         XCTAssertEqual(try readUltraTermComputerUseCallSequence(json: nil, file: callsFile).map(\.tool), ["list_apps"])

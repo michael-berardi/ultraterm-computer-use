@@ -93,6 +93,8 @@ If an element-targeted action fails:
 
 An action that fails with `stale_state` was given a `state_id` that is no longer the latest for that app. Nothing was sent. Run `get_app_state`, read the new state, and retry with the new `state_id`. See `docs/state-id.md`.
 
+The CLI exits with status 7 for this. It also appears when the state was dropped: the Computer Use app keeps captured state between separate `call` invocations for 10 minutes without a call, and a run without the app (`ULTRATERM_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1`) keeps none, so use `call --calls` there. Another client driving the same app also replaces the saved state.
+
 ## Linux Action Refused
 
 On Linux, a coordinate click, a drag, `click_method=global`, and keys for a window that is not active are refused with a message that says nothing was sent. Use `element_index` and `set_value` where you can, or ask the user to make the window active. Only if the user agrees, set `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` in the server environment. `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND` has no effect on Linux.

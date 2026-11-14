@@ -2,7 +2,7 @@
   "mcpServers": {
     "ultraterm-computer-use": {
       "command": "./scripts/launch-ultraterm-computer-use-repl.sh",
-      "cwd": "."
+      "cwd": ".."
     }
   }
 }

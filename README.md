@@ -5,9 +5,9 @@
 </p>
 
 <p align="center">
-  <strong>Local desktop automation for MCP-capable agents.</strong><br />
+  <strong>Local desktop automation for agents: a skill and a CLI.</strong><br />
   <a href="#install">Install</a> ·
-  <a href="#configure-an-mcp-client">MCP setup</a> ·
+  <a href="#use-it-from-an-agent">Agent skill</a> ·
   <a href="#commands">CLI</a> ·
   <a href="SECURITY.md">Security</a>
 </p>
@@ -16,10 +16,10 @@
   <a href="https://github.com/michael-berardi/ultraterm-computer-use/releases/latest"><img src="https://img.shields.io/github/v/release/michael-berardi/ultraterm-computer-use?label=release" alt="Latest release" /></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/michael-berardi/ultraterm-computer-use" alt="MIT License" /></a>
   <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Linux%20%7C%20Windows-lightgrey" alt="macOS, Linux and Windows" />
-  <img src="https://img.shields.io/badge/MCP-9%20to%2011%20tools-8A2BE2" alt="Nine to eleven MCP tools" />
+  <img src="https://img.shields.io/badge/tools-9%20to%2011-8A2BE2" alt="Nine to eleven tools" />
 </p>
 
-UltraTerm Computer Use lets an agent operate desktop apps on macOS, Linux and Windows while you keep using the computer. It is MIT licensed, runs locally, and works with any MCP-capable agent. Screenshots, accessibility trees and input never leave the machine.
+UltraTerm Computer Use lets an agent operate desktop apps on macOS, Linux and Windows while you keep using the computer. It is MIT licensed and runs locally. An agent drives it through a skill that runs the CLI, so no tool schemas are loaded into its context; an MCP server is available as an option. It works with any agent that can run shell commands. Screenshots, accessibility trees and input never leave the machine.
 
 ## It stays out of your way
 
@@ -45,7 +45,7 @@ Every state and action result carries a `state_id`. Pass it with the next action
 | Linux | Logged-in graphical desktop; AT-SPI2 and D-Bus accessibility |
 | Windows | Logged-in desktop; UI Automation |
 
-All three runtimes expose the same nine MCP tools: `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, and `set_value`. macOS adds `query`, which finds controls by text or role without a screenshot or a full tree, and `select_text`. `get_app_state` takes `include_ax` and `include_screenshot`, so an agent pays only for what it reads.
+All three runtimes expose the same nine tools: `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, and `set_value`. macOS adds `query`, which finds controls by text or role without a screenshot or a full tree, and `select_text`. `get_app_state` takes `include_ax` and `include_screenshot`, so an agent pays only for what it reads.
 
 ## Install
 
@@ -78,7 +78,7 @@ Real app control still needs a logged-in desktop session: Accessibility and Scre
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.9.1/ultraterm-computer-use-0.9.1.tgz
+npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.10.0/ultraterm-computer-use-0.10.0.tgz
 ultraterm-computer-use --version
 ```
 
@@ -105,7 +105,26 @@ ULTRATERM_COMPUTER_USE_TEAM_ID=<team-id> \
   ./scripts/install-ultraterm-computer-use.sh --local path/to/UltraTerm-Computer-Use.pkg
 ```
 
-## Configure an MCP client
+## Use it from an agent
+
+The default route is the skill plus the CLI. The skill (`skills/ultraterm-computer-use`) tells the agent to run `ultraterm-computer-use`; the agent asks the CLI for help on the one tool it is about to use, so there is nothing like an MCP tool list in its context ([measured](./docs/context-cost.md): about 15 KB of MCP schemas against a 326-byte skill description until the skill is used).
+
+Install the skill with the `skills` CLI for your agent (commands in [`references/installation.md`](./skills/ultraterm-computer-use/references/installation.md)), then:
+
+```bash
+ultraterm-computer-use doctor        # macOS: approve Accessibility and Screen Recording once
+ultraterm-computer-use list_apps
+ultraterm-computer-use get_app_state --app TextEdit --media-dir /tmp/shots
+ultraterm-computer-use click --app TextEdit --element-index 3 --state-id <State-ID from the last result>
+```
+
+On macOS the Computer Use app keeps the captured state between calls, so a `state_id` from one call is valid in the next. Output is plain text; `--json` prints the full result envelope. See [Commands](#commands) and [`docs/state-id.md`](./docs/state-id.md).
+
+On macOS, run `ultraterm-computer-use doctor` once and approve the requested permissions. Opening System Settings does not count as a grant; the runtime reads the live OS permission state.
+
+### Optional: MCP server
+
+For a host that can run MCP tools but not shell commands, `ultraterm-computer-use mcp` starts the stdio MCP server with the same tools:
 
 ```json
 {
@@ -118,16 +137,7 @@ ULTRATERM_COMPUTER_USE_TEAM_ID=<team-id> \
 }
 ```
 
-Installer helpers are included for common clients:
-
-```bash
-ultraterm-computer-use install-codex-mcp
-ultraterm-computer-use install-claude-mcp
-ultraterm-computer-use install-gemini-mcp
-ultraterm-computer-use install-opencode-mcp
-```
-
-On macOS, run `ultraterm-computer-use doctor` once and approve the requested permissions. Opening System Settings does not count as a grant; the runtime reads the live OS permission state.
+Installer helpers write that entry for common clients: `ultraterm-computer-use install-codex-mcp`, `install-claude-mcp`, `install-gemini-mcp`, `install-opencode-mcp`. The Codex plugin does not register the server by default; `plugins/ultraterm-computer-use/optional/mcp.json` is the opt-in entry (see the plugin's `README.md`). On Linux and Windows the CLI keeps state only inside one process, so read-then-act flows there use `call --calls` or this server.
 
 ## Commands
 
@@ -137,21 +147,24 @@ ultraterm-computer-use doctor
 ultraterm-computer-use doctor --status-only
 ultraterm-computer-use list-apps
 ultraterm-computer-use targets --running-only --json
-ultraterm-computer-use tools click
+ultraterm-computer-use tools
+ultraterm-computer-use help click
 ultraterm-computer-use inspect TextEdit
 ultraterm-computer-use snapshot TextEdit
+ultraterm-computer-use get_app_state --app TextEdit --media-dir /tmp/shots
 ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
 ultraterm-computer-use preview --output-dir /tmp/preview TextEdit
 ultraterm-computer-use record --output /tmp/textedit.mp4 TextEdit
-ultraterm-computer-use mcp
+ultraterm-computer-use mcp      # optional MCP server
 ```
 
-Capture fresh state before using an element index and pass its `state_id` with the action. Prefer element actions over coordinates. `call --calls '<json-array>'` runs several steps in one process and stops at the first error. Design notes for each behaviour are in [`docs/`](./docs/ARCHITECTURE.md).
+Capture fresh state before using an element index and pass its `state_id` with the action (`--state-id`). Prefer element actions over coordinates. `call --calls '<json-array>'` runs several steps in one process and stops at the first error. Design notes for each behaviour are in [`docs/`](./docs/ARCHITECTURE.md).
 
-These commands, and the structured errors and exit statuses below, are in the macOS runtime. The Linux and Windows runtimes provide `mcp`, `doctor`, `list-apps`, `snapshot` and `call`.
+These commands, the tool flags, plain-text output, shared state and the structured errors and exit statuses below are in the macOS runtime. The Linux and Windows runtimes provide `mcp`, `doctor`, `list-apps`, `snapshot` and `call` (`--args` JSON, JSON output).
 
 - `doctor` prints the live permission state and opens the onboarding app when a permission is missing. `doctor --status-only` only prints it and never launches the app or prompts; `doctor --json` prints the state as JSON, also without launching anything.
 - `targets [--running-only] [--json]` lists apps an agent can target. It is read-only: it never launches, activates or prompts. Password managers are never listed.
+- `call <tool> [--<argument> <value> ...] [--json] [--media-dir <dir>]` runs one tool; the tool name also works without `call` (`click --app TextEdit --element-index 3`). Arguments are flags generated from the tool's schema (`--element-index` or `--element_index`), and `--args '<json>'` / `--args-file` still work. Output is the tool's plain text; `--json` prints the result envelope, and `--media-dir` saves screenshots as files (`image: <path>`). `help <tool>` or `<tool> --help` lists a tool's flags. State from one call stays valid for the next (10 minutes idle).
 - `tools [name] [--json]` prints the tool catalog, or one tool's description and input schema. It runs offline and needs no permissions.
 - `inspect [--json] [--window <title>] [--media-dir <path>] <app>` prints the accessibility snapshot and a screenshot of an app that is already running. It never launches or activates the app and does not register state for actions. It needs Screen Recording permission for the screenshot. With `--media-dir`, the screenshot is written into that directory and the result points at the file instead of carrying base64 data.
 - `preview [--output-dir <path>] [--duration <seconds>] [--fps <1-60>] [--max-width <px>] [--quality <0.05-1>] [--include-cursor] <app>` keeps a live JPEG of one window of a running app: `latest.jpg` is replaced atomically and `manifest.json` records size, timestamps and frame counters. `--output-dir` is required.
@@ -169,7 +182,7 @@ These commands, and the structured errors and exit statuses below, are in the ma
 
 Both write only to the path you give: `preview` to `latest.jpg` and `manifest.json` inside `--output-dir` (created if missing), `record` to the `--output` file (an existing file there is replaced, and a partial file is removed on failure). They print a JSON summary, stop cleanly on Ctrl-C or SIGTERM, and never upload anything or contact any server. The system cursor is left out of frames unless you pass `--include-cursor`.
 
-Failures from `call` carry an `error` object (`code`, `phase`, `call_index`, `retryable`, `hint`, `candidates`, `message`) next to the usual result text, and the process exits with a stable status: 0 success, 1 other failure, 2 usage or invalid arguments, 3 permission denied, 4 app not found, 5 ambiguous app, 6 state unavailable, 7 stale state. Arguments are checked against each tool's input schema before it runs, and a sequence is checked in full before its first call acts.
+Failures from `call` print `error[code] (phase): message` with a `hint:` and `candidates:` on stderr (with `--json`, an `error` object with `code`, `phase`, `call_index`, `retryable`, `hint`, `candidates`, `message` next to the usual result text), and the process exits with a stable status: 0 success, 1 other failure, 2 usage or invalid arguments, 3 permission denied, 4 app not found, 5 ambiguous app, 6 state unavailable, 7 stale state. Arguments are checked against each tool's input schema before it runs, and a sequence is checked in full before its first call acts.
 
 ## Safety and privacy
 

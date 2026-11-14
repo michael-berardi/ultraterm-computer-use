@@ -386,15 +386,40 @@ public struct UltraTermComputerUseCallSpec {
     }
 }
 
+public struct UltraTermComputerUseCallStep {
+    public let tool: String
+    public let result: ToolCallResult
+
+    public init(tool: String, result: ToolCallResult) {
+        self.tool = tool
+        self.result = result
+    }
+}
+
 public struct UltraTermComputerUseCallOutput {
     public let jsonObject: Any
     public let hasToolError: Bool
     public let errorInfo: ComputerUseErrorInfo?
+    /// Every executed call with its result, in order. Empty when preflight refused the run.
+    public let steps: [UltraTermComputerUseCallStep]
+    public let isSequence: Bool
+    /// Set when schema preflight refused the run before any call executed.
+    public let preflightError: ComputerUseErrorInfo?
 
-    public init(jsonObject: Any, hasToolError: Bool, errorInfo: ComputerUseErrorInfo? = nil) {
+    public init(
+        jsonObject: Any,
+        hasToolError: Bool,
+        errorInfo: ComputerUseErrorInfo? = nil,
+        steps: [UltraTermComputerUseCallStep] = [],
+        isSequence: Bool = false,
+        preflightError: ComputerUseErrorInfo? = nil
+    ) {
         self.jsonObject = jsonObject
         self.hasToolError = hasToolError
         self.errorInfo = errorInfo
+        self.steps = steps
+        self.isSequence = isSequence
+        self.preflightError = preflightError
     }
 
     public func jsonText() throws -> String {
@@ -437,7 +462,7 @@ public func runUltraTermComputerUseCall(
     let dispatcher = ComputerUseToolDispatcher(service: service)
 
     switch invocation {
-    case let .single(toolName, argumentsJSON, argumentsFile):
+    case let .single(toolName, argumentsJSON, argumentsFile, options):
         let arguments = try readUltraTermComputerUseToolArguments(
             json: argumentsJSON,
             file: argumentsFile
@@ -452,18 +477,23 @@ public func runUltraTermComputerUseCall(
                     "calls_executed": 0,
                 ],
                 hasToolError: true,
-                errorInfo: preflightError
+                errorInfo: preflightError,
+                preflightError: preflightError
             )
         }
 
-        let result = dispatcher.callValidatedToolAsResult(name: toolName, arguments: arguments, callIndex: nil)
+        let result = try externalizedCallResult(
+            dispatcher.callValidatedToolAsResult(name: toolName, arguments: arguments, callIndex: nil),
+            tool: toolName, arguments: arguments, index: 0, options: options
+        )
         return UltraTermComputerUseCallOutput(
             jsonObject: result.asDictionary,
             hasToolError: result.isError,
-            errorInfo: result.errorInfo
+            errorInfo: result.errorInfo,
+            steps: [UltraTermComputerUseCallStep(tool: toolName, result: result)]
         )
 
-    case let .sequence(callsJSON, callsFile, interCallDelay):
+    case let .sequence(callsJSON, callsFile, interCallDelay, options):
         let calls = try readUltraTermComputerUseCallSequence(json: callsJSON, file: callsFile)
 
         if let preflightError = preflightUltraTermComputerUseCalls(calls) {
@@ -473,16 +503,22 @@ public func runUltraTermComputerUseCall(
                     "calls_executed": 0,
                 ],
                 hasToolError: true,
-                errorInfo: preflightError
+                errorInfo: preflightError,
+                preflightError: preflightError
             )
         }
 
+        var steps: [UltraTermComputerUseCallStep] = []
         var outputs: [[String: Any]] = []
         var hasToolError = false
         var firstErrorInfo: ComputerUseErrorInfo?
 
         for (index, call) in calls.enumerated() {
-            let result = dispatcher.callValidatedToolAsResult(name: call.tool, arguments: call.arguments, callIndex: index)
+            let result = try externalizedCallResult(
+                dispatcher.callValidatedToolAsResult(name: call.tool, arguments: call.arguments, callIndex: index),
+                tool: call.tool, arguments: call.arguments, index: index, options: options
+            )
+            steps.append(UltraTermComputerUseCallStep(tool: call.tool, result: result))
             outputs.append([
                 "tool": call.tool,
                 "result": result.asDictionary,
@@ -502,9 +538,26 @@ public func runUltraTermComputerUseCall(
         return UltraTermComputerUseCallOutput(
             jsonObject: outputs,
             hasToolError: hasToolError,
-            errorInfo: firstErrorInfo
+            errorInfo: firstErrorInfo,
+            steps: steps,
+            isSequence: true
         )
     }
+}
+
+/// With `--media-dir`, screenshots are written to files and the result carries `image_path`
+/// items instead of base64. File names are unique per call so nothing is overwritten.
+private func externalizedCallResult(
+    _ result: ToolCallResult,
+    tool: String,
+    arguments: [String: Any],
+    index: Int,
+    options: UltraTermComputerUseCallOptions
+) throws -> ToolCallResult {
+    guard let mediaDir = options.mediaDir else { return result }
+    let app = (arguments["app"] as? String) ?? "app"
+    let stamp = Int(Date().timeIntervalSince1970 * 1000)
+    return try externalizeToolResultImages(result, mediaDir: mediaDir, stem: "\(app)-\(tool)-\(stamp)-\(index + 1)")
 }
 
 public func readUltraTermComputerUseToolArguments(

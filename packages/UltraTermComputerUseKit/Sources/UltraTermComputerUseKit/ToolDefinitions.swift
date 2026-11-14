@@ -320,29 +320,24 @@ public func ultraTermComputerUseToolsPayload(name: String?) throws -> Any {
     return ToolDefinitions.all.map(\.asDictionary)
 }
 
-/// Human-readable listing for the `tools` CLI command.
+/// Human-readable listing for the `tools` CLI command: one short line per tool, or the full
+/// generated help (the same text as `help <tool>`) for one tool.
 public func ultraTermComputerUseToolsText(name: String?) throws -> String {
     if let name {
-        guard let definition = ToolDefinitions.all.first(where: { $0.name == name }) else {
+        guard let help = ultraTermComputerUseToolHelpText(name) else {
             throw ComputerUseError.unsupportedTool(name)
         }
-
-        var lines = ["\(definition.name) — \(definition.description)"]
-        let schema = definition.inputSchema
-        let required = schema["required"] as? [String] ?? []
-        let properties = schema["properties"] as? [String: Any] ?? [:]
-        if !properties.isEmpty {
-            lines.append("arguments:")
-            for key in properties.keys.sorted() {
-                let requiredMark = required.contains(key) ? " (required)" : ""
-                lines.append("  \(key)\(requiredMark)")
-            }
-        }
-        return lines.joined(separator: "\n")
+        return "\(name)\n\n\(help)"
     }
 
     return ToolDefinitions.all
-        .map { "\($0.name) — \($0.description)" }
+        .map { definition in
+            let firstLine = definition.description.components(separatedBy: "\n").first ?? definition.description
+            let summary = (firstLine.components(separatedBy: ". ").first ?? firstLine)
+                .replacingOccurrences(of: " This tool is part of plugin `Computer Use`.", with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: ". "))
+            return "\(definition.name) — \(summary)"
+        }
         .joined(separator: "\n")
 }
 

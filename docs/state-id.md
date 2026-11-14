@@ -13,6 +13,10 @@ The same contract holds on macOS, Linux and Windows.
 
 A `get_app_state` call with `include_ax=false` returns no id. That call reads no accessibility tree, so there are no element indexes to protect.
 
+## Across separate CLI calls
+
+On macOS the Computer Use app holds the captured state, so `ultraterm-computer-use get_app_state` and a later `ultraterm-computer-use click --state-id <id>` are two processes that share it. The app keeps one saved state per app for all one-shot `call` requests; it is dropped after 10 minutes without a call. Two clients driving the same app share it too, so the older client gets `stale_state` and refreshes. When the app is not used (`ULTRATERM_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1`) each process starts empty, so keep the steps in one `call --calls`. The Linux and Windows runtimes keep state only inside one process.
+
 ## Which tools accept it
 
 `state_id` is an optional string argument on these tools:
@@ -42,7 +46,7 @@ If `state_id` is not a string, the tool returns an argument error instead.
 
 - Any new capture of the same app. That includes a later `get_app_state` and the state returned by an action.
 - `get_app_state` with `include_ax=false`. It drops the saved state for the app, so every earlier id is stale and old element indexes no longer work.
-- An app that has no saved state. This includes an id from another run of the server.
+- An app that has no saved state. This includes an id from another run of the server, and one older than 10 minutes in the app that serves one-shot CLI calls.
 
 The runtime keeps one saved state per app. The app can be named by name, bundle id or process id. These names share the same saved state.
 

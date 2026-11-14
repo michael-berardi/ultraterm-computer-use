@@ -10,7 +10,8 @@ required_files=(
   "SECURITY.md"
   "LICENSE"
   "plugins/ultraterm-computer-use/.codex-plugin/plugin.json"
-  "plugins/ultraterm-computer-use/.mcp.json"
+  "plugins/ultraterm-computer-use/optional/mcp.json"
+  "plugins/ultraterm-computer-use/skills/ultraterm-computer-use/SKILL.md"
 )
 
 failed=0

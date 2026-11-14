@@ -20,8 +20,8 @@ public enum UltraTermComputerUseCLICommand: Equatable {
 }
 
 public enum UltraTermComputerUseCallInvocation: Equatable {
-    case single(toolName: String, argumentsJSON: String?, argumentsFile: String?)
-    case sequence(callsJSON: String?, callsFile: String?, interCallDelay: TimeInterval)
+    case single(toolName: String, argumentsJSON: String?, argumentsFile: String?, options: UltraTermComputerUseCallOptions = .init())
+    case sequence(callsJSON: String?, callsFile: String?, interCallDelay: TimeInterval, options: UltraTermComputerUseCallOptions = .init())
 }
 
 /// Every action already waits for the app to settle before it reads the result back, so a
@@ -69,9 +69,9 @@ public func resolvingUltraTermComputerUseCallFilePaths(
     var index = 1
     while index < arguments.count {
         let option = arguments[index]
-        if ["--args-file", "--calls-file", "--args", "--calls", "--sleep"].contains(option) {
+        if ["--args-file", "--calls-file", "--media-dir", "--args", "--calls", "--sleep"].contains(option) {
             guard index + 1 < arguments.count else { break }
-            if option == "--args-file" || option == "--calls-file" {
+            if option == "--args-file" || option == "--calls-file" || option == "--media-dir" {
                 resolved[index + 1] = URL(
                     fileURLWithPath: arguments[index + 1],
                     relativeTo: URL(fileURLWithPath: currentDirectory, isDirectory: true)
@@ -96,10 +96,9 @@ public struct UltraTermComputerUseCLIError: LocalizedError, Equatable {
     }
 
     public var errorDescription: String? {
-        var lines = [message]
-        lines.append("")
-        lines.append(ultraTermComputerUseHelpText(command: helpCommand))
-        return lines.joined(separator: "\n")
+        // One line to act on; the full text is a `help` away and would only cost context.
+        let topic = helpCommand.map { " \($0)" } ?? ""
+        return "\(message)\nRun `ultraterm-computer-use help\(topic)` for usage."
     }
 }
 
@@ -165,14 +164,14 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
           ultraterm-computer-use
 
         Commands:
-          mcp                  Start the stdio MCP server.
+          call <tool> [flags]  Run one tool (or a JSON array of calls). Tool names also work directly: `click --app X`.
+          mcp                  Optional: start the stdio MCP server for hosts that only speak MCP.
           doctor               Print permission status and launch onboarding if needed.
           list-apps            Print running or recently used apps.
           targets              Print targetable apps (JSON-capable, running-only filter).
           tools [name]         Print tool definitions or one tool's schema.
           inspect <app>        Print the accessibility snapshot and a screenshot of a running app (no launch or activation).
           snapshot <app>       Print the current accessibility snapshot for an app.
-          call <tool>           Call one tool, or run a JSON array of tool calls.
           preview <app>        Write a live JPEG preview (latest.jpg + manifest.json) of an app's window. Needs Screen Recording.
           record <app>         Record an app's window to a bounded H.264 MP4. Needs Screen Recording.
           turn-ended           Notify the running MCP process that the host turn ended.
@@ -304,29 +303,41 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
     case "call":
         return """
         Usage:
-          ultraterm-computer-use call <tool> [--args '<json-object>']
-          ultraterm-computer-use call <tool> [--args-file <path>]
+          ultraterm-computer-use call <tool> [--<argument> <value> ...] [--json] [--media-dir <dir>]
+          ultraterm-computer-use call <tool> --args '<json-object>'
+          ultraterm-computer-use call <tool> --args-file <path>
           ultraterm-computer-use call --calls '<json-array>' [--sleep <seconds>]
           ultraterm-computer-use call --calls-file <path> [--sleep <seconds>]
+          ultraterm-computer-use <tool> ...        (same as `call <tool> ...`)
 
         Examples:
           ultraterm-computer-use call list_apps
-          ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
+          ultraterm-computer-use call get_app_state --app TextEdit --media-dir /tmp/shots
+          ultraterm-computer-use click --app TextEdit --element-index 3 --state-id 3f9a1c07b2d4
+          ultraterm-computer-use call get_app_state --args '{"app":"TextEdit","include_screenshot":false}'
           ultraterm-computer-use call --calls '[{"tool":"get_app_state","args":{"app":"TextEdit"}},{"tool":"press_key","args":{"app":"TextEdit","key":"Return"}}]'
-          ultraterm-computer-use call --calls-file examples/textedit-overlay-seq.json --sleep 0.5
 
-        The JSON array form keeps all calls in one process so follow-up actions
-        can reuse the app state and element indices captured by get_app_state.
-        Sequence execution stops after the first tool result with isError=true.
-        Sequence runs sleep \(formatUltraTermComputerUseDelay(ultraTermComputerUseDefaultInterCallDelay)) between successful operations by default.
+        Output is plain text by default: the tool's text result, then `image: <path>` for
+        each screenshot saved by --media-dir (without --media-dir a screenshot is only
+        noted, never printed as base64). --json prints the full result envelope
+        (content, isError, error, state_id). A failed call prints
+        `error[code] (phase): message`, a hint and candidates on stderr.
+
+        Per-tool arguments are flags generated from the tool's schema: `help <tool>`
+        or `call <tool> --help` lists them. --snake_case and --kebab-case both work.
+        Pass a state_id with --state-id. Separate `call` invocations share the app
+        state held by the Computer Use app, so a state_id from one call is valid in the
+        next one until the app is captured again or the state is 10 minutes old.
+        Without the app (ULTRATERM_COMPUTER_USE_DISABLE_APP_AGENT_PROXY=1) each call
+        starts with no state: use the --calls form, which keeps all calls in one process.
 
         Arguments are checked against each tool's input schema before it runs. For a
         sequence, every call is checked first, so an invalid later call stops the run
-        before any earlier call acts. A failed result carries an `error` object with
-        code, phase, call_index, retryable, hint, candidates, and message. The exit
-        status is 0 on success, 1 for other failures, 2 for usage or invalid arguments,
-        3 for permission denied, 4 for app not found, 5 for an ambiguous app, 6 when
-        state is unavailable, and 7 when the state is stale.
+        before any earlier call acts. Sequence execution stops after the first failed
+        call and sleeps \(formatUltraTermComputerUseDelay(ultraTermComputerUseDefaultInterCallDelay)) between successful calls by default.
+
+        Exit status: 0 success, 1 other failure, 2 usage or invalid arguments, 3 permission
+        denied, 4 app not found, 5 ambiguous app, 6 state unavailable, 7 stale state.
         """
     case "preview":
         return """
@@ -409,6 +420,9 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
         Show general help or help for a specific command.
         """
     default:
+        if let command, let toolHelp = ultraTermComputerUseToolHelpText(command) {
+            return toolHelp
+        }
         return """
         Unknown help topic: \(command ?? "")
 
@@ -881,10 +895,18 @@ private func parseCall(arguments: [String]) throws -> UltraTermComputerUseCLICom
     var callsJSON: String?
     var callsFile: String?
     var interCallDelay = ultraTermComputerUseDefaultInterCallDelay
+    var options = UltraTermComputerUseCallOptions()
+    var flagArguments: [String: Any] = [:]
 
     var index = 0
     while index < arguments.count {
-        let argument = arguments[index]
+        var argument = arguments[index]
+        var inlineValue: String?
+        if argument.hasPrefix("--"), let equals = argument.firstIndex(of: "="), let toolName,
+           toolFlagSpec(forTool: toolName, option: String(argument[..<equals])) != nil {
+            inlineValue = String(argument[argument.index(after: equals)...])
+            argument = String(argument[..<equals])
+        }
 
         switch argument {
         case "--args":
@@ -897,18 +919,42 @@ private func parseCall(arguments: [String]) throws -> UltraTermComputerUseCLICom
             callsFile = try parseOptionValue("--calls-file", arguments: arguments, index: &index)
         case "--sleep":
             interCallDelay = try parseTimeIntervalOptionValue("--sleep", arguments: arguments, index: &index)
+        case "--json":
+            options.json = true
+        case "--media-dir":
+            options.mediaDir = try parseOptionValue("--media-dir", arguments: arguments, index: &index)
         case "-h", "--help":
-            throw UltraTermComputerUseCLIError(message: "call help must be requested as `ultraterm-computer-use call --help`", helpCommand: "call")
+            if let toolName, ToolSchemaValidator.isKnownTool(toolName) {
+                return .help(command: toolName)
+            }
+            return .help(command: "call")
         default:
-            if argument.hasPrefix("-") {
+            if let toolName, let spec = toolFlagSpec(forTool: toolName, option: argument) {
+                let raw: String
+                if let inlineValue {
+                    raw = inlineValue
+                } else if isBooleanToolProperty(spec.property),
+                          index + 1 >= arguments.count || !["true", "false"].contains(arguments[index + 1].lowercased()) {
+                    raw = "true"
+                } else {
+                    raw = try parseOptionValue(argument, arguments: arguments, index: &index)
+                }
+                flagArguments[spec.key] = try coerceToolFlagValue(raw, option: argument, property: spec.property)
+            } else if argument.hasPrefix("-") {
+                if let toolName, ToolSchemaValidator.isKnownTool(toolName) {
+                    throw UltraTermComputerUseCLIError(
+                        message: "Unknown option \(argument) for \(toolName). Options: \(toolFlagNames(forTool: toolName).joined(separator: ", "))",
+                        helpCommand: toolName
+                    )
+                }
                 throw UltraTermComputerUseCLIError(message: "Unknown call option: \(argument)", helpCommand: "call")
-            }
+            } else {
+                guard toolName == nil else {
+                    throw UltraTermComputerUseCLIError(message: "call accepts at most one tool name", helpCommand: "call")
+                }
 
-            guard toolName == nil else {
-                throw UltraTermComputerUseCLIError(message: "call accepts at most one tool name", helpCommand: "call")
+                toolName = argument
             }
-
-            toolName = argument
         }
 
         index += 1
@@ -930,7 +976,8 @@ private func parseCall(arguments: [String]) throws -> UltraTermComputerUseCLICom
         return .call(.sequence(
             callsJSON: callsJSON,
             callsFile: callsFile,
-            interCallDelay: interCallDelay
+            interCallDelay: interCallDelay,
+            options: options
         ))
     }
 
@@ -949,7 +996,14 @@ private func parseCall(arguments: [String]) throws -> UltraTermComputerUseCLICom
         throw UltraTermComputerUseCLIError(message: "call requires a tool name or --calls/--calls-file", helpCommand: "call")
     }
 
-    return .call(.single(toolName: toolName, argumentsJSON: argumentsJSON, argumentsFile: argumentsFile))
+    if !flagArguments.isEmpty {
+        if argumentsFile != nil {
+            throw UltraTermComputerUseCLIError(message: "Use either argument flags or --args-file, not both", helpCommand: toolName)
+        }
+        argumentsJSON = try mergedToolArgumentsJSON(argumentsJSON: argumentsJSON, flags: flagArguments)
+    }
+
+    return .call(.single(toolName: toolName, argumentsJSON: argumentsJSON, argumentsFile: argumentsFile, options: options))
 }
 
 private func parseOptionValue(

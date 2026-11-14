@@ -1,7 +1,7 @@
 {
   "name": "ultraterm-computer-use",
-  "version": "0.9.1",
-  "description": "Local desktop control for MCP-capable agents that works in the background.",
+  "version": "0.10.0",
+  "description": "Local desktop control for agents, driven by a skill and the ultraterm-computer-use CLI. Works in the background.",
   "author": {
     "name": "UltraTerm Computer Use contributors",
     "url": "https://github.com/your-org/ultraterm-computer-use"
@@ -15,13 +15,14 @@
     "linux",
     "windows",
     "automation",
-    "mcp",
-    "codex"
+    "codex",
+    "cli",
+    "skill"
   ],
-  "mcpServers": "./.mcp.json",
+  "skills": "./skills/",
   "interface": {
     "displayName": "UltraTerm Computer Use",
-    "shortDescription": "Background desktop control for MCP-capable agents",
+    "shortDescription": "Background desktop control for agents, via a skill and CLI",
     "longDescription": "UltraTerm Computer Use lets an agent operate desktop apps through a local macOS app or native Linux and Windows runtimes while the person keeps using the computer. It does not take focus or move the real pointer unless that is switched on, refuses actions aimed at a stale screen, and keeps screenshots and accessibility data on the machine.",
     "developerName": "UltraTerm Computer Use contributors",
     "category": "Productivity",
@@ -42,6 +43,5 @@
     "composerIcon": "./assets/ultraterm-computer-use-small.svg",
     "logo": "./assets/ultraterm-computer-use.svg",
     "screenshots": []
-  },
-  "bundledContentVariant": "node-repl"
+  }
 }

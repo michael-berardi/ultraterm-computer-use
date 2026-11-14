@@ -406,6 +406,7 @@ ultraterm-computer-use capabilities --json
 ultraterm-computer-use js 'nodeRepl.write(6 * 7)'
 printf 'var answer = 40\nanswer += 2; nodeRepl.write(answer)\n.exit\n' | ultraterm-computer-use repl
 ultraterm-computer-use call list_apps
+ultraterm-computer-use help click
 
 # macOS permission check and onboarding
 ultraterm-computer-use doctor
@@ -425,7 +426,7 @@ ultraterm-computer-use install-codex-plugin
 - Supported npm platforms: \`darwin-arm64\`, \`darwin-x64\`, \`linux-arm64\`, \`linux-x64\`, \`win32-arm64\`, \`win32-x64\`
 - \`ultraterm-computer-use js\` creates a one-shot JavaScript/native session; \`ultraterm-computer-use repl\` keeps one session for the current terminal and preserves bindings between evaluations.
 - Both code-first commands use the Node executable that started the npm launcher. The npm launcher itself still requires Node.js 18 or newer to be available when the command starts.
-- \`ultraterm-computer-use mcp\` intentionally continues to expose the native 9-tool compatibility surface; the Codex plugin adapter exposes \`js\` / \`js_reset\` separately.
+- \`ultraterm-computer-use mcp\` is optional and exposes the same tools as \`call\` (the skill drives the CLI and needs no MCP server). The Codex plugin does not register it by default; its opt-in JavaScript adapter exposes \`js\` / \`js_reset\`.
 - macOS still requires \`Accessibility\` and \`Screen Recording\` permissions.
 - Linux requires a signed-in desktop session with AT-SPI2 / D-Bus accessibility available for real app control.
 - Windows requires a signed-in desktop session for UI Automation access.
@@ -482,7 +483,8 @@ function renderMetaPackageJson(packageName, version) {
       "dist/linux/",
       "dist/windows/",
       "plugins/ultraterm-computer-use/.codex-plugin/",
-      "plugins/ultraterm-computer-use/.mcp.json",
+      "plugins/ultraterm-computer-use/optional/",
+      "plugins/ultraterm-computer-use/skills/",
       "plugins/ultraterm-computer-use/assets/",
       "plugins/ultraterm-computer-use/scripts/",
       "scripts/install-claude-mcp.sh",

@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.10.0
+
+The skill and the CLI are now the documented way to drive Computer Use. The MCP server stays as an optional command (`ultraterm-computer-use mcp`). Changes below are in the macOS runtime; the Linux and Windows `call` is unchanged.
+
+**Changed behaviour**
+
+- `call` prints plain text by default: the tool's text result, with `image: <path>` for screenshots saved by `--media-dir` (a screenshot without `--media-dir` is noted, never printed as base64). `--json` prints the full result envelope exactly as before. Scripts that parse the old default output need `--json`.
+- Failed calls print `error[code] (phase): message`, a `hint:` and `candidates:` on stderr. Exit statuses are unchanged (0, 1, 2, 3, 4, 5, 6, 7).
+- Usage errors print one line and a pointer to `help <command>` instead of the whole help text.
+- The Codex plugin no longer registers an MCP server by default. It ships the skill instead; the JavaScript adapter entry moved to `plugins/ultraterm-computer-use/optional/mcp.json`, with the line to add to opt in in the plugin's `README.md`.
+
+**New**
+
+- Every tool is a CLI command with flags generated from its schema: `ultraterm-computer-use click --app TextEdit --element-index 3 --state-id <id>`, with or without `call`. `--args` and `--args-file` still work, and flags win over `--args`.
+- `help <tool>` and `<tool> --help` print the tool's flags, types, enums and descriptions from the same schema the MCP server lists. `tools` lists one short line per tool.
+- `--media-dir <dir>` for `call`, as `inspect` already had.
+- Separate `call` invocations now share state. Before, each one started with an empty service, so a `state_id` or an element index from one `call` was always refused by the next (`stale_state`). The Computer Use app now keeps one service for its one-shot `call` requests; the state is replaced when the app is captured again and dropped after 10 minutes idle. `query` indexes work across calls too.
+- Contract tests for the above, none needing a desktop.
+
+**Measured context cost** ([`docs/context-cost.md`](./docs/context-cost.md)): the MCP `tools/list` and instructions are 15,038 bytes loaded into every session that has the server; the skill's always-loaded description is 326 bytes, and its body (6.3 KB) loads only when it is used.
+
 ## 0.9.1
 
 Two macOS fixes, both found while recording a real demo against TextEdit.

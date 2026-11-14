@@ -13,7 +13,8 @@ required_files=(
   "docs/SECURITY.md"
   "package.json"
   "plugins/ultraterm-computer-use/.codex-plugin/plugin.json"
-  "plugins/ultraterm-computer-use/.mcp.json"
+  "plugins/ultraterm-computer-use/optional/mcp.json"
+  "plugins/ultraterm-computer-use/skills/ultraterm-computer-use/SKILL.md"
   "plugins/ultraterm-computer-use/assets/ultraterm-computer-use.svg"
   "plugins/ultraterm-computer-use/assets/ultraterm-computer-use-small.svg"
 )
