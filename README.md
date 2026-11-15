@@ -19,39 +19,25 @@
   <img src="https://img.shields.io/badge/tools-9%20to%2011-8A2BE2" alt="Nine to eleven tools" />
 </p>
 
-UltraTerm Computer Use lets an agent operate desktop apps on macOS, Linux and Windows while you keep using the computer. It is MIT licensed and runs locally. An agent drives it through a skill that runs the CLI, so no tool schemas are loaded into its context; an MCP server is available as an option. It works with any agent that can run shell commands. Screenshots, accessibility trees and input never leave the machine.
+UltraTerm Computer Use lets shell-capable agents inspect and control desktop apps through a CLI and skill. An optional stdio MCP server exposes the same tools. It runs locally and sends no telemetry; your agent host decides where returned screenshots and text go.
 
-## It stays out of your way
+On macOS, background input and window capture let you keep working without handing over your pointer. Foreground activation and global-pointer fallbacks are opt-in. Linux and Windows have different input limits; see [background operation](docs/background-operation.md).
 
-An agent that takes over the screen is an agent you have to sit and watch. By default this runtime:
+Capture state before acting and pass its `state_id` to reject stale observations. Element actions check the captured identity; `set_value` verifies the written value. Password fields are excluded from returned values.
 
-- never activates an app, raises a window, unminimizes one or unhides an app. When a window cannot be read where it is, the error says so and names the switch that allows bringing it forward;
-- never moves your pointer. Clicks, keys, scrolls and drags are delivered to the target app or window directly;
-- reads and drives windows that are covered or on another Space (macOS);
-- launches a missing app without giving it the keyboard;
-- never returns the contents of a password field.
+| Platform | Requirements | Tools |
+| --- | --- | --- |
+| macOS 14+ | Logged-in desktop; Accessibility and Screen Recording permissions | Nine common tools, plus `query` and `select_text` |
+| Linux | Logged-in graphical desktop; Python 3, PyGObject/GDK, AT-SPI2 and D-Bus | Nine common tools |
+| Windows | Logged-in desktop; PowerShell and UI Automation | Nine common tools |
 
-Anything that would break those rules is refused with an error naming the switch that enables it: `ULTRATERM_COMPUTER_USE_ALLOW_FOREGROUND=1` to bring apps forward (macOS), `ULTRATERM_COMPUTER_USE_ALLOW_GLOBAL_POINTER_FALLBACKS=1` for real-pointer input. Linux has no per-app input channel, so there coordinate clicks, drags, and keys or scrolling for a window that is not active need the second switch; accessibility actions work without it. The full table is in [`docs/background-operation.md`](./docs/background-operation.md).
-
-## It does not act on a stale screen
-
-Every state and action result carries a `state_id`. Pass it with the next action: if the app's state was captured again in between, the action is refused with `stale_state` before anything is sent. Element indexes are also checked against what the snapshot showed (role, name, identifier), disabled controls are not pressed, an uncertain click is not retried a second way, and `set_value` reads the value back before reporting success.
-
-## Supported platforms
-
-| Platform | Requirements |
-| --- | --- |
-| macOS 14+ | Logged-in desktop; Accessibility and Screen Recording permissions |
-| Linux | Logged-in graphical desktop; AT-SPI2 and D-Bus accessibility |
-| Windows | Logged-in desktop; UI Automation |
-
-All three runtimes expose the same nine tools: `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, and `set_value`. macOS adds `query`, which finds controls by text or role without a screenshot or a full tree, and `select_text`. `get_app_state` takes `include_ax` and `include_screenshot`, so an agent pays only for what it reads.
+The common tools are `list_apps`, `get_app_state`, `click`, `perform_secondary_action`, `scroll`, `drag`, `type_text`, `press_key`, and `set_value`. `get_app_state` can omit either the accessibility tree or screenshot.
 
 ## Install
 
-One step, every platform. Each installer downloads the latest release, verifies its SHA-256 before installing anything, and finishes by running the tool's own version check.
+Use the signed installer below on macOS. On Linux and Windows, the one-step installers download the release npm package, verify its SHA-256 and run a version check.
 
-macOS and Linux:
+Linux:
 
 ```bash
 curl -fsSL https://github.com/michael-berardi/ultraterm-computer-use/releases/latest/download/install.sh | sh
@@ -84,7 +70,7 @@ ultraterm-computer-use --version
 
 The package includes native arm64 and x86-64 runtimes and selects the current platform at launch. Each release's `SHA256SUMS` covers the package.
 
-### Manual: signed macOS installer
+### Signed macOS installer
 
 ```bash
 curl -fsSLo /tmp/install-ultraterm-computer-use.sh \
@@ -109,13 +95,13 @@ ULTRATERM_COMPUTER_USE_TEAM_ID=<team-id> \
 
 The default route is the skill plus the CLI. The skill (`skills/ultraterm-computer-use`) tells the agent to run `ultraterm-computer-use`; the agent asks the CLI for help on the one tool it is about to use, so there is nothing like an MCP tool list in its context ([measured](./docs/context-cost.md): about 15 KB of MCP schemas against a 326-byte skill description until the skill is used).
 
-Install the skill with the `skills` CLI for your agent (commands in [`references/installation.md`](./skills/ultraterm-computer-use/references/installation.md)), then:
+Install the skill with the `skills` CLI for your agent (commands in [`references/installation.md`](./skills/ultraterm-computer-use/references/installation.md)), then on macOS:
 
 ```bash
 ultraterm-computer-use doctor        # macOS: approve Accessibility and Screen Recording once
 ultraterm-computer-use list_apps
 ultraterm-computer-use get_app_state --app TextEdit --media-dir /tmp/shots
-ultraterm-computer-use click --app TextEdit --element-index 3 --state-id <State-ID from the last result>
+ultraterm-computer-use click --app TextEdit --element-index 3 --state-id "STATE_ID_FROM_LAST_RESULT"
 ```
 
 On macOS the Computer Use app keeps the captured state between calls, so a `state_id` from one call is valid in the next. Output is plain text; `--json` prints the full result envelope. See [Commands](#commands) and [`docs/state-id.md`](./docs/state-id.md).
@@ -141,48 +127,7 @@ Installer helpers write that entry for common clients: `ultraterm-computer-use i
 
 ## Commands
 
-```bash
-ultraterm-computer-use --help
-ultraterm-computer-use doctor
-ultraterm-computer-use doctor --status-only
-ultraterm-computer-use list-apps
-ultraterm-computer-use targets --running-only --json
-ultraterm-computer-use tools
-ultraterm-computer-use help click
-ultraterm-computer-use inspect TextEdit
-ultraterm-computer-use snapshot TextEdit
-ultraterm-computer-use get_app_state --app TextEdit --media-dir /tmp/shots
-ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
-ultraterm-computer-use preview --output-dir /tmp/preview TextEdit
-ultraterm-computer-use record --output /tmp/textedit.mp4 TextEdit
-ultraterm-computer-use mcp      # optional MCP server
-```
-
-Capture fresh state before using an element index and pass its `state_id` with the action (`--state-id`). Prefer element actions over coordinates. `call --calls '<json-array>'` runs several steps in one process and stops at the first error. Design notes for each behaviour are in [`docs/`](./docs/ARCHITECTURE.md).
-
-These commands, the tool flags, plain-text output, shared state and the structured errors and exit statuses below are in the macOS runtime. The Linux and Windows runtimes provide `mcp`, `doctor`, `list-apps`, `snapshot` and `call` (`--args` JSON, JSON output).
-
-- `doctor` prints the live permission state and opens the onboarding app when a permission is missing. `doctor --status-only` only prints it and never launches the app or prompts; `doctor --json` prints the state as JSON, also without launching anything.
-- `targets [--running-only] [--json]` lists apps an agent can target. It is read-only: it never launches, activates or prompts. Password managers are never listed.
-- `call <tool> [--<argument> <value> ...] [--json] [--media-dir <dir>]` runs one tool; the tool name also works without `call` (`click --app TextEdit --element-index 3`). Arguments are flags generated from the tool's schema (`--element-index` or `--element_index`), and `--args '<json>'` / `--args-file` still work. Output is the tool's plain text; `--json` prints the result envelope, and `--media-dir` saves screenshots as files (`image: <path>`). `help <tool>` or `<tool> --help` lists a tool's flags. State from one call stays valid for the next (10 minutes idle).
-- `tools [name] [--json]` prints the tool catalog, or one tool's description and input schema. It runs offline and needs no permissions.
-- `inspect [--json] [--window <title>] [--media-dir <path>] <app>` prints the accessibility snapshot and a screenshot of an app that is already running. It never launches or activates the app and does not register state for actions. It needs Screen Recording permission for the screenshot. With `--media-dir`, the screenshot is written into that directory and the result points at the file instead of carrying base64 data.
-- `preview [--output-dir <path>] [--duration <seconds>] [--fps <1-60>] [--max-width <px>] [--quality <0.05-1>] [--include-cursor] <app>` keeps a live JPEG of one window of a running app: `latest.jpg` is replaced atomically and `manifest.json` records size, timestamps and frame counters. `--output-dir` is required.
-- `record [--output <path>] [--duration <seconds>] [--fps <1-60>] [--max-width <px>] [--bitrate <bps>] [--include-cursor] <app>` records one window of a running app to an H.264 MP4 with no audio. `--output` is required.
-- For `inspect`, `snapshot` and `call`, an app target is a name, a bundle identifier, `pid:<pid>` or a bare pid. A pid addresses exactly one process, and an ambiguous name is refused with the candidates listed. `preview` and `record` take a name or a bundle identifier.
-
-`preview` and `record` capture the screen, so they need Screen Recording permission; without it they stop with an error that points to `doctor`. They only capture an app that is already running, never launch, activate or unhide it, and never open a viewer. They are bounded:
-
-| Limit | `preview` | `record` |
-| --- | --- | --- |
-| Duration | up to 3600 seconds (default 30) | up to 600 seconds (default 60); longer requests are cut to 600 |
-| Frames per second | 1 to 60 (default 8) | 1 to 60 (default 15) |
-| Width | 64 to 16384 px (default 960) | 64 to 16384 px (default 1920) |
-| Other | JPEG quality 0.05 to 1 (default 0.8) | bitrate 100000 to 200000000 bps (default 4000000); output stops at 300 MB |
-
-Both write only to the path you give: `preview` to `latest.jpg` and `manifest.json` inside `--output-dir` (created if missing), `record` to the `--output` file (an existing file there is replaced, and a partial file is removed on failure). They print a JSON summary, stop cleanly on Ctrl-C or SIGTERM, and never upload anything or contact any server. The system cursor is left out of frames unless you pass `--include-cursor`.
-
-Failures from `call` print `error[code] (phase): message` with a `hint:` and `candidates:` on stderr (with `--json`, an `error` object with `code`, `phase`, `call_index`, `retryable`, `hint`, `candidates`, `message` next to the usual result text), and the process exits with a stable status: 0 success, 1 other failure, 2 usage or invalid arguments, 3 permission denied, 4 app not found, 5 ambiguous app, 6 state unavailable, 7 stale state. Arguments are checked against each tool's input schema before it runs, and a sequence is checked in full before its first call acts.
+See the [CLI reference](docs/cli.md) for tool flags, capture limits, errors and exit statuses.
 
 ## Safety and privacy
 
@@ -193,8 +138,8 @@ Computer Use sends no telemetry or usage data. See [`SECURITY.md`](./SECURITY.md
 ## Build from source
 
 ```bash
-swift build
-swift test
+swift build -j 4
+swift test -j 4
 ./scripts/build-ultraterm-computer-use-app.sh debug
 ./scripts/build-ultraterm-computer-use-linux.sh --configuration release --arch arm64
 ./scripts/build-ultraterm-computer-use-windows.sh --configuration release --arch amd64
@@ -202,7 +147,7 @@ swift test
 
 For signed macOS releases, set `ULTRATERM_COMPUTER_USE_BUNDLE_ID` to the existing shipped bundle identifier and `ULTRATERM_COMPUTER_USE_TEAM_ID` to its Apple Developer team. Also configure `ULTRATERM_COMPUTER_USE_CODESIGN_IDENTITY`, `ULTRATERM_COMPUTER_USE_INSTALLER_IDENTITY`, and `ULTRATERM_COMPUTER_USE_NOTARYTOOL_PROFILE` before running `scripts/build-ultraterm-computer-use-release.sh`. Release builds reject missing or example identity values. Ordinary app builds default to `com.example.ultraterm-computer-use`; debug builds append `.dev` to the configured identifier.
 
-Swift 6.2 is required for the macOS app. Go 1.22+ builds the Linux and Windows runtimes.
+Swift 6.2 or newer is required for the macOS app. Go 1.22+ builds the Linux and Windows runtimes.
 
 ## License and attribution
 

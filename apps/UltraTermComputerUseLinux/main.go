@@ -313,10 +313,10 @@ func (s *service) callTool(name string, args map[string]any) toolCallResult {
 	case "drag":
 		return s.drag(
 			requiredString(args, "app"),
-			requiredFloat(args, "from_x"),
-			requiredFloat(args, "from_y"),
-			requiredFloat(args, "to_x"),
-			requiredFloat(args, "to_y"),
+			optionalFloat(args, "from_x"),
+			optionalFloat(args, "from_y"),
+			optionalFloat(args, "to_x"),
+			optionalFloat(args, "to_y"),
 		)
 	case "type_text":
 		keyMethod, err := parseKeyMethod(optionalString(args, "key_method"))
@@ -1174,14 +1174,10 @@ func elementIndexString(value any) string {
 }
 
 func integerElementIndexFloat(value float64) string {
-	if math.IsNaN(value) || math.IsInf(value, 0) || math.Trunc(value) != value {
+	if !isWholeNumber(value) || value < -0x1p63 || value >= 0x1p63 {
 		return ""
 	}
 	return strconv.FormatInt(int64(value), 10)
-}
-
-func requiredFloat(args map[string]any, key string) *float64 {
-	return optionalFloat(args, key)
 }
 
 func optionalFloat(args map[string]any, key string) *float64 {
@@ -1235,9 +1231,6 @@ func positiveIntFromValue(value any, key string) (*int, error) {
 	case int:
 		return positiveIntFromInt64(int64(typed), key)
 	case float64:
-		if !isWholeNumber(typed) {
-			return nil, fmt.Errorf("%s must be a positive integer", key)
-		}
 		return positiveIntFromFloat64(typed, key)
 	case json.Number:
 		integer, err := typed.Int64()
@@ -1251,7 +1244,8 @@ func positiveIntFromValue(value any, key string) (*int, error) {
 }
 
 func positiveIntFromFloat64(value float64, key string) (*int, error) {
-	if !isWholeNumber(value) || value <= 0 || value > float64(maxInt()) {
+	// Use the exclusive power-of-two bound: float64(maxInt()) rounds up on 64-bit hosts.
+	if !isWholeNumber(value) || value <= 0 || value >= math.Ldexp(1, strconv.IntSize-1) {
 		return nil, fmt.Errorf("%s must be a positive integer", key)
 	}
 	integer := int(value)
