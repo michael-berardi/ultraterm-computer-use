@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.10.3
+
+- Linux and Windows reject out-of-range numeric element indexes instead of converting them to a different integer. Positive integer limits also reject floating-point overflow at the native integer boundary. Valid argument formats are unchanged.
+- Reuse numeric validation helpers and remove redundant float-forwarding wrappers.
+- Clarify platform-specific installation, Linux runtime prerequisites, and the agent host's role in handling returned data. Move detailed command reference to `docs/cli.md`.
+
 ## 0.10.2
 
 Fixes found in review of 0.10.0 and 0.10.1.
