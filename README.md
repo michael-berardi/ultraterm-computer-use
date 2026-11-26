@@ -135,11 +135,12 @@ Computer Use acts in the user's real desktop session and does not bypass OS perm
 
 ## Privacy
 
-No telemetry, analytics or crash reports; the tool works offline.
+No telemetry, analytics or crash reports; desktop control works offline.
 Screenshots and accessibility text go to your agent host, which may send them to your model provider.
-Installers fetch releases over HTTPS and verify them; version checks are anonymous and can be skipped.
-Captures, settings, logs and temp files stay local with owner-only permissions, retention limits and cleanup.
-Full egress, storage and deletion details (including the local-write table): [PRIVACY.md](./PRIVACY.md).
+Installers download releases from GitHub over HTTPS and verify them; nothing is sent after install.
+The tool never checks for updates; installers look up the latest release unless you set `UTCU_VERSION` (macOS: `--local`).
+Settings and saved captures stay until you delete them; logs and temp files are capped or removed automatically.
+Uninstalling keeps that data; [PRIVACY.md](./PRIVACY.md) lists every path and how to delete it.
 
 ## Build from source
 
