@@ -15,6 +15,7 @@ ultraterm-computer-use call get_app_state --args '{"app":"TextEdit"}'
 ultraterm-computer-use preview --output-dir /tmp/preview TextEdit
 ultraterm-computer-use record --output /tmp/textedit.mp4 TextEdit
 ultraterm-computer-use mcp      # optional MCP server
+ultraterm-computer-use update   # install a newer release; see updates.md
 ```
 
 Capture fresh state before using an element index and pass its `state_id` with the action (`--state-id`). Prefer element actions over coordinates. `call --calls '<json-array>'` runs several steps in one process and stops at the first error. Design notes for each behaviour are in [`docs/`](ARCHITECTURE.md).

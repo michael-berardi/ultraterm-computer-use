@@ -52,6 +52,7 @@ ultraterm-computer-use config path
 | `image.scaleDownAfterMaxSize` | `true` | If the long edge exceeds the limit, `true` resizes proportionally and `false` omits the screenshot. | `ultraterm-computer-use config set image.scaleDownAfterMaxSize false` |
 | `image.discardBelowPixelCount` | `64` | Omit when width × height is below this value; equality is retained. Integer `0–268435456`; `0` disables filtering. For example, `4096` is the area of `64×64`. Resized images are checked too. | `ultraterm-computer-use config set image.discardBelowPixelCount 4096` |
 | `image.captureTimeout` | `5` | ScreenCaptureKit fallback capture timeout, in seconds. Range `0.01–300`. | `ultraterm-computer-use config set image.captureTimeout 10` |
+| `updates.check` | `true` | The daily update check and notice ([Updates](updates.md)). All platforms. | `ultraterm-computer-use config set updates.check false` |
 
 
 ## Virtual displays (macOS, opt-in)

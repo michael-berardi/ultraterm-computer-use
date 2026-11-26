@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0
+
+- **Update notice.** In a terminal, the CLI mentions a newer stable release on stderr after a command, at most once a day per version. The check is one anonymous GET of the public latest-release record, at most daily, in a detached background process, so no command waits for it. There is no check outside a terminal, in CI, under agent hosts, with `--json` or after `mcp`, and none with `ULTRATERM_COMPUTER_USE_NO_UPDATE_CHECK=1` or `config set updates.check false`.
+- **`update` command.** Shows current → new and the release notes, asks in a terminal, and updates the way the tool was installed: `install.sh`/`install.ps1` copies run that release's installer, npm copies run `npm install --global` on the downloaded tarball, and the signed macOS app runs that release's signed-package installer. Each downloaded file is checked against the release `SHA256SUMS` before it runs. Also `--check` (exit 0, 10 or 1), `--skip`, `--auto on|off|status` and `--rollback`.
+- **Automatic updates, off by default.** With `--auto on`, the background check installs new releases at low priority and logs to one file kept under 256 KB. A failed install keeps the current version, records the cause and brings the notice back. The signed macOS app does not offer it, because its installer needs an administrator password.
+- `install.sh` keeps the release it replaced as one rollback copy; the new version removes it after its first successful run, or 7 days later.
+- The macOS command shim passes `update` to the CLI instead of opening the app, and `uninstall` also removes the update cache folder.
+- Details: [docs/updates.md](docs/updates.md) and [PRIVACY.md](PRIVACY.md).
+
 ## 0.10.3
 
 - Linux and Windows reject out-of-range numeric element indexes instead of converting them to a different integer. Positive integer limits also reject floating-point overflow at the native integer boundary. Valid argument formats are unchanged.

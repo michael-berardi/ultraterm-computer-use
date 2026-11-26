@@ -11,6 +11,8 @@ export const settings = {
   "image.scaleDownAfterMaxSize": { default: true, env: "ULTRATERM_COMPUTER_USE_IMAGE_SCALE_DOWN_AFTER_MAX_SIZE", boolean: true },
   "image.discardBelowPixelCount": { default: 64, env: "ULTRATERM_COMPUTER_USE_IMAGE_DISCARD_BELOW_PIXEL_COUNT", min: 0, max: 268435456, integer: true },
   "image.captureTimeout": { default: 5, env: "ULTRATERM_COMPUTER_USE_IMAGE_CAPTURE_TIMEOUT", min: 0.01, max: 300 },
+  // Turned off for one shell with ULTRATERM_COMPUTER_USE_NO_UPDATE_CHECK=1 (see docs/updates.md).
+  "updates.check": { default: true, boolean: true },
 };
 
 export function configPath(env = process.env) {
@@ -48,7 +50,7 @@ export function readConfig(file) {
   try { value = JSON.parse(readFileSync(file, "utf8")); }
   catch (error) { throw new Error(`Cannot read config ${file}: ${error.message}`); }
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("Config must be a JSON object");
-  for (const section of ["image", "virtualDisplay"]) {
+  for (const section of ["image", "virtualDisplay", "updates"]) {
     if (value[section] !== undefined && (!value[section] || typeof value[section] !== "object" || Array.isArray(value[section]))) throw new Error(`Config ${section} must be an object`);
   }
   return value;
@@ -67,7 +69,7 @@ export function inspectConfig(env = process.env) {
       try { value = validateSetting(key, persisted[section][name]); source = "file"; }
       catch (error) { warnings.push(error.message); }
     }
-    if (env[spec.env] !== undefined) {
+    if (spec.env && env[spec.env] !== undefined) {
       try { value = validateSetting(key, env[spec.env], { fromText: true }); source = "env"; }
       catch (error) {
         if (key === "virtualDisplay.enabled") { value = false; source = "default"; }
@@ -106,7 +108,7 @@ export function configCommand(argv, env = process.env) {
     const [section, name] = key.split(".");
     config[section] ??= {}; config[section][name] = value;
     save(file, config);
-    return `${key} = ${value} saved to ${file}${env[settings[key].env] !== undefined ? `\nWarning: ${settings[key].env} overrides this saved setting.` : ""}`;
+    return `${key} = ${value} saved to ${file}${settings[key].env && env[settings[key].env] !== undefined ? `\nWarning: ${settings[key].env} overrides this saved setting.` : ""}`;
   }
   if (action === "reset" && argv.length === 2) {
     const key = argv[1]; validateKey(key);
@@ -124,7 +126,8 @@ export function configCommand(argv, env = process.env) {
 }
 function validateKey(key) { if (!settings[key]) throw new Error(`Unknown setting: ${key}`); }
 export const configHelp = `Usage: ultraterm-computer-use config [list [--json] | path | get KEY | set KEY VALUE | reset KEY]
-Settings (macOS): ${Object.keys(settings).join(", ")}
+Settings: ${Object.keys(settings).join(", ")}
+image.* and virtualDisplay.* apply to macOS. updates.check false turns off the daily update check.
 image.maxLongEdgePixels: maximum long edge in pixels (null disables).
 image.scaleDownAfterMaxSize: true resizes oversized images; false omits them.
 image.discardBelowPixelCount: omit when width * height is below this total pixel count (0 disables).

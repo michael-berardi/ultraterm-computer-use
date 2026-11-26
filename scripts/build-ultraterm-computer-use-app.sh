@@ -281,6 +281,17 @@ if [[ "${configuration}" != "release" || "${app_variant_override}" == "dev" ]]; 
   app_bundle_name="${development_app_bundle_name}"
 fi
 
+# The update check (docs/updates.md) reads the GitHub owner/repo stamped here; release builds only.
+release_repo="${ULTRATERM_COMPUTER_USE_RELEASE_REPO:-}"
+if [[ -z "$release_repo" ]]; then
+  release_repo="$(git -C "${repo_root}" remote get-url origin 2>/dev/null |
+    sed -E -n 's#^(git@github\.com:|ssh://git@github\.com/|https://github\.com/)([A-Za-z0-9._-]+/[A-Za-z0-9._-]+)/?$#\2#p' |
+    sed 's#\.git$##')" || true
+fi
+if [[ "$app_variant" != "release" || ! "$release_repo" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$ || "$release_repo" == your-org/* ]]; then
+  release_repo=""
+fi
+
 app_output_dir="${ULTRATERM_COMPUTER_USE_APP_OUTPUT_DIR:-${repo_root}/dist}"
 app_root="${app_output_dir}/${app_bundle_name}"
 release_app_root="${app_output_dir}/${release_app_bundle_name}"
@@ -368,6 +379,8 @@ cat > "${contents_dir}/Info.plist" <<PLIST
   <string>${bundle_build_identifier}</string>
   <key>UltraTermComputerUseAppVariant</key>
   <string>${app_variant}</string>
+  <key>UltraTermComputerUseReleaseRepo</key>
+  <string>${release_repo}</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
   <key>CFBundleShortVersionString</key>

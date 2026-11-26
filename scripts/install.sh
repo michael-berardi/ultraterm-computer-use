@@ -6,7 +6,7 @@
 # unless you pass --npm to install the npm package into your home folder instead (never touches /Applications).
 # Uses the Node 18+ already on this machine, or fetches the official Node 22 LTS into the tool's own folder.
 # Environment: UTCU_HOME (default ~/.ultraterm-computer-use), UTCU_BIN_DIR (default ~/.local/bin),
-# UTCU_VERSION (pin a version, e.g. 0.10.3), UTCU_RELEASE_BASE (override the download base URL, used by tests).
+# UTCU_VERSION (pin a version, e.g. 0.11.0), UTCU_RELEASE_BASE (override the download base URL, used by tests).
 set -eu
 
 REPO="your-org/ultraterm-computer-use"
@@ -165,6 +165,13 @@ got=$("$NODE_BIN" "$LAUNCHER" --version 2>&1 </dev/null) || die "the new copy do
 case "$got" in "$VERSION") ;; *) die "the new copy reports '$got', not $VERSION; nothing was changed" ;; esac
 
 mkdir -p "$APP" "$BIN_DIR"
+# The release the shim runs now stays as the one rollback copy (`ultraterm-computer-use update --rollback`).
+# The new version removes it after its first successful run, or 7 days after this update.
+# Matched by folder name (unique per install): the updater may reach this folder through another path.
+PREV=""
+for d in "$APP"/release-*; do
+  [ -d "$d" ] && grep -qF "/${d##*/}/" "$SHIM" 2>/dev/null && PREV=$d
+done
 # Each install gets its own folder, so re-running the same version never removes the live release.
 REL=$(mktemp -d "$APP/release-$VERSION-XXXXXX") || die "cannot create a release folder under $APP"
 rmdir "$REL" && mv "$STAGE" "$REL" || die "cannot move the new release into $APP"
@@ -181,12 +188,14 @@ SHIM
 chmod 755 "$SHIM.tmp.$$"
 mv -f "$SHIM.tmp.$$" "$SHIM"
 
-# Keep only the release that the shim points at.
-for d in "$APP"/release-*; do
+# Keep the release the shim points at and the one it replaced; nothing older.
+for d in "$APP"/release-* "$APP"/.rollback-*; do
   [ -d "$d" ] || continue
-  [ "$d" = "$REL" ] || rm -rf "$d" || true
+  [ "$d" = "$REL" ] || [ "$d" = "$PREV" ] || rm -rf "$d" || true
 done
 
+# UTCU_INSTALL_CHECK: these checks are not the first real run, so the rollback copy stays.
+UTCU_INSTALL_CHECK=1; export UTCU_INSTALL_CHECK
 got=$("$SHIM" --version 2>&1 </dev/null) || die "the installed command does not run: $got"
 case "$got" in "$VERSION") ;; *) die "the installed command reports '$got', not $VERSION" ;; esac
 say "UltraTerm Computer Use $got installed ($SHIM)."

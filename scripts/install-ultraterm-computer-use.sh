@@ -144,11 +144,9 @@ if [[ ! -x "$app" ]]; then
 fi
 [[ -n "${1:-}" ]] || { echo "Usage: ultraterm-computer-use <command>" >&2; exit 2; }
 case "${1:-}" in
-  update)
-    open -a "$app_bundle"
-    ;;
   uninstall)
     sudo rm -rf "$app_bundle"
+    rm -rf "$HOME/Library/Caches/ultraterm-computer-use"
     managed_shim="$HOME/.local/bin/ultraterm-computer-use"
     if grep -q 'ULTRATERM_COMPUTER_USE_MANAGED_SHIM' "$managed_shim" 2>/dev/null; then
       rm -f "$managed_shim"

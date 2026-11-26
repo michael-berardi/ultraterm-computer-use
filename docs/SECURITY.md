@@ -17,6 +17,7 @@
 - The synthetic state of the fixture app is written only to a local temporary JSON file, to support deterministic smoke tests. Writes use atomic replacement to reduce read/write races during tests.
 - On macOS, `preview` and `record` capture the contents of one window of an already running app and need Screen Recording permission. They write only to the path the caller gives (`--output-dir` for `preview`, `--output` for `record`), are bounded in duration, frame rate, size and file size (see [Architecture](ARCHITECTURE.md#read-only-commands-capture-and-structured-errors-macos)), never launch or activate the app, and never send anything over the network. `inspect --media-dir` writes screenshots only into the directory the caller gives. Because `preview` and `record` run in the CLI process instead of the app agent, the permission check applies to the program that runs the command; if it fails, grant Screen Recording to that program.
 - The repository does not introduce third-party services and does not upload screenshots, AX trees or input content.
+- The update check is one anonymous GET of the public GitHub latest-release record, at most daily and only in a terminal ([Updates](updates.md)). `update` checks every downloaded installer or tarball against the release `SHA256SUMS` before it runs; on macOS the release installer then verifies the package's Developer ID team, notarization and designated requirement.
 
 ## Authorization and least privilege
 

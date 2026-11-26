@@ -34,7 +34,9 @@ enum UltraTermComputerUseMain {
         let command = try parseUltraTermComputerUseCLI(arguments: arguments)
 
         if MacOSAppAgentProxy.shouldProxy(command: command) {
-            exit(try MacOSAppAgentProxy.runProxy(command: command, arguments: arguments))
+            let status = try MacOSAppAgentProxy.runProxy(command: command, arguments: arguments)
+            if status == 0 { UpdateSupport.afterCommand(command, arguments: arguments) }
+            exit(status)
         }
 
         switch command {
@@ -121,6 +123,8 @@ enum UltraTermComputerUseMain {
         case .turnEnded:
             postUltraTermComputerUseTurnEndedNotification()
             print("turn-ended acknowledged")
+        case let .update(action):
+            exit(UpdateSupport.run(action))
         case let .help(command):
             print(ultraTermComputerUseHelpText(command: command))
         case .version:
@@ -130,6 +134,8 @@ enum UltraTermComputerUseMain {
                 PermissionOnboardingApp.launch()
             }
         }
+
+        UpdateSupport.afterCommand(command, arguments: arguments)
     }
 
     private static func writeToStandardError(_ message: String) {

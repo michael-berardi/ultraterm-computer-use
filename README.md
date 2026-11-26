@@ -55,7 +55,7 @@ What the one-step installers do:
 - macOS: `install.sh` points at the signed `.pkg` route below and installs nothing, so the signed installer is never bypassed silently. To install the npm package under `~/.ultraterm-computer-use` instead, pass `--npm`: `curl -fsSL https://github.com/michael-berardi/ultraterm-computer-use/releases/latest/download/install.sh | sh -s -- --npm`
 - Windows: install under `%LOCALAPPDATA%\UltraTermComputerUse`, write an `ultraterm-computer-use.cmd` shim into its `bin` folder, and add that folder to the user Path only when it is absent. Node is handled the same way as on Linux.
 
-Update by re-running the same one-liner; it upgrades in place. Remove by deleting the install folder and the shim (on Windows, also remove the `bin` folder from your user Path). Set `UTCU_VERSION` to pin a version, `UTCU_HOME` and `UTCU_BIN_DIR` to change locations.
+Update with `ultraterm-computer-use update` or by re-running the same one-liner. Remove by deleting the install folder, the shim and the update cache folder ([Updates](docs/updates.md#files)); on Windows, also remove the `bin` folder from your user Path. Set `UTCU_VERSION` to pin a version, `UTCU_HOME` and `UTCU_BIN_DIR` to change locations.
 
 Real app control still needs a logged-in desktop session: Accessibility and Screen Recording on macOS, AT-SPI2 and D-Bus on Linux, UI Automation on Windows.
 
@@ -64,7 +64,7 @@ Real app control still needs a logged-in desktop session: Accessibility and Scre
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.10.3/ultraterm-computer-use-0.10.3.tgz
+npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.11.0/ultraterm-computer-use-0.11.0.tgz
 ultraterm-computer-use --version
 ```
 
@@ -90,6 +90,10 @@ ULTRATERM_COMPUTER_USE_BUNDLE_ID=<bundle-id> \
 ULTRATERM_COMPUTER_USE_TEAM_ID=<team-id> \
   ./scripts/install-ultraterm-computer-use.sh --local path/to/UltraTerm-Computer-Use.pkg
 ```
+
+## Updates
+
+`ultraterm-computer-use update` installs a newer release after checking it against the release `SHA256SUMS`; `update --check` only reports. In a terminal, the CLI mentions a new release at most once a day. Automatic installs are off unless you run `update --auto on`. See [Updates](docs/updates.md).
 
 ## Use it from an agent
 
@@ -133,7 +137,10 @@ See the [CLI reference](docs/cli.md) for tool flags, capture limits, errors and 
 
 Computer Use acts in the user's real desktop session and does not bypass OS permissions. Ask before sending, deleting, purchasing, approving, uploading, or making another externally visible change. Do not inspect password managers or unrelated private content.
 
-Computer Use sends no telemetry or usage data. See [`SECURITY.md`](./SECURITY.md).
+- No telemetry or usage data.
+- At most once a day, in a terminal, one anonymous update check of the public latest-release record.
+- Turn it off with `ULTRATERM_COMPUTER_USE_NO_UPDATE_CHECK=1` or `config set updates.check false`.
+- Details: [`PRIVACY.md`](./PRIVACY.md) and [`SECURITY.md`](./SECURITY.md).
 
 ## Build from source
 

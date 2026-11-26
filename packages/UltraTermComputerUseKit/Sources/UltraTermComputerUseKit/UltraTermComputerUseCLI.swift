@@ -15,6 +15,7 @@ public enum UltraTermComputerUseCLICommand: Equatable {
     case preview(app: String, options: PreviewCaptureOptions)
     case record(app: String, options: RecordingCaptureOptions)
     case turnEnded(payload: String?)
+    case update(UpdateCommandAction)
     case help(command: String?)
     case version
 }
@@ -52,7 +53,7 @@ public func shouldUseMacOSAppAgentProxy(
         return true
     // preview/record run long-lived ScreenCaptureKit sessions in the CLI
     // process so signals cancel them cleanly and no viewer UI ever opens.
-    case .preview, .record, .lockedUseManagement, .turnEnded, .help, .version:
+    case .preview, .record, .lockedUseManagement, .turnEnded, .update, .help, .version:
         return false
     }
 }
@@ -134,6 +135,8 @@ public func parseUltraTermComputerUseCLI(arguments: [String]) throws -> UltraTer
         return try parseCall(arguments: Array(arguments.dropFirst()))
     case "turn-ended":
         return try parseTurnEnded(arguments: Array(arguments.dropFirst()))
+    case "update":
+        return .update(try parseUpdateCommand(Array(arguments.dropFirst())))
     case "snapshot":
         return try parseSnapshot(arguments: Array(arguments.dropFirst()))
     case "preview":
@@ -171,6 +174,7 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
           preview <app>        Write a live JPEG preview (latest.jpg + manifest.json) of an app's window. Needs Screen Recording.
           record <app>         Record an app's window to a bounded H.264 MP4. Needs Screen Recording.
           turn-ended           Notify the running MCP process that the host turn ended.
+          update               Check for a newer release and install it after verification.
           help [command]       Show general or command-specific help.
           version              Print the CLI version.
 
@@ -189,6 +193,8 @@ public func ultraTermComputerUseHelpText(command: String? = nil) -> String {
 
         Start the stdio MCP server.
         """
+    case "update":
+        return updateHelpText()
     case "doctor":
         return """
         Usage:

@@ -177,7 +177,7 @@ const runInstall = (f, home, extra = [], env = {}) =>
     env: { ...cleanEnv(), HOME: home, UTCU_HOME: join(home, ".utcu"), UTCU_BIN_DIR: join(home, "bin"), UTCU_RELEASE_BASE: `file://${f.rel}`, ...env },
   });
 
-test("install.sh: shim embeds the absolute node, carries the marker, re-run keeps one working release", () => {
+test("install.sh: shim embeds the absolute node, carries the marker, re-runs keep the live release plus one rollback copy", () => {
   const f = fakeRelease();
   const home = join(f.dir, "home"); mkdirSync(home);
   let r = runInstall(f, home);
@@ -185,9 +185,16 @@ test("install.sh: shim embeds the absolute node, carries the marker, re-run keep
   const shim = readFileSync(join(home, "bin/ultraterm-computer-use"), "utf8");
   assert.match(shim, /^# UTCU_NPM_SHIM$/m);
   assert.match(shim, /^exec "\/[^"]*node" "/m, "shim must run an absolute node path, not bare node");
+  const releases = () => readdirSync(join(home, ".utcu/app")).filter((n) => n.startsWith("release-"));
+  const firstRelease = releases()[0];
   r = runInstall(f, home);
   assert.equal(r.status, 0, r.stdout + r.stderr);
-  assert.equal(readdirSync(join(home, ".utcu/app")).filter((n) => n.startsWith("release-")).length, 1);
+  assert.equal(releases().length, 2);
+  assert.ok(releases().includes(firstRelease), "the release the shim ran is the rollback copy");
+  r = runInstall(f, home);
+  assert.equal(r.status, 0, r.stdout + r.stderr);
+  assert.equal(releases().length, 2, "never more than one rollback copy");
+  assert.ok(!releases().includes(firstRelease), "older releases are removed");
   assert.equal(sh(join(home, "bin/ultraterm-computer-use"), ["--version"], { env: { ...cleanEnv(), HOME: home } }).stdout.trim(), f.version);
   rmSync(f.dir, { recursive: true, force: true });
 });

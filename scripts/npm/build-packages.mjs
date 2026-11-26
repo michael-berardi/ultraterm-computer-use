@@ -496,6 +496,7 @@ function renderMetaPackageJson(packageName, version) {
       "scripts/install-codex-plugin.sh",
       "scripts/node-repl/",
       "scripts/postinstall.mjs",
+      "scripts/updates.mjs",
       "skills/ultraterm-computer-use/",
       "README.md",
       "LICENSE",
@@ -508,6 +509,7 @@ function copyInstallerScripts(packageRoot) {
   cpSync(path.join(repoRoot, "scripts", "install-claude-mcp.sh"), path.join(packageRoot, "scripts", "install-claude-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-gemini-mcp.sh"), path.join(packageRoot, "scripts", "install-gemini-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-config-helper.mjs"), path.join(packageRoot, "scripts", "install-config-helper.mjs"));
+  cpSync(path.join(repoRoot, "scripts", "updates.mjs"), path.join(packageRoot, "scripts", "updates.mjs"));
   cpSync(path.join(repoRoot, "scripts", "install-codex-mcp.sh"), path.join(packageRoot, "scripts", "install-codex-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-opencode-mcp.sh"), path.join(packageRoot, "scripts", "install-opencode-mcp.sh"));
   cpSync(path.join(repoRoot, "scripts", "install-dsh-mcp.sh"), path.join(packageRoot, "scripts", "install-dsh-mcp.sh"));

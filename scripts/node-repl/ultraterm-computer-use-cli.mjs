@@ -1,4 +1,5 @@
 import { configCommand, configHelp } from "./config.mjs";
+import { afterCommand, updateCommand, updatesHelp } from "../updates.mjs";
 import { spawn } from "node:child_process";
 import { constants as fsConstants, accessSync, existsSync, readFileSync } from "node:fs";
 import path from "node:path";
@@ -120,9 +121,10 @@ Usage:
 
 Commands:
   mcp                  Optional: start the stdio MCP server for hosts that only speak MCP.
+  update               Install a newer release after verification (help update for options).
   js <code>            Run JavaScript once with the asynchronous cua API.
   repl                 Start a persistent interactive JavaScript session.
-  config               View or persist macOS screenshot settings.
+  config               View or persist settings (macOS screenshots, update check).
   capabilities         Report Node, adapter, native, js, and repl availability.
   doctor               Print permission status and launch onboarding if needed on macOS.
   locked-use           macOS status, settings, enable, disable, or recovery.
@@ -456,6 +458,7 @@ export async function main({
   execPath = process.execPath,
   nodeVersion = process.version,
   spawnFn = spawn,
+  fetcher,
 } = {}) {
   const command = argv[0] ?? "";
   const report = inspectCapabilities({ packageRoot, platformPackages, platform, arch, execPath, nodeVersion });
@@ -476,6 +479,21 @@ export async function main({
     if (command === "help" && argv[1] === "capabilities") {
       writeLine(output, capabilitiesHelp());
       return 0;
+    }
+    if (command === "help" && argv[1] === "update") {
+      writeLine(output, updatesHelp);
+      return 0;
+    }
+    if (command === "update") {
+      try {
+        return await updateCommand(argv.slice(1), {
+          packageRoot, env, platform, input, output, errorOutput, fetcher,
+          interactive: Boolean(input.isTTY && output.isTTY),
+        });
+      } catch (error) {
+        writeLine(errorOutput, `ultraterm-computer-use update: ${asError(error).message}`);
+        return error?.exitCode ?? 1;
+      }
     }
     if (command === "help" && installCommands.has(argv[1])) {
       writeLine(output, installHelp(installCommands.get(argv[1]), installerUsage(argv[1])));
@@ -521,7 +539,12 @@ export async function main({
       if (!existsSync(scriptPath)) throw new Error(`Missing installer helper at ${scriptPath}.`);
       return await runChild(scriptPath, argv.slice(1), { env, spawnFn });
     }
-    return await runChild(resolveNativeExecutable(report), argv, { env, spawnFn });
+    const code = await runChild(resolveNativeExecutable(report), argv, { env, spawnFn });
+    afterCommand({
+      packageRoot, argv, code, env, platform, errorOutput, spawnFn,
+      interactive: Boolean(output.isTTY && errorOutput.isTTY),
+    });
+    return code;
   } catch (error) {
     writeLine(errorOutput, `ultraterm-computer-use: ${asError(error).message}`);
     return 1;
