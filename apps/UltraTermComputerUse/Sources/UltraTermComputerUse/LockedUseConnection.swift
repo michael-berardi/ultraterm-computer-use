@@ -121,6 +121,18 @@ final class LockedUseConnection: @unchecked Sendable {
             child.standardInput = input
             let directory = FileManager.default.urls(for: .libraryDirectory, in: .userDomainMask)[0].appendingPathComponent("Logs/UltraTermComputerUse/LockedUse", isDirectory: true)
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+            // One log per guardian lease. Keep a week of diagnostics; older
+            // files are not needed for a current unlock or its review.
+            let cutoff = Date().addingTimeInterval(-7 * 24 * 60 * 60)
+            if let oldLogs = try? FileManager.default.contentsOfDirectory(
+                at: directory, includingPropertiesForKeys: [.creationDateKey]
+            ) {
+                for candidate in oldLogs where candidate.pathExtension == "jsonl" {
+                    guard let created = try? candidate.resourceValues(forKeys: [.creationDateKey]).creationDate,
+                          created < cutoff else { continue }
+                    try? FileManager.default.removeItem(at: candidate)
+                }
+            }
             let logURL = directory.appendingPathComponent(UUID().uuidString + ".jsonl")
             let logFD = open(logURL.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
             guard logFD >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }

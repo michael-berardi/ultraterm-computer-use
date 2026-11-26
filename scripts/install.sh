@@ -6,7 +6,7 @@
 # unless you pass --npm to install the npm package into your home folder instead (never touches /Applications).
 # Uses the Node 18+ already on this machine, or fetches the official Node 22 LTS into the tool's own folder.
 # Environment: UTCU_HOME (default ~/.ultraterm-computer-use), UTCU_BIN_DIR (default ~/.local/bin),
-# UTCU_VERSION (pin a version, e.g. 0.10.3), UTCU_RELEASE_BASE (override the download base URL, used by tests).
+# UTCU_VERSION (pin a version, e.g. 0.10.4), UTCU_RELEASE_BASE (override the download base URL, used by tests).
 set -eu
 
 REPO="your-org/ultraterm-computer-use"
@@ -156,7 +156,7 @@ fi
 say "Installing UltraTerm Computer Use $VERSION..."
 STAGE="$TMP/stage"
 mkdir -p "$STAGE"
-( cd "$STAGE" && npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false \
+( cd "$STAGE" && DO_NOT_TRACK=1 npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false \
     "$NPM" install --prefix "$STAGE" --no-audit --no-fund --loglevel=error "$TMP/$TARBALL" </dev/null ) \
   || die "npm install failed; nothing was changed"
 LAUNCHER="$STAGE/node_modules/ultraterm-computer-use/bin/ultraterm-computer-use"

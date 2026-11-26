@@ -257,7 +257,11 @@ public final class RecordingCaptureEngine: @unchecked Sendable {
         let outputURL = configuration.outputURL
         let parentDirectory = outputURL.deletingLastPathComponent()
         do {
-            try fileManager.createDirectory(at: parentDirectory, withIntermediateDirectories: true)
+            try fileManager.createDirectory(
+                at: parentDirectory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: parentDirectory.path)
         } catch {
             throw CaptureCommandError.outputNotWritable(parentDirectory.path)
         }
@@ -473,6 +477,9 @@ public final class RecordingCaptureEngine: @unchecked Sendable {
                 newWriter.error?.localizedDescription ?? "AVAssetWriter failed to start"
             )
         }
+        try? fileManager.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: configuration.outputURL.path
+        )
 
         writer = newWriter
         writerInput = input
@@ -558,6 +565,9 @@ public final class RecordingCaptureEngine: @unchecked Sendable {
             )
         }
 
+        try? fileManager.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: outputURL.path
+        )
         let fileBytes = onDiskFileSize()
         // The in-loop size poll and the bitrate-derived deadline are best
         // effort: encoding overshoot and `finishWriting` trailer growth can

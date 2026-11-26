@@ -64,7 +64,7 @@ Real app control still needs a logged-in desktop session: Accessibility and Scre
 Install the release package with npm:
 
 ```bash
-npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.10.3/ultraterm-computer-use-0.10.3.tgz
+npm install --global https://github.com/michael-berardi/ultraterm-computer-use/releases/download/v0.10.4/ultraterm-computer-use-0.10.4.tgz
 ultraterm-computer-use --version
 ```
 
@@ -129,11 +129,27 @@ Installer helpers write that entry for common clients: `ultraterm-computer-use i
 
 See the [CLI reference](docs/cli.md) for tool flags, capture limits, errors and exit statuses.
 
-## Safety and privacy
+## Safety
 
-Computer Use acts in the user's real desktop session and does not bypass OS permissions. Ask before sending, deleting, purchasing, approving, uploading, or making another externally visible change. Do not inspect password managers or unrelated private content.
+Computer Use acts in the user's real desktop session and does not bypass OS permissions. Ask before sending, deleting, purchasing, approving, uploading, or making another externally visible change. Do not inspect password managers or unrelated private content. See also [`SECURITY.md`](./SECURITY.md).
 
-Computer Use sends no telemetry or usage data. See [`SECURITY.md`](./SECURITY.md).
+## Privacy
+
+Nothing in the CLI, MCP server, skill or native runtimes sends telemetry, analytics, crash reports or usage data. Local desktop control works offline.
+
+The network is used only when you run an install, update or packaging command. The Linux, Windows and npm installers download the release package from GitHub and verify its SHA-256; if Node.js is missing they also download an official Node build and verify its SHA-256. The signed macOS installer downloads the package and release metadata from GitHub and verifies checksums plus Apple signature and notarization. Installers run npm with its update notifier, funding and audit messages off and with `DO_NOT_TRACK=1`. Commands in the docs such as `npm install` and `npx skills add` are run by you, not by the tool.
+
+During normal use, screenshots and accessibility text are returned to the agent host that called the tool. UltraTerm Computer Use does not upload them. Your agent host, and the model provider it uses, receive whatever your agent sends them. The optional `js` command runs arbitrary local JavaScript; code you write there can make its own network calls.
+
+Local storage:
+
+- Settings written by `ultraterm-computer-use config set` live in `~/.config/ultraterm-computer-use/config.json` (or under `XDG_CONFIG_HOME` / `ULTRATERM_COMPUTER_USE_CONFIG_FILE`). The file is owner-only (0600).
+- Screenshots written with `--media-dir`, `preview --output-dir` or `record --output` go only to paths you choose. Those folders are set to 0700 and the files to 0600. `preview` keeps one `latest.jpg` plus `manifest.json`; `record` writes one MP4, limited to 600 seconds and 300 MB, and deletes failed or over-cap files.
+- The macOS agent lifecycle log is `~/Library/Logs/UltraTerm Computer Use/app-agent.log` (0600 in a 0700 folder). It holds process IDs and lifecycle events, not prompts or screen contents, and is replaced once it passes 1 MiB.
+- Locked Use guardian logs are `~/Library/Logs/UltraTermComputerUse/LockedUse/*.jsonl` (0600 in a 0700 folder) and are pruned after 7 days.
+- The macOS agent socket and the temporary scripts used by the Linux and Windows runtimes are owner-only and removed when the session ends.
+
+To delete local data, remove the config file, the screenshot/recordings paths you chose, and the two log folders above. Uninstalling the app or npm package does not remove them.
 
 ## Build from source
 

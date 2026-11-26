@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.4
+
+- Screenshots and recordings written with `--media-dir`, `preview` or `record` now use owner-only directories (0700) and files (0600). Fixture state files use the same permissions.
+- The macOS app-agent log is replaced once it passes 1 MiB and Locked Use guardian logs are pruned after 7 days; both remain owner-only.
+- The Linux, Windows and npm installers and the release tooling set `DO_NOT_TRACK=1` and keep npm's update notifier, funding and audit messages off.
+- Added a `## Privacy` section to the README and a test that rejects telemetry, analytics and crash-reporting packages or endpoints in shipped sources. No telemetry was present or added.
+
 ## 0.10.3
 
 - Linux and Windows reject out-of-range numeric element indexes instead of converting them to a different integer. Positive integer limits also reject floating-point overflow at the native integer boundary. Valid argument formats are unchanged.
