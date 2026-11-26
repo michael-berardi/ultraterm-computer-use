@@ -10,6 +10,18 @@ locked_use_architectures() {
   esac
 }
 
+# Kernel-verifier checks use fresh inodes in disposable scratch folders. Clear
+# folders left by interrupted builds before creating a new one, and again at
+# exit, so repeated builds cannot accumulate diagnostic debris.
+locked_use_clear_verifier_scratch() {
+  local output="$1" keep="${2:-}" candidate
+  for candidate in "$output"/task-verifier-checks.*; do
+    [[ -e "$candidate" || -L "$candidate" ]] || continue
+    [[ -n "$keep" && "$candidate" == "$keep" ]] && continue
+    rm -rf -- "$candidate"
+  done
+}
+
 locked_use_build_product() {
   local product="$1" destination="$2" arch binary_dir
   local binaries=()

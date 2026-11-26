@@ -10,7 +10,9 @@
 - Screenshots and recordings written with `--media-dir`, `preview` or `record` now use owner-only directories (0700) and files (0600). Fixture state files use the same permissions.
 - The macOS app-agent log is replaced once it passes 1 MiB and Locked Use guardian logs are pruned after 7 days; both remain owner-only.
 - The Linux, Windows and npm installers and the release tooling set `DO_NOT_TRACK=1` and keep npm's update notifier, funding and audit messages off.
-- Added a `## Privacy` section to the README and a test that rejects telemetry, analytics and crash-reporting packages or endpoints in shipped sources. No telemetry was present or added.
+- New `PRIVACY.md` documents what goes over the network (the update check, installs and updates), what stays on your computer, how long each local file is kept and how to delete it. The README Privacy section is a short summary linking to it.
+- A test rejects telemetry, analytics and crash-reporting packages or endpoints in shipped sources. No telemetry was present or added.
+- Locked Use verifier scratch folders are pruned at build start and on exit, so repeated builds do not leave diagnostic debris.
 - Details: [docs/updates.md](docs/updates.md) and [PRIVACY.md](PRIVACY.md).
 
 ## 0.10.3

@@ -87,7 +87,10 @@ xcrun clang -std=c11 -Wall -Wextra -Werror -mmacosx-version-min=14.0 -framework 
 # Exercise the modern kernel verifier against independently signed live code.
 # These executables are diagnostic artifacts, never installed or used as peers.
 # Fresh inodes prevent kernel signature caches from seeing an in-place update.
+# The scratch is not a build product: prune older folders and this one at exit.
+locked_use_clear_verifier_scratch "$output"
 test_output="$(mktemp -d "$output/task-verifier-checks.XXXXXX")"
+trap 'locked_use_clear_verifier_scratch "$output"' EXIT
 xcrun clang -Wall -Wextra -Werror -mmacosx-version-min=14.0 "-DOCU_SIGNING_TEAM=\"$team\"" -c \
   experiments/LockedUse/AuthorizationPlugin/TaskVerifierTests.c -o "$test_output/task-verifier-tests.o"
 xcrun swiftc -parse-as-library -emit-object -target "$native_arch-apple-macos14.0" \
