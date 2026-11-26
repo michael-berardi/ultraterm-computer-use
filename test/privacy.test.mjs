@@ -93,10 +93,24 @@ test("README Privacy is short and links to the full policy", () => {
   assert.ok(lines.length >= 3 && lines.length <= 6, `README Privacy has ${lines.length} lines`);
   assert.ok(lines.every((line) => line.length < 140), "README Privacy lines must stay short");
   assert.match(section, /\[PRIVACY\.md\]\(\.\/PRIVACY\.md\)/);
+  assert.match(section, /anonymous update check/, "README Privacy must state the update check");
+  assert.match(section, /ULTRATERM_COMPUTER_USE_NO_UPDATE_CHECK=1/, "README Privacy must name the opt-out");
 
   const privacy = readFileSync(join(root, "PRIVACY.md"), "utf8");
-  for (const fact of ["Egress and telemetry", "Local writes and lifetime", "UTCU_VERSION", "--local"]) {
+  for (const fact of [
+    "Egress and telemetry", "Local writes and lifetime", "UTCU_VERSION", "--local",
+    "Update check", "ULTRATERM_COMPUTER_USE_NO_UPDATE_CHECK=1", "updates.check false",
+    "update-state.json", "auto-update.log", "256 KB", "rollback copy",
+  ]) {
     assert.ok(privacy.includes(fact), `PRIVACY.md must cover ${fact}`);
+  }
+});
+
+test("privacy docs never deny the update check that ships", () => {
+  const stale = /never checks for updates|no (?:runtime )?update check|no update prompt|nothing is sent after install/i;
+  for (const name of ["README.md", "PRIVACY.md", "SECURITY.md", "docs/SECURITY.md"]) {
+    if (!exists(name)) continue;
+    assert.doesNotMatch(readFileSync(join(root, name), "utf8"), stale, `${name} contradicts docs/updates.md`);
   }
 });
 
