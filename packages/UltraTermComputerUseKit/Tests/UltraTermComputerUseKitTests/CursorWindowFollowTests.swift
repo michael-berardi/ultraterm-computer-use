@@ -61,6 +61,48 @@ final class CursorWindowFollowTests: XCTestCase {
         XCTAssertEqual(try XCTUnwrap(state.tipPosition).y, expected.y, accuracy: 1, file: testFile, line: line)
     }
 
+    /// Waits, bounded, for the idle animation to publish `frame`'s point, then
+    /// asserts it. Only the overlay's idle timer can update the observation
+    /// here, so a fixed sleep would test timer slack instead of following.
+    @MainActor
+    private func awaitPosition(_ file: URL, frame: CGRect, file testFile: StaticString = #filePath, line: UInt = #line) throws {
+        let expected = point(frame)
+        func matches(_ point: VisualCursorObservationPoint?) -> Bool {
+            guard let point else { return false }
+            return abs(point.x - expected.x) <= 1 && abs(point.y - expected.y) <= 1
+        }
+        let deadline = Date().addingTimeInterval(2)
+        while Date() < deadline {
+            if let state = try? JSONDecoder().decode(VisualCursorObservationSnapshot.self, from: Data(contentsOf: file)),
+               matches(state.restingTipPosition), matches(state.tipPosition) {
+                break
+            }
+            RunLoop.main.run(until: Date().addingTimeInterval(0.01))
+        }
+        try assertPosition(file, frame: frame, file: testFile, line: line)
+    }
+
+    /// Runs `body` once, inside the first overlay frame pump at least `delay`
+    /// seconds from now. Invalidate the result once the overlay call returns.
+    ///
+    /// A wall-clock `Timer` cannot reliably land inside a 0.18 s travel: when
+    /// the runner inherits utility QoS (as under a headless agent), the kernel
+    /// coalesces timers. Measured there: an 8 ms sleep took 39-71 ms, each
+    /// 1/120 s pump about 57 ms, and a 0.08 s timer fired at 0.23 s, after the
+    /// travel had ended. The overlay pumps the main run loop in default mode
+    /// once per frame, so an entry observer fires within that pump regardless.
+    @MainActor
+    private func onOverlayFrame(after delay: TimeInterval = 0, _ body: @escaping @MainActor () -> Void) -> CFRunLoopObserver {
+        let start = ProcessInfo.processInfo.systemUptime
+        let observer = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.entry.rawValue, true, 0) { observer, _ in
+            guard ProcessInfo.processInfo.systemUptime - start >= delay else { return }
+            CFRunLoopObserverInvalidate(observer)
+            MainActor.assumeIsolated { body() }
+        }!
+        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .defaultMode)
+        return observer
+    }
+
     @MainActor
     func testIdleFollowsRepeatedMovesAndReturnToOriginalFrame() throws {
         try withOverlay { file, original in
@@ -69,8 +111,7 @@ final class CursorWindowFollowTests: XCTestCase {
             SoftwareCursorOverlay.settle(at: point(original), in: nil, anchor: anchor(original))
             for frame in [original.offsetBy(dx: 240, dy: 80), original.offsetBy(dx: 80, dy: 160), original] {
                 live.value = frame
-                RunLoop.main.run(until: Date().addingTimeInterval(0.08))
-                try assertPosition(file, frame: frame)
+                try awaitPosition(file, frame: frame)
             }
         }
     }
@@ -81,13 +122,15 @@ final class CursorWindowFollowTests: XCTestCase {
             let live = Frame(original)
             CursorWindowFrameTracker.installFrameOverrideForTesting { _ in live.value }
             SoftwareCursorOverlay.settle(at: point(original), in: nil, anchor: anchor(original))
-            let first = Timer(timeInterval: 0.04, repeats: false) { _ in live.value = original.offsetBy(dx: 180, dy: 40) }
-            let second = Timer(timeInterval: 0.24, repeats: false) { _ in live.value = original.offsetBy(dx: 260, dy: 100) }
-            RunLoop.main.add(first, forMode: .common)
-            RunLoop.main.add(second, forMode: .common)
-            defer { first.invalidate(); second.invalidate() }
+            // First click spans 0-0.16 s, the second starts after a 0.05 s pause.
+            let first = onOverlayFrame { live.value = original.offsetBy(dx: 180, dy: 40) }
+            let second = onOverlayFrame(after: 0.24) { live.value = original.offsetBy(dx: 260, dy: 100) }
             SoftwareCursorOverlay.pulseClick(at: point(original), clickCount: 2, mouseButton: .left, in: nil, anchor: anchor(original))
-            try assertPosition(file, frame: live.value)
+            XCTAssertFalse(CFRunLoopObserverIsValid(first), "No pulse frame ran during the first click")
+            XCTAssertFalse(CFRunLoopObserverIsValid(second), "No pulse frame ran during the second click")
+            CFRunLoopObserverInvalidate(first)
+            CFRunLoopObserverInvalidate(second)
+            try assertPosition(file, frame: original.offsetBy(dx: 260, dy: 100))
         }
     }
 
@@ -96,11 +139,11 @@ final class CursorWindowFollowTests: XCTestCase {
         try withOverlay { file, original in
             let live = Frame(original)
             CursorWindowFrameTracker.installFrameOverrideForTesting { _ in live.value }
-            let timer = Timer(timeInterval: 0.04, repeats: false) { _ in live.value = original.offsetBy(dx: 240, dy: 100) }
-            RunLoop.main.add(timer, forMode: .common)
-            defer { timer.invalidate() }
+            let move = onOverlayFrame { live.value = original.offsetBy(dx: 240, dy: 100) }
             SoftwareCursorOverlay.moveCursor(to: point(original), in: nil, anchor: anchor(original))
-            try assertPosition(file, frame: live.value)
+            XCTAssertFalse(CFRunLoopObserverIsValid(move), "The travel never pumped a frame")
+            CFRunLoopObserverInvalidate(move)
+            try assertPosition(file, frame: original.offsetBy(dx: 240, dy: 100))
             // The next pipeline stage must not restore the snapshot's old point.
             SoftwareCursorOverlay.settle(at: point(original), in: nil, anchor: anchor(original))
             try assertPosition(file, frame: live.value)
@@ -115,7 +158,8 @@ final class CursorWindowFollowTests: XCTestCase {
             SoftwareCursorOverlay.settle(at: point(original), in: nil, anchor: anchor(original))
             SoftwareCursorOverlay.settle(at: point(original), in: nil)
             live.value = original.offsetBy(dx: 240, dy: 100)
-            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+            // Several idle ticks, even with coalesced timers (see onOverlayFrame).
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             try assertPosition(file, frame: original)
         }
     }
@@ -127,7 +171,8 @@ final class CursorWindowFollowTests: XCTestCase {
             SoftwareCursorOverlay.settle(at: point(original), in: nil, anchor: anchor(original))
             SoftwareCursorOverlay.pulseClick(at: point(original), clickCount: 1, mouseButton: .left, in: nil, anchor: anchor(original))
             SoftwareCursorOverlay.reset()
-            RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+            // Several idle ticks, even with coalesced timers (see onOverlayFrame).
+            RunLoop.main.run(until: Date().addingTimeInterval(0.3))
             let state = try JSONDecoder().decode(VisualCursorObservationSnapshot.self, from: Data(contentsOf: file))
             XCTAssertEqual(state.phase, "hidden")
             XCTAssertNil(state.tipPosition)
@@ -172,15 +217,13 @@ final class CursorWindowFollowTests: XCTestCase {
             let matches = try XCTUnwrap(result["matches"] as? [[String: Any]])
             XCTAssertEqual(matches.count, 1)
             let index = try XCTUnwrap(matches.first?["index"] as? Int)
-            let timer = Timer(timeInterval: 0.08, repeats: false) { _ in
-                MainActor.assumeIsolated {
-                    window.setFrameOrigin(CGPoint(x: original.minX + 240, y: original.minY + 80))
-                }
+            let move = onOverlayFrame(after: 0.08) {
+                window.setFrameOrigin(CGPoint(x: original.minX + 240, y: original.minY + 80))
             }
-            RunLoop.main.add(timer, forMode: .common)
-            defer { timer.invalidate() }
+            defer { CFRunLoopObserverInvalidate(move) }
             _ = try service.click(app: app.bundleIdentifier ?? app.name, elementIndex: String(index),
                                   x: nil, y: nil, clickCount: 1, mouseButton: "left", clickMethod: .accessibility)
+            XCTAssertFalse(CFRunLoopObserverIsValid(move), "The window must move while the click is still animating")
             XCTAssertEqual(counter.count, 1, "The real AX button action must still execute exactly once")
             let state = try JSONDecoder().decode(VisualCursorObservationSnapshot.self, from: Data(contentsOf: file))
             let expected = window.convertPoint(toScreen: CGPoint(x: button.frame.midX, y: button.frame.midY))
@@ -225,39 +268,48 @@ final class CursorWindowFollowTests: XCTestCase {
             }
             let initial = try awaitFrame { _ in true }
             let targetAnchor = CursorRestingAnchor(windowID: id, layer: 0, windowLocalPoint: CGPoint(x: 40, y: 50), windowBounds: initial)
-            let move = Timer(timeInterval: 0.08, repeats: false) { _ in
-                MainActor.assumeIsolated {
-                    window.setFrameOrigin(CGPoint(x: original.minX + 200, y: original.minY + 40))
-                }
+            // Move the real window from inside the travel's own frame pump (see
+            // onOverlayFrame). The longest allowed travel leaves room for the
+            // real AX read however coarse the runner's timers are; returning
+            // well before it proves the travel was aborted by the live frame
+            // rather than run to the snapshot point.
+            let previousMoveDuration = ProcessInfo.processInfo.environment[visualCursorMoveDurationEnvironmentKey]
+            setenv(visualCursorMoveDurationEnvironmentKey, String(maximumVisualCursorMoveDuration), 1)
+            defer {
+                if let previousMoveDuration { setenv(visualCursorMoveDurationEnvironmentKey, previousMoveDuration, 1) }
+                else { unsetenv(visualCursorMoveDurationEnvironmentKey) }
             }
-            RunLoop.main.add(move, forMode: .common)
-            defer { move.invalidate() }
+            let move = onOverlayFrame {
+                window.setFrameOrigin(CGPoint(x: original.minX + 200, y: original.minY + 40))
+            }
+            let travelStart = ProcessInfo.processInfo.systemUptime
             SoftwareCursorOverlay.moveCursor(to: point(initial), in: nil, anchor: targetAnchor)
+            let travelTime = ProcessInfo.processInfo.systemUptime - travelStart
+            XCTAssertFalse(CFRunLoopObserverIsValid(move), "The travel never pumped a frame")
+            CFRunLoopObserverInvalidate(move)
+            XCTAssertLessThan(travelTime, maximumVisualCursorMoveDuration / 2,
+                              "Travel ran on instead of aborting at the window's real AX frame")
             let afterTravel = try awaitFrame { abs($0.minX - (initial.minX + 200)) < 1 }
             try assertPosition(file, frame: afterTravel)
             SoftwareCursorOverlay.settle(at: point(initial), in: nil, anchor: targetAnchor)
             try assertPosition(file, frame: afterTravel)
-            let duringPulse = Timer(timeInterval: 0.06, repeats: false) { _ in
-                MainActor.assumeIsolated {
-                    window.setFrameOrigin(CGPoint(x: original.minX + 260, y: original.minY + 100))
-                }
+            let duringPulse = onOverlayFrame {
+                window.setFrameOrigin(CGPoint(x: original.minX + 260, y: original.minY + 100))
             }
-            RunLoop.main.add(duringPulse, forMode: .common)
-            defer { duringPulse.invalidate() }
             SoftwareCursorOverlay.pulseClick(at: point(initial), clickCount: 2, mouseButton: .left, in: nil, anchor: targetAnchor)
+            XCTAssertFalse(CFRunLoopObserverIsValid(duringPulse), "The pulse never pumped a frame")
+            CFRunLoopObserverInvalidate(duringPulse)
             let afterPulse = try awaitFrame { abs($0.minX - (initial.minX + 260)) < 1 }
             try assertPosition(file, frame: afterPulse)
             for offset in [CGPoint(x: 220, y: 60), CGPoint(x: 100, y: 140), .zero] {
                 window.setFrameOrigin(CGPoint(x: original.minX + offset.x, y: original.minY + offset.y))
                 let moved = try awaitFrame { abs($0.minX - (initial.minX + offset.x)) < 1 }
-                RunLoop.main.run(until: Date().addingTimeInterval(0.04))
-                try assertPosition(file, frame: moved)
+                try awaitPosition(file, frame: moved)
             }
             for mapping in currentVisualCursorScreenMappings() {
                 window.setFrameOrigin(CGPoint(x: mapping.appKitFrame.minX + 120, y: mapping.appKitFrame.minY + 120))
                 let moved = try awaitFrame { abs($0.minX - (mapping.screenStateFrame.minX + 120)) < 1 }
-                RunLoop.main.run(until: Date().addingTimeInterval(0.04))
-                try assertPosition(file, frame: moved)
+                try awaitPosition(file, frame: moved)
             }
             print("Live AX cursor following verified on \(currentVisualCursorScreenMappings().count) display(s).")
         }
