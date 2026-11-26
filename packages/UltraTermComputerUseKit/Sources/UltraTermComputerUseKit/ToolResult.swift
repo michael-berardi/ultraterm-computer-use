@@ -108,7 +108,11 @@ public func externalizeToolResultImages(
     fileManager: FileManager = .default
 ) throws -> ToolCallResult {
     let directoryURL = URL(fileURLWithPath: mediaDir, isDirectory: true)
-    try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
+    try fileManager.createDirectory(
+        at: directoryURL, withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700]
+    )
+    try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directoryURL.path)
 
     let sanitizedStem = stem
         .map { character -> Character in
@@ -137,6 +141,7 @@ public func externalizeToolResultImages(
         let fileName = "\(effectiveStem)-\(index).\(fileExtension)"
         let fileURL = directoryURL.appendingPathComponent(fileName, isDirectory: false)
         try data.write(to: fileURL, options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: fileURL.path)
         items.append(.pngImageFile(path: fileURL.path, mimeType: mimeType))
         wroteImage = true
     }

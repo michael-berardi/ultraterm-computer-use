@@ -7,6 +7,10 @@
 - **Automatic updates, off by default.** With `--auto on`, the background check installs new releases at low priority and logs to one file kept under 256 KB. A failed install keeps the current version, records the cause and brings the notice back. The signed macOS app does not offer it, because its installer needs an administrator password.
 - `install.sh` keeps the release it replaced as one rollback copy; the new version removes it after its first successful run, or 7 days later.
 - The macOS command shim passes `update` to the CLI instead of opening the app, and `uninstall` also removes the update cache folder.
+- Screenshots and recordings written with `--media-dir`, `preview` or `record` now use owner-only directories (0700) and files (0600). Fixture state files use the same permissions.
+- The macOS app-agent log is replaced once it passes 1 MiB and Locked Use guardian logs are pruned after 7 days; both remain owner-only.
+- The Linux, Windows and npm installers and the release tooling set `DO_NOT_TRACK=1` and keep npm's update notifier, funding and audit messages off.
+- Added a `## Privacy` section to the README and a test that rejects telemetry, analytics and crash-reporting packages or endpoints in shipped sources. No telemetry was present or added.
 - Details: [docs/updates.md](docs/updates.md) and [PRIVACY.md](PRIVACY.md).
 
 ## 0.10.3

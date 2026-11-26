@@ -189,10 +189,21 @@ public func touchAppAgentFiles(_ paths: [String]) {
 /// The agent is launched through Launch Services, so its stderr goes nowhere;
 /// every lifecycle decision (retire, self-exit, recovery) is written here.
 public func appAgentLog(_ message: String) {
-    let directory = FileManager.default.homeDirectoryForCurrentUser
+    let fileManager = FileManager.default
+    let directory = fileManager.homeDirectoryForCurrentUser
         .appendingPathComponent("Library/Logs/UltraTerm Computer Use", isDirectory: true)
-    try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    try? fileManager.createDirectory(
+        at: directory, withIntermediateDirectories: true,
+        attributes: [.posixPermissions: 0o700]
+    )
+    try? fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: directory.path)
     let file = directory.appendingPathComponent("app-agent.log")
+    // Lifecycle lines are diagnostics, not an audit trail: start a fresh file
+    // once this one passes 1 MiB so the log cannot grow without bound.
+    if let size = (try? fileManager.attributesOfItem(atPath: file.path))?[.size] as? NSNumber,
+       size.int64Value > 1_048_576 {
+        try? fileManager.removeItem(at: file)
+    }
     let line = "[\(ISO8601DateFormatter().string(from: Date()))] pid \(getpid()): \(message)\n"
     if let handle = try? FileHandle(forWritingTo: file) {
         defer { try? handle.close() }
@@ -201,6 +212,7 @@ public func appAgentLog(_ message: String) {
     } else {
         try? Data(line.utf8).write(to: file)
     }
+    try? fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: file.path)
 }
 
 /// Explicit agent socket for tests and side-by-side builds (absolute path).

@@ -571,7 +571,11 @@ func prepareUltraTermComputerUseMediaDirectory(
 ) -> ComputerUseErrorInfo? {
     guard let mediaDir else { return nil }
     do {
-        try fileManager.createDirectory(atPath: mediaDir, withIntermediateDirectories: true)
+        try fileManager.createDirectory(
+            atPath: mediaDir, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
+        try fileManager.setAttributes([.posixPermissions: 0o700], ofItemAtPath: mediaDir)
         guard fileManager.isWritableFile(atPath: mediaDir) else {
             throw CocoaError(.fileWriteNoPermission)
         }

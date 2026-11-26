@@ -156,7 +156,7 @@ fi
 say "Installing UltraTerm Computer Use $VERSION..."
 STAGE="$TMP/stage"
 mkdir -p "$STAGE"
-( cd "$STAGE" && npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false \
+( cd "$STAGE" && DO_NOT_TRACK=1 npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false \
     "$NPM" install --prefix "$STAGE" --no-audit --no-fund --loglevel=error "$TMP/$TARBALL" </dev/null ) \
   || die "npm install failed; nothing was changed"
 LAUNCHER="$STAGE/node_modules/ultraterm-computer-use/bin/ultraterm-computer-use"

@@ -133,14 +133,18 @@ Installer helpers write that entry for common clients: `ultraterm-computer-use i
 
 See the [CLI reference](docs/cli.md) for tool flags, capture limits, errors and exit statuses.
 
-## Safety and privacy
+## Safety
 
-Computer Use acts in the user's real desktop session and does not bypass OS permissions. Ask before sending, deleting, purchasing, approving, uploading, or making another externally visible change. Do not inspect password managers or unrelated private content.
+Computer Use acts in the user's real desktop session and does not bypass OS permissions. Ask before sending, deleting, purchasing, approving, uploading, or making another externally visible change. Do not inspect password managers or unrelated private content. See also [`SECURITY.md`](./SECURITY.md).
 
-- No telemetry or usage data.
-- At most once a day, in a terminal, one anonymous update check of the public latest-release record.
-- Turn it off with `ULTRATERM_COMPUTER_USE_NO_UPDATE_CHECK=1` or `config set updates.check false`.
-- Details: [`PRIVACY.md`](./PRIVACY.md) and [`SECURITY.md`](./SECURITY.md).
+## Privacy
+
+No telemetry, analytics or crash reports; desktop control works offline.
+Screenshots and accessibility text go to your agent host, which may send them to your model provider.
+One anonymous update check at most daily, only in a terminal; turn it off with `ULTRATERM_COMPUTER_USE_NO_UPDATE_CHECK=1`.
+Installers and `update` download releases from GitHub over HTTPS and verify them against `SHA256SUMS`.
+Settings and saved captures stay until you delete them; logs and temp files are capped or removed automatically.
+Uninstalling keeps that data; [PRIVACY.md](./PRIVACY.md) lists every path and how to delete it.
 
 ## Build from source
 

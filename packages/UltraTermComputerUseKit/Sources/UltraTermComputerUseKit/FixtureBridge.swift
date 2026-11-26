@@ -168,9 +168,15 @@ public enum FixtureBridge {
 
     public static func writeState(_ state: FixtureAppState) throws {
         let directory = stateFileURL.deletingLastPathComponent()
-        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: directory, withIntermediateDirectories: true,
+            attributes: [.posixPermissions: 0o700]
+        )
         let data = try JSONEncoder().encode(state)
         try data.write(to: stateFileURL, options: .atomic)
+        try FileManager.default.setAttributes(
+            [.posixPermissions: 0o600], ofItemAtPath: stateFileURL.path
+        )
     }
 
     public static func post(_ command: FixtureCommand) throws {

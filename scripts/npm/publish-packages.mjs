@@ -120,6 +120,14 @@ function npmPackageVersionExists(packageName, version, env) {
 }
 
 function publishEnvCandidates(baseEnv) {
+  // npm and dependencies consulted by the release tooling must not report usage.
+  baseEnv = {
+    ...baseEnv,
+    DO_NOT_TRACK: "1",
+    npm_config_update_notifier: "false",
+    npm_config_fund: "false",
+    npm_config_audit: "false",
+  };
   const candidates = [];
 
   if (baseEnv.ACTIONS_ID_TOKEN_REQUEST_URL) {

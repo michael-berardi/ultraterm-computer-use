@@ -318,7 +318,13 @@ public final class PreviewCaptureEngine: @unchecked Sendable {
         let manifestURL = configuration.outputDirectory.appendingPathComponent(Self.manifestFilename)
 
         do {
-            try fileManager.createDirectory(at: configuration.outputDirectory, withIntermediateDirectories: true)
+            try fileManager.createDirectory(
+                at: configuration.outputDirectory, withIntermediateDirectories: true,
+                attributes: [.posixPermissions: 0o700]
+            )
+            try fileManager.setAttributes(
+                [.posixPermissions: 0o700], ofItemAtPath: configuration.outputDirectory.path
+            )
         } catch {
             throw CaptureCommandError.outputNotWritable(configuration.outputDirectory.path)
         }
@@ -464,6 +470,7 @@ public final class PreviewCaptureEngine: @unchecked Sendable {
         // Atomic replace: Data.write(.atomic) stages a temp file in the same
         // directory and renames it over the destination.
         try data.write(to: latestFrameURL, options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: latestFrameURL.path)
 
         let sourceWidth = CVPixelBufferGetWidth(frame.pixelBuffer)
         let sourceHeight = CVPixelBufferGetHeight(frame.pixelBuffer)
@@ -509,6 +516,7 @@ public final class PreviewCaptureEngine: @unchecked Sendable {
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(manifest)
         try data.write(to: url, options: .atomic)
+        try fileManager.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
     }
 
     private func makeSummary(

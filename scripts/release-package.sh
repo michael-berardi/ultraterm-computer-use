@@ -31,7 +31,8 @@ fi
 node "${repo_root}/scripts/npm/build-packages.mjs" "${build_args[@]}"
 
 while IFS= read -r package_dir; do
-  npm pack "${package_dir}" --pack-destination "${tarball_dir}" >/dev/null
+  DO_NOT_TRACK=1 npm_config_update_notifier=false npm_config_fund=false npm_config_audit=false \
+    npm pack "${package_dir}" --pack-destination "${tarball_dir}" >/dev/null
 done < <(find "${staging_dir}" -mindepth 1 -maxdepth 1 -type d | sort)
 
 # Final step (works in either order with the .pkg build): one release folder with the tgz, stamped

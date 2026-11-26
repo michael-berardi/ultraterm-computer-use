@@ -11,7 +11,7 @@ function Install-UltraTermComputerUse {
   $prevEap = $ErrorActionPreference
   $prevProgress = $ProgressPreference
   $prevEnv = @{}
-  foreach ($n in 'PATH', 'npm_config_update_notifier', 'npm_config_fund', 'npm_config_audit') { $prevEnv[$n] = [Environment]::GetEnvironmentVariable($n, 'Process') }
+  foreach ($n in 'PATH', 'DO_NOT_TRACK', 'npm_config_update_notifier', 'npm_config_fund', 'npm_config_audit') { $prevEnv[$n] = [Environment]::GetEnvironmentVariable($n, 'Process') }
   $ErrorActionPreference = 'Stop'
   $ProgressPreference = 'SilentlyContinue'   # the 5.1 progress bar makes downloads and Expand-Archive very slow
   if ($PSVersionTable.PSVersion.Major -lt 6) {
@@ -270,6 +270,7 @@ function Install-UltraTermComputerUse {
     New-Item -ItemType Directory -Force -Path $binDir | Out-Null
     $stage = Join-Path $appDir ('.staging-' + [guid]::NewGuid().ToString('N'))
     New-Item -ItemType Directory -Path $stage | Out-Null
+    $env:DO_NOT_TRACK = '1'
     $env:npm_config_update_notifier = 'false'
     $env:npm_config_fund = 'false'
     $env:npm_config_audit = 'false'
