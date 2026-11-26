@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The README Privacy section is now a short summary linking to `PRIVACY.md`, which documents egress, anonymous and skippable installer version checks, and the lifetime of every local write.
+- Locked Use verifier scratch folders are pruned at build start and on exit, so repeated builds do not leave diagnostic debris.
+
 ## 0.10.4
 
 - Screenshots and recordings written with `--media-dir`, `preview` or `record` now use owner-only directories (0700) and files (0600). Fixture state files use the same permissions.

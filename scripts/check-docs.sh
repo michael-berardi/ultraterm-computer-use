@@ -4,6 +4,7 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 required_files=(
   "README.md"
+  "PRIVACY.md"
   "CONTRIBUTING.md"
   "SECURITY.md"
   "LICENSE"
@@ -40,7 +41,7 @@ if grep -R -n -E '/Users/|/home/|/private/tmp/|~/.codex|YOUR_TEAM_ID|analytics\.
 fi
 
 doc_files=()
-for f in README.md CONTRIBUTING.md SECURITY.md CHANGELOG.md; do
+for f in README.md PRIVACY.md CONTRIBUTING.md SECURITY.md CHANGELOG.md; do
   [[ -f "${repo_root}/${f}" ]] && doc_files+=("${f}")
 done
 while IFS= read -r f; do

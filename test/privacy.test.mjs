@@ -3,6 +3,7 @@
 // keep dependency analytics off.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, relative } from "node:path";
@@ -13,7 +14,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const selfStat = statSync(fileURLToPath(import.meta.url));
 
 const SHIPPED_DIRS = ["apps", "packages", "plugins", "skills", "scripts"];
-const SHIPPED_FILES = ["README.md", "SECURITY.md", "package.json", "Package.swift", "Package.resolved"];
+const SHIPPED_FILES = ["README.md", "PRIVACY.md", "SECURITY.md", "package.json", "Package.swift", "Package.resolved"];
 const SKIP_DIRS = new Set([".git", "node_modules", "dist", "build", ".build", "test", "tests", "Tests", "Test", "fixtures"]);
 const TEXT_EXT = /\.(md|json|py|ts|js|mjs|cjs|swift|sh|go|toml|yml|yaml|txt|xml|plist)$/i;
 
@@ -83,4 +84,46 @@ test("default config has no network settings", () => {
   } finally {
     rmSync(home, { recursive: true, force: true });
   }
+});
+
+test("README Privacy is short and links to the full policy", () => {
+  const readme = readFileSync(join(root, "README.md"), "utf8");
+  const section = readme.split(/^## Privacy\s*$/m)[1]?.split(/^## /m)[0] ?? "";
+  const lines = section.split("\n").map((line) => line.trim()).filter(Boolean);
+  assert.ok(lines.length >= 3 && lines.length <= 6, `README Privacy has ${lines.length} lines`);
+  assert.ok(lines.every((line) => line.length < 140), "README Privacy lines must stay short");
+  assert.match(section, /\[PRIVACY\.md\]\(\.\/PRIVACY\.md\)/);
+
+  const privacy = readFileSync(join(root, "PRIVACY.md"), "utf8");
+  for (const fact of ["Egress and telemetry", "Local writes and lifetime", "UTCU_VERSION", "--local"]) {
+    assert.ok(privacy.includes(fact), `PRIVACY.md must cover ${fact}`);
+  }
+});
+
+test("Locked Use verifier scratch is pruned at build start and at exit", () => {
+  const harness = `set -euo pipefail
+output="$1"
+repo_root="$2"
+mkdir -p "$output/task-verifier-checks.stale" "$output/task-verifier-checks.current" "$output/keep"
+touch "$output/task-verifier-checks.stale/old" "$output/task-verifier-checks.current/new" "$output/keep/data"
+source "$repo_root/scripts/locked-use-build-common.sh"
+locked_use_clear_verifier_scratch "$output" "$output/task-verifier-checks.current"
+test ! -e "$output/task-verifier-checks.stale"
+test -f "$output/task-verifier-checks.current/new"
+locked_use_clear_verifier_scratch "$output"
+test ! -e "$output/task-verifier-checks.current"
+test -f "$output/keep/data"
+`;
+  const output = mkdtempSync(join(tmpdir(), "ocu-privacy-scratch-"));
+  try {
+    execFileSync("bash", ["-c", harness, "bash", output, root], { cwd: root, stdio: ["ignore", "pipe", "pipe"] });
+  } finally {
+    rmSync(output, { recursive: true, force: true });
+  }
+
+  const build = readFileSync(join(root, "scripts/build-locked-use-components.sh"), "utf8");
+  const pruneIndex = build.indexOf('locked_use_clear_verifier_scratch "$output"');
+  const scratchIndex = build.indexOf('mktemp -d "$output/task-verifier-checks.XXXXXX"');
+  assert.ok(pruneIndex >= 0 && scratchIndex > pruneIndex, "stale scratch must be pruned before a new scratch folder is made");
+  assert.match(build, /trap 'locked_use_clear_verifier_scratch "\$output"' EXIT/, "scratch must be removed when the build exits");
 });
