@@ -117,14 +117,23 @@ manifest = {
 (root / "release-manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
 PY
 
-# One-step installers (stamped with the real owner/repo), the npm .tgz and ONE combined SHA256SUMS are added by
-# the shared final step; it does not change how the .pkg is built, signed, or notarized above.
-# With --require-all a partial SHA256SUMS (missing the .tgz) cannot be uploaded; when the .tgz is not built yet,
-# release-package.sh runs finalize afterwards.
-if [[ -f "$repo_root/dist/release/npm/ultraterm-computer-use-$version.tgz" || -f "$output/ultraterm-computer-use-$version.tgz" ]]; then
-  "$repo_root/scripts/finalize-release.sh" "$version" --require-all
-else
-  "$repo_root/scripts/finalize-release.sh" "$version"
-fi
+# The npm .tgz carries the macOS app too, so it is packed here from the notarized, stapled app above. Packing it
+# with a fresh build (release-package.sh without --skip-build) would ship a re-signed app without a notarization
+# ticket. The Linux and Windows runtimes are rebuilt first so --skip-build never picks up stale binaries.
+for runtime_arch in arm64 amd64; do
+  "$repo_root/scripts/build-ultraterm-computer-use-linux.sh" --configuration release --arch "$runtime_arch"
+  "$repo_root/scripts/build-ultraterm-computer-use-windows.sh" --configuration release --arch "$runtime_arch"
+done
+rm -f "$output/ultraterm-computer-use-$version.tgz"
+"$repo_root/scripts/release-package.sh" --skip-build
+staged_npm_app="$repo_root/dist/release/npm-staging/ultraterm-computer-use/dist/UltraTerm Computer Use.app"
+[[ -d "$staged_npm_app" ]] || fail "npm staging has no macOS app at $staged_npm_app"
+xcrun stapler validate "$staged_npm_app" || fail "the npm package's macOS app has no notarization ticket"
+codesign --verify --deep --strict "$staged_npm_app" || fail "the npm package's macOS app fails codesign verification"
+
+# One-step installers (stamped with the real owner/repo), the npm .tgz and ONE combined SHA256SUMS come from the
+# shared final step; it does not change how the .pkg is built, signed, or notarized above. --require-all refuses
+# a partial SHA256SUMS.
+"$repo_root/scripts/finalize-release.sh" "$version" --require-all
 
 echo "Built signed and notarized UltraTerm Computer Use release at $output"

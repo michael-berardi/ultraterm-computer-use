@@ -110,6 +110,23 @@ test("install.sh never nests a release inside an existing folder and prints the 
 test("the signed release build finalizes with --require-all once the tgz exists", () => {
   const text = read("scripts/build-ultraterm-computer-use-release.sh");
   assert.match(text, /finalize-release\.sh" "\$version" --require-all/);
+  assert.ok(!/finalize-release\.sh" "\$version"\s*$/m.test(text), "no partial finalize in the signed release build");
+});
+
+// 0.11.0 first shipped a tgz whose macOS app was re-signed by a fresh build and had no notarization ticket.
+test("the signed release build packs the npm tgz from the notarized, stapled app", () => {
+  const text = read("scripts/build-ultraterm-computer-use-release.sh");
+  const staple = text.indexOf('xcrun stapler staple "$app"');
+  const pack = text.indexOf('release-package.sh" --skip-build');
+  const validate = text.indexOf('xcrun stapler validate "$staged_npm_app"');
+  const finalize = text.indexOf('finalize-release.sh" "$version" --require-all');
+  assert.ok(staple >= 0 && pack > staple, "the tgz is packed after the app is stapled");
+  assert.ok(validate > pack && finalize > validate, "the staged npm app is checked for its ticket before finalize");
+  assert.ok(!/release-package\.sh"\s*$/m.test(text), "release-package.sh never rebuilds the app here");
+  for (const os of ["linux", "windows"]) {
+    const build = text.indexOf(`build-ultraterm-computer-use-${os}.sh" --configuration release`);
+    assert.ok(build > staple && build < pack, `${os} runtimes are rebuilt before --skip-build packing`);
+  }
 });
 
 test("finalize writes ONE combined SHA256SUMS in either build order", () => {
